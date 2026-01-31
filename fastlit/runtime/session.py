@@ -1,0 +1,98 @@
+"""Session runtime: holds per-connection state, executes scripts, produces patches."""
+
+from __future__ import annotations
+
+import uuid
+from typing import Any
+
+from fastlit.runtime.context import set_current_session, clear_current_session
+from fastlit.runtime.diff import diff_trees
+from fastlit.runtime.protocol import PatchOp, RenderFull, RenderPatch
+from fastlit.runtime.script_runner import run_script
+from fastlit.runtime.tree import UITree
+
+
+class SessionState(dict):
+    """Dict-like object with attribute access, compatible with st.session_state."""
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return self[name]
+        except KeyError:
+            raise AttributeError(
+                f"st.session_state has no attribute '{name}'. "
+                f"Did you forget to initialize it?"
+            )
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        self[name] = value
+
+    def __delattr__(self, name: str) -> None:
+        try:
+            del self[name]
+        except KeyError:
+            raise AttributeError(name)
+
+
+class Session:
+    """A single user session, tied to one WebSocket connection."""
+
+    def __init__(self, script_path: str) -> None:
+        self.session_id: str = uuid.uuid4().hex
+        self.script_path: str = script_path
+        self.widget_store: dict[str, Any] = {}
+        self.session_state: SessionState = SessionState()
+        self.current_tree: UITree | None = None
+        self._previous_tree: UITree | None = None
+        self.rev: int = 0
+        # Per-run counter for generating stable IDs when multiple
+        # widgets are on the same line.
+        self._id_counter: int = 0
+
+    def run(self) -> RenderFull | RenderPatch:
+        """Execute the script and return either a full render or a patch."""
+        self._id_counter = 0
+        new_tree = UITree()
+        self.current_tree = new_tree
+
+        set_current_session(self)
+        try:
+            run_script(self.script_path, self)
+        except RerunException:
+            # Script requested a rerun — we already have the partial tree,
+            # but we should re-execute cleanly.
+            pass
+        finally:
+            clear_current_session()
+
+        self.rev += 1
+
+        if self._previous_tree is None:
+            # First run — send full tree
+            self._previous_tree = new_tree
+            return RenderFull(rev=self.rev, tree=new_tree.to_dict())
+        else:
+            # Subsequent run — diff and send patch
+            ops = diff_trees(self._previous_tree.root, new_tree.root)
+            self._previous_tree = new_tree
+            if ops:
+                return RenderPatch(rev=self.rev, ops=ops)
+            else:
+                # No changes — still send an empty patch to confirm rev
+                return RenderPatch(rev=self.rev, ops=[])
+
+    def handle_widget_event(self, widget_id: str, value: Any) -> RenderFull | RenderPatch:
+        """Process a widget event and return the resulting render message."""
+        self.widget_store[widget_id] = value
+        return self.run()
+
+    def next_id(self) -> int:
+        """Return and increment the per-run ID counter."""
+        val = self._id_counter
+        self._id_counter += 1
+        return val
+
+
+class RerunException(Exception):
+    """Raised by st.rerun() to interrupt script execution."""
+    pass
