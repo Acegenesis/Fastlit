@@ -2,7 +2,7 @@
 
 import fastlit as st
 
-st.title("Hello Fastlit")
+st.title("Hello Fastlit its me!")
 st.markdown("Click the button to increment the counter.")
 
 if "count" not in st.session_state:

@@ -8,7 +8,17 @@ Usage:
 from __future__ import annotations
 
 from fastlit.ui.text import title, header, subheader, markdown, write, text
-from fastlit.ui.widgets import button
+from fastlit.ui.widgets import (
+    button,
+    slider,
+    text_input,
+    text_area,
+    checkbox,
+    selectbox,
+    radio,
+    number_input,
+)
+from fastlit.ui.layout import sidebar, columns, tabs, expander
 from fastlit.ui.state import _get_session_state
 from fastlit.runtime.session import RerunException
 from fastlit.runtime.context import get_current_session
@@ -72,6 +82,17 @@ __all__ = [
     "write",
     "text",
     "button",
+    "slider",
+    "text_input",
+    "text_area",
+    "checkbox",
+    "selectbox",
+    "radio",
+    "number_input",
+    "sidebar",
+    "columns",
+    "tabs",
+    "expander",
     "session_state",
     "rerun",
 ]
