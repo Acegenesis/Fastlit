@@ -1,26 +1,51 @@
 /**
  * Component registry: maps node type strings to React components.
+ *
+ * Naming convention:
+ *   - Folders: lowercase, matching Streamlit API categories
+ *       text/     — Write and magic, Text elements
+ *       input/    — Input widgets
+ *       layout/   — Layouts and containers
+ *       data/     — Data elements (future)
+ *       chart/    — Chart elements (future)
+ *       media/    — Media elements (future)
+ *       chat/     — Chat elements (future)
+ *       status/   — Status elements (future)
+ *   - Files: PascalCase.tsx, matching the exported component name
+ *   - No "Component" suffix — use clean names (Expander, not ExpanderComponent)
  */
 
 import type { ComponentType } from "react";
-import { Title } from "../components/Title";
-import { Header } from "../components/Header";
-import { Markdown } from "../components/Markdown";
-import { TextBlock } from "../components/TextBlock";
-import { Button } from "../components/Button";
-import { Slider } from "../components/Slider";
-import { TextInput } from "../components/TextInput";
-import { TextArea } from "../components/TextArea";
-import { Checkbox } from "../components/Checkbox";
-import { Selectbox } from "../components/Selectbox";
-import { Radio } from "../components/Radio";
-import { NumberInput } from "../components/NumberInput";
-import { Sidebar } from "../components/Sidebar";
-import { Columns } from "../components/Columns";
-import { ColumnComponent } from "../components/ColumnComponent";
-import { TabsComponent } from "../components/TabsComponent";
-import { TabPanel } from "../components/TabPanel";
-import { ExpanderComponent } from "../components/ExpanderComponent";
+
+// ---- Text elements ----
+import { Title } from "../components/text/Title";
+import { Header } from "../components/text/Header";
+import { Markdown } from "../components/text/Markdown";
+import { Text } from "../components/text/Text";
+
+// ---- Input widgets ----
+import { Button } from "../components/input/Button";
+import { Slider } from "../components/input/Slider";
+import { TextInput } from "../components/input/TextInput";
+import { TextArea } from "../components/input/TextArea";
+import { Checkbox } from "../components/input/Checkbox";
+import { Selectbox } from "../components/input/Selectbox";
+import { Radio } from "../components/input/Radio";
+import { NumberInput } from "../components/input/NumberInput";
+
+// ---- Layouts and containers ----
+import { Sidebar } from "../components/layout/Sidebar";
+import { Columns } from "../components/layout/Columns";
+import { Tabs } from "../components/layout/Tabs";
+import { Expander } from "../components/layout/Expander";
+import { Container } from "../components/layout/Container";
+import { Empty } from "../components/layout/Empty";
+import { Form } from "../components/layout/Form";
+import { FormSubmitButton } from "../components/layout/FormSubmitButton";
+import { Dialog } from "../components/layout/Dialog";
+import { Popover } from "../components/layout/Popover";
+import { Divider } from "../components/layout/Divider";
+import { Navigation } from "../components/layout/Navigation";
 
 export interface NodeComponentProps {
   nodeId: string;
@@ -30,11 +55,14 @@ export interface NodeComponentProps {
 }
 
 const registry: Record<string, ComponentType<NodeComponentProps>> = {
+  // Text elements
   title: Title,
   header: Header,
   subheader: Header,
   markdown: Markdown,
-  text: TextBlock,
+  text: Text,
+
+  // Input widgets
   button: Button,
   slider: Slider,
   text_input: TextInput,
@@ -43,12 +71,20 @@ const registry: Record<string, ComponentType<NodeComponentProps>> = {
   selectbox: Selectbox,
   radio: Radio,
   number_input: NumberInput,
+
+  // Layouts and containers
   sidebar: Sidebar,
   columns: Columns,
-  column: ColumnComponent,
-  tabs: TabsComponent,
-  tab: TabPanel,
-  expander: ExpanderComponent,
+  tabs: Tabs,
+  expander: Expander,
+  container: Container,
+  empty: Empty,
+  form: Form,
+  form_submit_button: FormSubmitButton,
+  dialog: Dialog,
+  popover: Popover,
+  divider: Divider,
+  navigation: Navigation,
 };
 
 export function getComponent(

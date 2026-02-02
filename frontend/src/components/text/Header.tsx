@@ -1,6 +1,6 @@
 import React from "react";
-import type { NodeComponentProps } from "../registry/registry";
-import { useResolvedText } from "../context/WidgetStore";
+import type { NodeComponentProps } from "../../registry/registry";
+import { useResolvedText } from "../../context/WidgetStore";
 
 export const Header: React.FC<NodeComponentProps> = ({ props, nodeId }) => {
   const resolved = useResolvedText(props.text, props._tpl, props._refs);

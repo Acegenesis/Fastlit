@@ -1,11 +1,11 @@
 import React, { useState } from "react";
-import type { NodeComponentProps } from "../registry/registry";
+import type { NodeComponentProps } from "../../registry/registry";
 
-export const ExpanderComponent: React.FC<NodeComponentProps> = ({
+export const Expander: React.FC<NodeComponentProps> = ({
   props,
   children,
 }) => {
-  const { label, expanded: defaultExpanded } = props;
+  const { label, expanded: defaultExpanded, icon } = props;
   const [open, setOpen] = useState<boolean>(!!defaultExpanded);
 
   return (
@@ -15,7 +15,10 @@ export const ExpanderComponent: React.FC<NodeComponentProps> = ({
         className="w-full flex items-center justify-between px-4 py-2 text-sm font-medium
                    text-gray-700 hover:bg-gray-50 transition-colors"
       >
-        <span>{label}</span>
+        <span>
+          {icon && <span className="mr-2">{icon}</span>}
+          {label}
+        </span>
         <svg
           className={`w-4 h-4 transition-transform ${open ? "rotate-180" : ""}`}
           fill="none"

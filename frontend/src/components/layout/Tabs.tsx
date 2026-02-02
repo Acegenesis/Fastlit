@@ -1,24 +1,18 @@
 import React, { useState } from "react";
-import type { NodeComponentProps } from "../registry/registry";
-import type { UINode } from "../runtime/types";
-import { NodeRenderer } from "../registry/NodeRenderer";
+import type { NodeComponentProps } from "../../registry/registry";
 
-export const TabsComponent: React.FC<NodeComponentProps & { node?: UINode; sendEvent: (id: string, value: any) => void }> = ({
+export const Tabs: React.FC<NodeComponentProps> = ({
   props,
   children,
-  nodeId,
-  sendEvent,
 }) => {
   const labels = (props.labels as string[]) ?? [];
-  const [activeIndex, setActiveIndex] = useState(0);
+  const defaultIndex = (props.defaultIndex as number) ?? 0;
+  const [activeIndex, setActiveIndex] = useState(defaultIndex);
 
-  // children is an array of rendered Tab components
-  // We need to show only the active one
   const childArray = React.Children.toArray(children);
 
   return (
     <div className="mb-3">
-      {/* Tab headers */}
       <div className="flex border-b border-gray-200">
         {labels.map((label, i) => (
           <button
@@ -35,7 +29,6 @@ export const TabsComponent: React.FC<NodeComponentProps & { node?: UINode; sendE
           </button>
         ))}
       </div>
-      {/* Tab content — only show active */}
       <div className="pt-3">
         {childArray.map((child, i) => (
           <div key={i} className={i === activeIndex ? "block" : "hidden"}>

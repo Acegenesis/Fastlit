@@ -1,5 +1,5 @@
 import React from "react";
-import type { NodeComponentProps } from "../registry/registry";
+import type { NodeComponentProps } from "../../registry/registry";
 
 export const Sidebar: React.FC<NodeComponentProps> = ({ children }) => {
   return (

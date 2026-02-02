@@ -18,7 +18,20 @@ from fastlit.ui.widgets import (
     radio,
     number_input,
 )
-from fastlit.ui.layout import sidebar, columns, tabs, expander
+from fastlit.ui.layout import (
+    sidebar,
+    columns,
+    container,
+    tabs,
+    expander,
+    empty,
+    form,
+    form_submit_button,
+    dialog,
+    popover,
+    divider,
+    navigation,
+)
 from fastlit.ui.state import _get_session_state
 from fastlit.runtime.session import RerunException
 from fastlit.runtime.context import get_current_session
@@ -91,8 +104,16 @@ __all__ = [
     "number_input",
     "sidebar",
     "columns",
+    "container",
     "tabs",
     "expander",
+    "empty",
+    "form",
+    "form_submit_button",
+    "dialog",
+    "popover",
+    "divider",
+    "navigation",
     "session_state",
     "rerun",
 ]

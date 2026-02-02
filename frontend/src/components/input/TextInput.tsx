@@ -1,6 +1,6 @@
 import React from "react";
-import type { NodeComponentProps } from "../registry/registry";
-import { useWidgetValue } from "../context/WidgetStore";
+import type { NodeComponentProps } from "../../registry/registry";
+import { useWidgetValue } from "../../context/WidgetStore";
 
 export const TextInput: React.FC<NodeComponentProps> = ({
   nodeId,

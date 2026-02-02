@@ -4,7 +4,7 @@ import fastlit as st
 
 # --- Sidebar ---
 st.sidebar.title("Navigation")
-page = st.sidebar.radio("Page", ["Dashboard", "Settings", "About"])
+page = st.sidebar.navigation(["Dashboard", "Settings", "About"])
 
 # --- Main content ---
 st.title(f"Fastlit Layout Demo — {page}")

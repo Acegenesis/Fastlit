@@ -15,9 +15,11 @@ export const App: React.FC = () => {
   const storeRef = useRef(new WidgetStoreImpl());
 
   // --- Page routing: URL hash + page cache for instant navigation ---
-  const sidebarRadioRef = useRef<{ id: string; options: string[] } | null>(
-    null,
-  );
+  const sidebarNavRef = useRef<{
+    id: string;
+    options: string[];
+    type: "radio" | "navigation";
+  } | null>(null);
   const pageCacheRef = useRef(new Map<string, UINode[]>());
   const [optimisticMainNodes, setOptimisticMainNodes] = useState<
     UINode[] | null
@@ -26,14 +28,14 @@ export const App: React.FC = () => {
     decodeURIComponent(window.location.hash.slice(1)),
   );
 
-  // Send events — intercept sidebar radio for URL routing + optimistic nav
+  // Send events — intercept sidebar nav for URL routing + optimistic nav
   const sendEvent = useCallback((id: string, value: any) => {
-    const radio = sidebarRadioRef.current;
-    if (radio && id === radio.id) {
-      const page = radio.options[value as number];
+    const nav = sidebarNavRef.current;
+    if (nav && id === nav.id) {
+      const page = nav.options[value as number];
       if (page) {
-        // Update store directly → instant radio re-render
-        storeRef.current.set(radio.id, page);
+        // Update store directly → instant re-render
+        storeRef.current.set(nav.id, page);
         // Update URL
         window.history.pushState(null, "", `#${encodeURIComponent(page)}`);
         // Show cached page content instantly (if we visited before)
@@ -84,20 +86,28 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // Extract sidebar radio info, cache pages, sync URL hash,
+  // Extract sidebar nav info, cache pages, sync URL hash,
   // and clear optimistic nodes only when the tree's page matches the URL.
   useEffect(() => {
     if (!tree?.children) return;
 
     const sidebar = tree.children.find((c) => c.type === "sidebar");
-    const radio = sidebar?.children?.find((c) => c.type === "radio");
+    // Support both navigation (links) and radio (legacy) for page routing
+    const navNode = sidebar?.children?.find(
+      (c) => c.type === "navigation" || c.type === "radio",
+    );
 
-    if (radio) {
-      const opts = radio.props.options as string[];
-      const idx = radio.props.index as number;
+    if (navNode) {
+      const isNav = navNode.type === "navigation";
+      const opts = (isNav ? navNode.props.pages : navNode.props.options) as string[];
+      const idx = navNode.props.index as number;
       const page = opts[idx] || "";
 
-      sidebarRadioRef.current = { id: radio.id, options: opts };
+      sidebarNavRef.current = {
+        id: navNode.id,
+        options: opts,
+        type: isNav ? "navigation" : "radio",
+      };
 
       // Cache main content for this page
       const main = tree.children.filter((c) => c.type !== "sidebar");
@@ -124,13 +134,13 @@ export const App: React.FC = () => {
           const targetIdx = opts.indexOf(initPage);
           if (targetIdx >= 0) {
             // Update store directly for instant UI update
-            storeRef.current.set(radio.id, initPage);
-            sendEvent(radio.id, targetIdx);
+            storeRef.current.set(navNode.id, initPage);
+            sendEvent(navNode.id, targetIdx);
           }
         }
       }
     } else {
-      // No sidebar radio — always show real content
+      // No sidebar nav — always show real content
       setOptimisticMainNodes(null);
     }
   }, [tree, sendEvent]);
@@ -139,14 +149,14 @@ export const App: React.FC = () => {
   useEffect(() => {
     const handlePopState = () => {
       const page = decodeURIComponent(window.location.hash.slice(1));
-      const radio = sidebarRadioRef.current;
-      if (!page || !radio) return;
+      const nav = sidebarNavRef.current;
+      if (!page || !nav) return;
 
-      const idx = radio.options.indexOf(page);
+      const idx = nav.options.indexOf(page);
       if (idx < 0) return;
 
-      // Update store directly for instant radio re-render
-      storeRef.current.set(radio.id, page);
+      // Update store directly for instant re-render
+      storeRef.current.set(nav.id, page);
 
       // Show cached page instantly
       const cached = pageCacheRef.current.get(page);
@@ -155,7 +165,7 @@ export const App: React.FC = () => {
       }
 
       // Tell server about the navigation (async, non-blocking)
-      wsRef.current?.send({ type: "widget_event", id: radio.id, value: idx });
+      wsRef.current?.send({ type: "widget_event", id: nav.id, value: idx });
     };
 
     window.addEventListener("popstate", handlePopState);
