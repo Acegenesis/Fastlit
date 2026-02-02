@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import type { NodeComponentProps } from "../registry/registry";
-import { useWidgetPublish } from "../context/WidgetStore";
+import { useWidgetValue } from "../context/WidgetStore";
 
 export const Selectbox: React.FC<NodeComponentProps> = ({
   nodeId,
@@ -9,15 +9,12 @@ export const Selectbox: React.FC<NodeComponentProps> = ({
 }) => {
   const { label, options } = props;
   const opts = options as string[];
-  const [currentIndex, setCurrentIndex] = useState<number>(props.index ?? 0);
-  const publish = useWidgetPublish();
-
-  useEffect(() => { publish(nodeId, opts[props.index ?? 0] ?? ""); }, []);
+  const [value, setValue] = useWidgetValue(nodeId, opts[props.index ?? 0] ?? "");
+  const currentIndex = Math.max(0, opts.indexOf(value));
 
   const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const idx = parseInt(e.target.value, 10);
-    setCurrentIndex(idx);
-    publish(nodeId, opts[idx] ?? "");
+    setValue(opts[idx] ?? "");
     sendEvent(nodeId, idx);
   };
 

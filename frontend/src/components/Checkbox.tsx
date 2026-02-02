@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import type { NodeComponentProps } from "../registry/registry";
-import { useWidgetPublish } from "../context/WidgetStore";
+import { useWidgetValue } from "../context/WidgetStore";
 
 export const Checkbox: React.FC<NodeComponentProps> = ({
   nodeId,
@@ -8,14 +8,10 @@ export const Checkbox: React.FC<NodeComponentProps> = ({
   sendEvent,
 }) => {
   const { label } = props;
-  const [checked, setChecked] = useState<boolean>(!!props.value);
-  const publish = useWidgetPublish();
-
-  useEffect(() => { publish(nodeId, !!props.value); }, []);
+  const [checked, setChecked] = useWidgetValue(nodeId, !!props.value);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setChecked(e.target.checked);
-    publish(nodeId, e.target.checked);
     sendEvent(nodeId, e.target.checked);
   };
 

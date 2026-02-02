@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import type { NodeComponentProps } from "../registry/registry";
-import { useWidgetPublish } from "../context/WidgetStore";
+import { useWidgetValue } from "../context/WidgetStore";
 
 export const TextInput: React.FC<NodeComponentProps> = ({
   nodeId,
@@ -8,18 +8,14 @@ export const TextInput: React.FC<NodeComponentProps> = ({
   sendEvent,
 }) => {
   const { label, placeholder, maxChars } = props;
-  const [localValue, setLocalValue] = useState<string>(props.value ?? "");
-  const publish = useWidgetPublish();
-
-  useEffect(() => { publish(nodeId, props.value ?? ""); }, []);
+  const [value, setValue] = useWidgetValue(nodeId, props.value ?? "");
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let val = e.target.value;
     if (maxChars && val.length > maxChars) {
       val = val.slice(0, maxChars);
     }
-    setLocalValue(val);
-    publish(nodeId, val);
+    setValue(val);
     sendEvent(nodeId, val);
   };
 
@@ -30,7 +26,7 @@ export const TextInput: React.FC<NodeComponentProps> = ({
       </label>
       <input
         type="text"
-        value={localValue}
+        value={value}
         onChange={handleChange}
         placeholder={placeholder}
         maxLength={maxChars ?? undefined}

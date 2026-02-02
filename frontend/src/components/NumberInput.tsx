@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import type { NodeComponentProps } from "../registry/registry";
-import { useWidgetPublish } from "../context/WidgetStore";
+import { useWidgetValue } from "../context/WidgetStore";
 
 export const NumberInput: React.FC<NodeComponentProps> = ({
   nodeId,
@@ -8,32 +8,30 @@ export const NumberInput: React.FC<NodeComponentProps> = ({
   sendEvent,
 }) => {
   const { label, min, max, step } = props;
-  const [localValue, setLocalValue] = useState<number>(props.value ?? 0);
-  const publish = useWidgetPublish();
+  const [value, setValue] = useWidgetValue(nodeId, props.value ?? 0);
 
-  useEffect(() => { publish(nodeId, props.value ?? 0); }, []);
+  const clamp = (val: number) => {
+    if (min != null && val < min) val = min;
+    if (max != null && val > max) val = max;
+    return val;
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value;
     if (raw === "" || raw === "-") {
-      setLocalValue(0);
+      setValue(0);
       return;
     }
     let val = parseFloat(raw);
     if (isNaN(val)) return;
-    if (min != null && val < min) val = min;
-    if (max != null && val > max) val = max;
-    setLocalValue(val);
-    publish(nodeId, val);
+    val = clamp(val);
+    setValue(val);
     sendEvent(nodeId, val);
   };
 
   const increment = (dir: 1 | -1) => {
-    let val = localValue + dir * (step ?? 1);
-    if (min != null && val < min) val = min;
-    if (max != null && val > max) val = max;
-    setLocalValue(val);
-    publish(nodeId, val);
+    let val = clamp(value + dir * (step ?? 1));
+    setValue(val);
     sendEvent(nodeId, val);
   };
 
@@ -52,7 +50,7 @@ export const NumberInput: React.FC<NodeComponentProps> = ({
         </button>
         <input
           type="number"
-          value={localValue}
+          value={value}
           onChange={handleChange}
           min={min ?? undefined}
           max={max ?? undefined}

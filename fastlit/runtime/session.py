@@ -45,13 +45,14 @@ class Session:
         self.current_tree: UITree | None = None
         self._previous_tree: UITree | None = None
         self.rev: int = 0
-        # Per-run counter for generating stable IDs when multiple
-        # widgets are on the same line.
-        self._id_counter: int = 0
+        # Per-run, per-location counter for generating stable IDs when
+        # the same line is hit multiple times (e.g. in a loop).
+        # Key = "filename:lineno", value = count of hits so far.
+        self._id_counters: dict[str, int] = {}
 
     def run(self) -> RenderFull | RenderPatch:
         """Execute the script and return either a full render or a patch."""
-        self._id_counter = 0
+        self._id_counters = {}
         new_tree = UITree()
         self.current_tree = new_tree
 
@@ -86,10 +87,10 @@ class Session:
         self.widget_store[widget_id] = value
         return self.run()
 
-    def next_id(self) -> int:
-        """Return and increment the per-run ID counter."""
-        val = self._id_counter
-        self._id_counter += 1
+    def next_id_for_location(self, location: str) -> int:
+        """Return and increment the per-location counter for the given file:line key."""
+        val = self._id_counters.get(location, 0)
+        self._id_counters[location] = val + 1
         return val
 
 

@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import type { NodeComponentProps } from "../registry/registry";
-import { useWidgetPublish } from "../context/WidgetStore";
+import { useWidgetValue } from "../context/WidgetStore";
 
 export const Radio: React.FC<NodeComponentProps> = ({
   nodeId,
@@ -9,14 +9,11 @@ export const Radio: React.FC<NodeComponentProps> = ({
 }) => {
   const { label, options } = props;
   const opts = options as string[];
-  const [currentIndex, setCurrentIndex] = useState<number>(props.index ?? 0);
-  const publish = useWidgetPublish();
-
-  useEffect(() => { publish(nodeId, opts[props.index ?? 0] ?? ""); }, []);
+  const [value, setValue] = useWidgetValue(nodeId, opts[props.index ?? 0] ?? "");
+  const currentIndex = Math.max(0, opts.indexOf(value));
 
   const handleChange = (i: number) => {
-    setCurrentIndex(i);
-    publish(nodeId, opts[i] ?? "");
+    setValue(opts[i] ?? "");
     sendEvent(nodeId, i);
   };
 

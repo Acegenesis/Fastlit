@@ -39,26 +39,29 @@ def _make_id(node_type: str, key: str | None = None) -> str:
 
     Strategy:
     - If an explicit key is given, use it: "k:{key}"
-    - Otherwise, use the caller's file + line + a per-run counter:
+    - Otherwise, use the caller's file + line + a per-location counter:
       "w:{filename}:{line}:{counter}"
 
-    The counter ensures uniqueness when the same line is hit
-    multiple times (e.g. in a loop).
+    The counter is scoped per file:line so that conditional rendering
+    on other lines does not shift IDs for unrelated nodes.
     """
     if key is not None:
         return f"k:{key}"
 
     session = get_current_session()
-    counter = session.next_id()
 
     # Walk up the call stack to find the user's code (outside fastlit package)
     frame = _get_user_frame()
     if frame is not None:
         filename = frame.f_code.co_filename
         lineno = frame.f_lineno
+        location = f"{filename}:{lineno}"
+        counter = session.next_id_for_location(location)
         return f"w:{filename}:{lineno}:{counter}"
 
-    # Fallback: use type + counter
+    # Fallback: use type + global fallback counter
+    fallback_loc = f"_:{node_type}"
+    counter = session.next_id_for_location(fallback_loc)
     return f"w:{node_type}:{counter}"
 
 

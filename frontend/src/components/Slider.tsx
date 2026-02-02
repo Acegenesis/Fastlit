@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import type { NodeComponentProps } from "../registry/registry";
-import { useWidgetPublish } from "../context/WidgetStore";
+import { useWidgetValue } from "../context/WidgetStore";
 
 export const Slider: React.FC<NodeComponentProps> = ({
   nodeId,
@@ -8,16 +8,11 @@ export const Slider: React.FC<NodeComponentProps> = ({
   sendEvent,
 }) => {
   const { label, min, max, step } = props;
-  const [localValue, setLocalValue] = useState<number>(props.value);
-  const publish = useWidgetPublish();
-
-  // Publish initial value on mount
-  useEffect(() => { publish(nodeId, props.value); }, []);
+  const [value, setValue] = useWidgetValue(nodeId, props.value);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseFloat(e.target.value);
-    setLocalValue(val);
-    publish(nodeId, val);
+    setValue(val);
     sendEvent(nodeId, val);
   };
 
@@ -32,12 +27,12 @@ export const Slider: React.FC<NodeComponentProps> = ({
           min={min}
           max={max}
           step={step}
-          value={localValue}
+          value={value}
           onChange={handleChange}
           className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
         />
         <span className="text-sm font-mono text-gray-600 min-w-[3rem] text-right">
-          {localValue}
+          {value}
         </span>
       </div>
     </div>
