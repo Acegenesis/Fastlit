@@ -7,7 +7,7 @@ export const Selectbox: React.FC<NodeComponentProps> = ({
   props,
   sendEvent,
 }) => {
-  const { label, options } = props;
+  const { label, options, disabled, help, placeholder } = props;
   const opts = options as string[];
   const [value, setValue] = useWidgetValue(nodeId, opts[props.index ?? 0] ?? "");
   const currentIndex = Math.max(0, opts.indexOf(value));
@@ -19,17 +19,23 @@ export const Selectbox: React.FC<NodeComponentProps> = ({
   };
 
   return (
-    <div className="mb-3">
+    <div className="mb-3" title={help || undefined}>
       <label className="block text-sm font-medium text-gray-700 mb-1">
         {label}
       </label>
       <select
         value={currentIndex}
         onChange={handleChange}
-        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm
+        disabled={!!disabled}
+        className={`w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm
                    focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-                   text-sm bg-white"
+                   text-sm bg-white${disabled ? " opacity-50 cursor-not-allowed" : ""}`}
       >
+        {placeholder && currentIndex === -1 && (
+          <option value={-1} disabled>
+            {placeholder}
+          </option>
+        )}
         {opts.map((opt, i) => (
           <option key={i} value={i}>
             {opt}

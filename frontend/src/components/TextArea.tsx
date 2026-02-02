@@ -7,7 +7,7 @@ export const TextArea: React.FC<NodeComponentProps> = ({
   props,
   sendEvent,
 }) => {
-  const { label, height, placeholder, maxChars } = props;
+  const { label, height, placeholder, maxChars, disabled, help } = props;
   const [value, setValue] = useWidgetValue(nodeId, props.value ?? "");
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -20,7 +20,7 @@ export const TextArea: React.FC<NodeComponentProps> = ({
   };
 
   return (
-    <div className="mb-3">
+    <div className="mb-3" title={help || undefined}>
       <label className="block text-sm font-medium text-gray-700 mb-1">
         {label}
       </label>
@@ -29,10 +29,11 @@ export const TextArea: React.FC<NodeComponentProps> = ({
         onChange={handleChange}
         placeholder={placeholder}
         maxLength={maxChars ?? undefined}
+        disabled={!!disabled}
         style={{ height: height ? `${height}px` : undefined }}
-        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm
+        className={`w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm
                    focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-                   text-sm resize-y"
+                   text-sm resize-y${disabled ? " opacity-50 bg-gray-100 cursor-not-allowed" : ""}`}
       />
     </div>
   );

@@ -7,7 +7,7 @@ export const TextInput: React.FC<NodeComponentProps> = ({
   props,
   sendEvent,
 }) => {
-  const { label, placeholder, maxChars } = props;
+  const { label, placeholder, maxChars, inputType, disabled, help, autocomplete } = props;
   const [value, setValue] = useWidgetValue(nodeId, props.value ?? "");
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -20,19 +20,21 @@ export const TextInput: React.FC<NodeComponentProps> = ({
   };
 
   return (
-    <div className="mb-3">
+    <div className="mb-3" title={help || undefined}>
       <label className="block text-sm font-medium text-gray-700 mb-1">
         {label}
       </label>
       <input
-        type="text"
+        type={inputType === "password" ? "password" : "text"}
         value={value}
         onChange={handleChange}
         placeholder={placeholder}
         maxLength={maxChars ?? undefined}
-        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm
+        disabled={!!disabled}
+        autoComplete={autocomplete || undefined}
+        className={`w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm
                    focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-                   text-sm"
+                   text-sm${disabled ? " opacity-50 bg-gray-100 cursor-not-allowed" : ""}`}
       />
     </div>
   );
