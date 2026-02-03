@@ -7,7 +7,7 @@ from pathlib import Path
 
 from starlette.applications import Starlette
 from starlette.responses import FileResponse, HTMLResponse
-from starlette.routing import Route, WebSocketRoute
+from starlette.routing import Route, WebSocketRoute, Mount
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket
 
@@ -69,16 +69,21 @@ def create_app(script_path: str, static_dir: str | None = None) -> Starlette:
         static_dir = os.path.join(os.path.dirname(__file__), "static")
     set_static_dir(static_dir)
 
+    # Build routes list
     routes = [
         WebSocketRoute("/ws", ws_endpoint),
-        Route("/", homepage),
     ]
-
-    app = Starlette(routes=routes)
 
     # Mount static files if the directory exists
     assets_dir = os.path.join(static_dir, "assets")
     if os.path.isdir(assets_dir):
-        app.mount("/assets", StaticFiles(directory=assets_dir), name="static")
+        routes.append(Mount("/assets", StaticFiles(directory=assets_dir), name="static"))
+
+    # Catch-all route for SPA — must be last, serves index.html for all paths
+    # This allows client-side routing with clean URLs like /layouts, /widgets
+    routes.append(Route("/{path:path}", homepage))
+    routes.append(Route("/", homepage))
+
+    app = Starlette(routes=routes)
 
     return app

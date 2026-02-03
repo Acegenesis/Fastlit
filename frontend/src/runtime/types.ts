@@ -44,6 +44,7 @@ export interface WidgetEvent {
   type: "widget_event";
   id: string;
   value: any;
+  noRerun?: boolean; // If true, server stores value but doesn't rerun script
 }
 
 export type ClientMessage = WidgetEvent;

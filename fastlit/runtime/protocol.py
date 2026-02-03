@@ -65,6 +65,7 @@ class WidgetEvent:
     type: Literal["widget_event"] = "widget_event"
     id: str = ""
     value: Any = None
+    no_rerun: bool = False  # If True, store value but don't trigger a script rerun
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> WidgetEvent:
@@ -72,4 +73,5 @@ class WidgetEvent:
             type=data.get("type", "widget_event"),
             id=data.get("id", ""),
             value=data.get("value"),
+            no_rerun=data.get("noRerun", False),
         )

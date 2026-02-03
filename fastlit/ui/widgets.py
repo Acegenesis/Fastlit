@@ -116,6 +116,7 @@ def slider(
         },
         key=key,
         is_widget=True,
+        no_rerun=True,
     )
     session = get_current_session()
     prev = session.widget_store.get(node.id, value)
@@ -164,6 +165,7 @@ def text_input(
         },
         key=key,
         is_widget=True,
+        no_rerun=True,
     )
     session = get_current_session()
     current = str(session.widget_store.get(node.id, value))
@@ -205,6 +207,7 @@ def text_area(
         },
         key=key,
         is_widget=True,
+        no_rerun=True,
     )
     session = get_current_session()
     current = str(session.widget_store.get(node.id, value))
@@ -240,6 +243,7 @@ def checkbox(
         },
         key=key,
         is_widget=True,
+        no_rerun=True,
     )
     session = get_current_session()
     current = bool(session.widget_store.get(node.id, value))
@@ -284,6 +288,7 @@ def selectbox(
         },
         key=key,
         is_widget=True,
+        no_rerun=True,
     )
     session = get_current_session()
     current_idx = session.widget_store.get(node.id, index)
@@ -333,6 +338,7 @@ def radio(
         },
         key=key,
         is_widget=True,
+        no_rerun=True,
     )
     session = get_current_session()
     current_idx = session.widget_store.get(node.id, index)
@@ -391,6 +397,7 @@ def number_input(
         },
         key=key,
         is_widget=True,
+        no_rerun=True,
     )
     session = get_current_session()
     current = session.widget_store.get(node.id, value)

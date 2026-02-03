@@ -15,7 +15,7 @@ export const Radio: React.FC<NodeComponentProps> = ({
   const handleChange = (i: number) => {
     if (disabled) return;
     setValue(opts[i] ?? "");
-    sendEvent(nodeId, i);
+    sendEvent(nodeId, i, { noRerun: props.noRerun });
   };
 
   return (

@@ -7,6 +7,21 @@ import type { UINode, ErrorMessage } from "./runtime/types";
 
 type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
+/** Convert page name to URL slug: "Dialog & Popover" → "dialog-popover" */
+function toSlug(page: string): string {
+  return page
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+/** Get current page from URL pathname */
+function getPageFromUrl(): string {
+  const path = window.location.pathname;
+  // Remove leading slash, decode
+  return decodeURIComponent(path.slice(1));
+}
+
 export const App: React.FC = () => {
   const [tree, setTree] = useState<UINode | null>(null);
   const [error, setError] = useState<ErrorMessage | null>(null);
@@ -14,40 +29,80 @@ export const App: React.FC = () => {
   const wsRef = useRef<FastlitWS | null>(null);
   const storeRef = useRef(new WidgetStoreImpl());
 
-  // --- Page routing: URL hash + page cache for instant navigation ---
+  // --- Page routing: clean URLs like /layouts, /widgets ---
   const sidebarNavRef = useRef<{
     id: string;
     options: string[];
+    slugs: string[]; // URL slugs for each option
     type: "radio" | "navigation";
   } | null>(null);
-  const pageCacheRef = useRef(new Map<string, UINode[]>());
-  const [optimisticMainNodes, setOptimisticMainNodes] = useState<
-    UINode[] | null
-  >(null);
-  const initialHashRef = useRef(
-    decodeURIComponent(window.location.hash.slice(1)),
-  );
+  const initialPathRef = useRef(getPageFromUrl());
 
-  // Send events — intercept sidebar nav for URL routing + optimistic nav
-  const sendEvent = useCallback((id: string, value: any) => {
+  // Debounce timers and pending values for noRerun events (slider, text_input, etc.)
+  const debounceTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const pendingValuesRef = useRef<Map<string, any>>(new Map());
+  const DEBOUNCE_MS = 100; // 100ms debounce for value widgets
+
+  // Flush all pending debounced events immediately (called before action events)
+  const flushPendingEvents = useCallback(() => {
+    // Clear all timers and send pending values immediately
+    for (const [widgetId, timer] of debounceTimersRef.current.entries()) {
+      clearTimeout(timer);
+      const pendingValue = pendingValuesRef.current.get(widgetId);
+      if (pendingValue !== undefined) {
+        wsRef.current?.send({ type: "widget_event", id: widgetId, value: pendingValue, noRerun: true });
+      }
+    }
+    debounceTimersRef.current.clear();
+    pendingValuesRef.current.clear();
+  }, []);
+
+  // Send events — navigation updates store instantly, then server sends new content
+  const sendEvent = useCallback((id: string, value: any, options?: { noRerun?: boolean }) => {
     const nav = sidebarNavRef.current;
     if (nav && id === nav.id) {
       const page = nav.options[value as number];
-      if (page) {
-        // Update store directly → instant re-render
+      const slug = nav.slugs[value as number];
+      if (page && slug) {
+        // Flush pending widget values before navigation
+        flushPendingEvents();
+        // 1. Update store → instant re-render of nav component (no flicker)
         storeRef.current.set(nav.id, page);
-        // Update URL
-        window.history.pushState(null, "", `#${encodeURIComponent(page)}`);
-        // Show cached page content instantly (if we visited before)
-        const cached = pageCacheRef.current.get(page);
-        if (cached) {
-          setOptimisticMainNodes(cached);
-        }
+        // 2. Update URL with clean path
+        window.history.pushState(null, "", `/${slug}`);
+        // 3. Tell server to navigate — it will rerun and send new page content
+        wsRef.current?.send({ type: "widget_event", id, value });
+        return;
       }
     }
-    // Send to server async — never blocks UI
-    wsRef.current?.send({ type: "widget_event", id, value });
-  }, []);
+
+    // For noRerun events: debounce to avoid flooding the server
+    if (options?.noRerun) {
+      // Store the pending value
+      pendingValuesRef.current.set(id, value);
+      // Clear any pending debounce for this widget
+      const existing = debounceTimersRef.current.get(id);
+      if (existing) {
+        clearTimeout(existing);
+      }
+      // Schedule the send after debounce delay
+      const timer = setTimeout(() => {
+        debounceTimersRef.current.delete(id);
+        pendingValuesRef.current.delete(id);
+        const msg = { type: "widget_event" as const, id, value, noRerun: true };
+        console.log("[DEBUG] Sending noRerun event:", msg);
+        wsRef.current?.send(msg);
+      }, DEBOUNCE_MS);
+      debounceTimersRef.current.set(id, timer);
+      return;
+    }
+
+    // For action events (button, etc.): flush pending values first, then send
+    flushPendingEvents();
+    const msg = { type: "widget_event" as const, id, value, noRerun: options?.noRerun };
+    console.log("[DEBUG] Sending action event:", msg);
+    wsRef.current?.send(msg);
+  }, [flushPendingEvents]);
 
   // WebSocket setup
   useEffect(() => {
@@ -59,8 +114,6 @@ export const App: React.FC = () => {
     ws.onRenderFull((msg) => {
       setTree(msg.tree);
       setError(null);
-      // Full render always replaces everything — clear optimistic
-      setOptimisticMainNodes(null);
     });
 
     ws.onRenderPatch((msg) => {
@@ -69,10 +122,6 @@ export const App: React.FC = () => {
         return applyPatch(prev, msg.ops);
       });
       setError(null);
-      // DON'T clear optimistic here — the tree-update effect below
-      // will clear it only when the tree's page matches the URL hash.
-      // This prevents premature clearing when intermediate patches
-      // (e.g. text input updates) arrive before the page-switch patch.
     });
 
     ws.onError((msg) => {
@@ -86,8 +135,7 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // Extract sidebar nav info, cache pages, sync URL hash,
-  // and clear optimistic nodes only when the tree's page matches the URL.
+  // Extract sidebar nav info — URL is source of truth, never overwrite it
   useEffect(() => {
     if (!tree?.children) return;
 
@@ -100,71 +148,51 @@ export const App: React.FC = () => {
     if (navNode) {
       const isNav = navNode.type === "navigation";
       const opts = (isNav ? navNode.props.pages : navNode.props.options) as string[];
-      const idx = navNode.props.index as number;
-      const page = opts[idx] || "";
+      const slugs = opts.map(toSlug);
+      const serverIdx = navNode.props.index as number;
 
       sidebarNavRef.current = {
         id: navNode.id,
         options: opts,
+        slugs,
         type: isNav ? "navigation" : "radio",
       };
 
-      // Cache main content for this page
-      const main = tree.children.filter((c) => c.type !== "sidebar");
-      pageCacheRef.current.set(page, main);
+      // URL is the source of truth — check what page the URL says we're on
+      const currentSlug = getPageFromUrl();
+      const urlIdx = slugs.indexOf(currentSlug);
 
-      // Check if the tree's page matches the URL hash — if so, the server
-      // has caught up and we can show real content instead of cached.
-      const hash = decodeURIComponent(window.location.hash.slice(1));
-      if (!hash || page === hash) {
-        setOptimisticMainNodes(null);
-      }
-
-      // Sync URL hash (replaceState — don't push a history entry)
-      const expectedHash = `#${encodeURIComponent(page)}`;
-      if (window.location.hash !== expectedHash) {
-        window.history.replaceState(null, "", expectedHash);
-      }
-
-      // On first render, if URL hash points to a different page, navigate
-      const initPage = initialHashRef.current;
-      if (initPage) {
-        initialHashRef.current = "";
-        if (initPage !== page) {
-          const targetIdx = opts.indexOf(initPage);
-          if (targetIdx >= 0) {
-            // Update store directly for instant UI update
-            storeRef.current.set(navNode.id, initPage);
-            sendEvent(navNode.id, targetIdx);
-          }
+      // On first load with empty URL, set URL to server's default page
+      if (!currentSlug && serverIdx >= 0) {
+        const defaultSlug = slugs[serverIdx] || slugs[0];
+        if (defaultSlug) {
+          window.history.replaceState(null, "", `/${defaultSlug}`);
         }
       }
-    } else {
-      // No sidebar nav — always show real content
-      setOptimisticMainNodes(null);
+      // If URL points to a valid page different from server, tell server to navigate
+      else if (urlIdx >= 0 && urlIdx !== serverIdx) {
+        // Update store for instant UI
+        storeRef.current.set(navNode.id, opts[urlIdx]);
+        // Tell server to navigate — it will rerun and send new page content
+        wsRef.current?.send({ type: "widget_event", id: navNode.id, value: urlIdx });
+      }
     }
-  }, [tree, sendEvent]);
+  }, [tree]);
 
   // Browser back/forward navigation
   useEffect(() => {
     const handlePopState = () => {
-      const page = decodeURIComponent(window.location.hash.slice(1));
+      const slug = getPageFromUrl();
       const nav = sidebarNavRef.current;
-      if (!page || !nav) return;
+      if (!nav) return;
 
-      const idx = nav.options.indexOf(page);
+      const idx = nav.slugs.indexOf(slug);
       if (idx < 0) return;
 
-      // Update store directly for instant re-render
-      storeRef.current.set(nav.id, page);
+      // Update store directly for instant nav component re-render
+      storeRef.current.set(nav.id, nav.options[idx]);
 
-      // Show cached page instantly
-      const cached = pageCacheRef.current.get(page);
-      if (cached) {
-        setOptimisticMainNodes(cached);
-      }
-
-      // Tell server about the navigation (async, non-blocking)
+      // Tell server to navigate — it will rerun and send new page content
       wsRef.current?.send({ type: "widget_event", id: nav.id, value: idx });
     };
 
@@ -193,8 +221,8 @@ export const App: React.FC = () => {
     return { sidebarNodes: sidebar, mainNodes: main };
   }, [tree]);
 
-  // Show optimistic (cached) nodes during navigation, real nodes otherwise
-  const displayMainNodes = optimisticMainNodes || mainNodes;
+  // Display the real main nodes from the server
+  const displayMainNodes = mainNodes;
 
   return (
     <WidgetStoreProvider store={storeRef.current}>

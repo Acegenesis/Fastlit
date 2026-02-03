@@ -12,7 +12,7 @@ export const Checkbox: React.FC<NodeComponentProps> = ({
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setChecked(e.target.checked);
-    sendEvent(nodeId, e.target.checked);
+    sendEvent(nodeId, e.target.checked, { noRerun: props.noRerun });
   };
 
   return (

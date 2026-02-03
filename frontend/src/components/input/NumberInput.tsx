@@ -26,14 +26,14 @@ export const NumberInput: React.FC<NodeComponentProps> = ({
     if (isNaN(val)) return;
     val = clamp(val);
     setValue(val);
-    sendEvent(nodeId, val);
+    sendEvent(nodeId, val, { noRerun: props.noRerun });
   };
 
   const increment = (dir: 1 | -1) => {
     if (disabled) return;
     let val = clamp(value + dir * (step ?? 1));
     setValue(val);
-    sendEvent(nodeId, val);
+    sendEvent(nodeId, val, { noRerun: props.noRerun });
   };
 
   return (

@@ -5,11 +5,13 @@
 
 import React from "react";
 import type { UINode } from "../runtime/types";
-import { getComponent } from "./registry";
+import { getComponent, SendEventOptions } from "./registry";
+
+export type SendEventFn = (id: string, value: any, options?: SendEventOptions) => void;
 
 interface NodeRendererProps {
   node: UINode;
-  sendEvent: (id: string, value: any) => void;
+  sendEvent: SendEventFn;
 }
 
 function FallbackComponent({ nodeId, props }: { nodeId: string; props: Record<string, any> }) {

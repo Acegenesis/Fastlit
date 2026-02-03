@@ -15,7 +15,7 @@ export const Selectbox: React.FC<NodeComponentProps> = ({
   const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const idx = parseInt(e.target.value, 10);
     setValue(opts[idx] ?? "");
-    sendEvent(nodeId, idx);
+    sendEvent(nodeId, idx, { noRerun: props.noRerun });
   };
 
   return (

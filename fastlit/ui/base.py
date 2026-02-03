@@ -15,6 +15,7 @@ def _emit_node(
     *,
     key: str | None = None,
     is_widget: bool = False,
+    no_rerun: bool = False,
 ) -> UINode:
     """Create a UINode and append it to the current tree.
 
@@ -23,12 +24,18 @@ def _emit_node(
         props: The node properties.
         key: Optional explicit key for ID stability.
         is_widget: If True, this node represents an interactive widget.
+        no_rerun: If True, widget events won't trigger a script rerun.
 
     Returns:
         The created UINode.
     """
     session = get_current_session()
     node_id = _make_id(node_type, key)
+
+    # Add noRerun flag to props for value widgets (React-first architecture)
+    if no_rerun:
+        props["noRerun"] = True
+
     node = UINode(type=node_type, id=node_id, props=props)
     session.current_tree.append(node)
     return node

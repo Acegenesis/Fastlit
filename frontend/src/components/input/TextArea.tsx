@@ -16,7 +16,7 @@ export const TextArea: React.FC<NodeComponentProps> = ({
       val = val.slice(0, maxChars);
     }
     setValue(val);
-    sendEvent(nodeId, val);
+    sendEvent(nodeId, val, { noRerun: props.noRerun });
   };
 
   return (

@@ -36,7 +36,9 @@ import { NumberInput } from "../components/input/NumberInput";
 // ---- Layouts and containers ----
 import { Sidebar } from "../components/layout/Sidebar";
 import { Columns } from "../components/layout/Columns";
+import { Column } from "../components/layout/Column";
 import { Tabs } from "../components/layout/Tabs";
+import { Tab } from "../components/layout/Tab";
 import { Expander } from "../components/layout/Expander";
 import { Container } from "../components/layout/Container";
 import { Empty } from "../components/layout/Empty";
@@ -47,11 +49,15 @@ import { Popover } from "../components/layout/Popover";
 import { Divider } from "../components/layout/Divider";
 import { Navigation } from "../components/layout/Navigation";
 
+export interface SendEventOptions {
+  noRerun?: boolean;
+}
+
 export interface NodeComponentProps {
   nodeId: string;
   props: Record<string, any>;
   children?: React.ReactNode;
-  sendEvent: (id: string, value: any) => void;
+  sendEvent: (id: string, value: any, options?: SendEventOptions) => void;
 }
 
 const registry: Record<string, ComponentType<NodeComponentProps>> = {
@@ -75,7 +81,9 @@ const registry: Record<string, ComponentType<NodeComponentProps>> = {
   // Layouts and containers
   sidebar: Sidebar,
   columns: Columns,
+  column: Column,
   tabs: Tabs,
+  tab: Tab,
   expander: Expander,
   container: Container,
   empty: Empty,
