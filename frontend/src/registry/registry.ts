@@ -50,6 +50,13 @@ import { VegaLiteChart } from "../components/chart/VegaLiteChart";
 import { Pyplot } from "../components/chart/Pyplot";
 import { GraphvizChart } from "../components/chart/GraphvizChart";
 
+// ---- Media elements ----
+import { Image } from "../components/media/Image";
+import { Audio } from "../components/media/Audio";
+import { Video } from "../components/media/Video";
+import { Logo } from "../components/media/Logo";
+import { Pdf } from "../components/media/Pdf";
+
 // ---- Layouts and containers ----
 import { Sidebar } from "../components/layout/Sidebar";
 import { Columns } from "../components/layout/Columns";
@@ -112,6 +119,13 @@ const registry: Record<string, ComponentType<NodeComponentProps>> = {
   vega_lite_chart: VegaLiteChart,
   pyplot: Pyplot,
   graphviz_chart: GraphvizChart,
+
+  // Media elements
+  image: Image,
+  audio: Audio,
+  video: Video,
+  logo: Logo,
+  pdf: Pdf,
 
   // Layouts and containers
   sidebar: Sidebar,

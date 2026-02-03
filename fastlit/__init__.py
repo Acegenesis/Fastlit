@@ -48,6 +48,13 @@ from fastlit.ui.charts import (
     graphviz_chart,
     pydeck_chart,
 )
+from fastlit.ui.media import (
+    image,
+    audio,
+    video,
+    logo,
+    pdf,
+)
 from fastlit.ui.state import _get_session_state
 from fastlit.runtime.session import RerunException
 from fastlit.runtime.context import get_current_session
@@ -136,6 +143,11 @@ __all__ = [
     "bokeh_chart",
     "graphviz_chart",
     "pydeck_chart",
+    "image",
+    "audio",
+    "video",
+    "logo",
+    "pdf",
     "sidebar",
     "columns",
     "container",
