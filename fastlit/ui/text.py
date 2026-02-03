@@ -84,3 +84,66 @@ def text(body: str) -> None:
     """Display fixed-width text."""
     props = _process_text(str(body))
     _emit_node("text", props)
+
+
+def metric(
+    label: str,
+    value: Any,
+    delta: Any | None = None,
+    delta_color: str = "normal",
+    help: str | None = None,
+    label_visibility: str = "visible",
+    border: bool = False,
+) -> None:
+    """Display a metric with an optional delta indicator.
+
+    Args:
+        label: The metric label.
+        value: The metric value.
+        delta: The delta value (shows as +/- indicator).
+        delta_color: Color of the delta ("normal", "inverse", "off").
+        help: Tooltip text.
+        label_visibility: "visible", "hidden", or "collapsed".
+        border: If True, show a border around the metric.
+    """
+    _emit_node(
+        "metric",
+        {
+            "label": str(label),
+            "value": str(value) if value is not None else "-",
+            "delta": str(delta) if delta is not None else None,
+            "deltaColor": delta_color,
+            "help": help,
+            "labelVisibility": label_visibility,
+            "border": border,
+        },
+    )
+
+
+def json(body: Any, *, expanded: bool | int = True) -> None:
+    """Display JSON data with syntax highlighting.
+
+    Args:
+        body: The JSON data (dict, list, or JSON string).
+        expanded: If True, expand all. If int, expand to that depth.
+    """
+    import json as json_module
+
+    # Convert to JSON-serializable format
+    if isinstance(body, str):
+        # Parse and re-serialize to validate and format
+        try:
+            parsed = json_module.loads(body)
+            data = parsed
+        except json_module.JSONDecodeError:
+            data = body
+    else:
+        data = body
+
+    _emit_node(
+        "json",
+        {
+            "data": data,
+            "expanded": expanded,
+        },
+    )

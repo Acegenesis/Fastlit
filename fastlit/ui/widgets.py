@@ -124,7 +124,14 @@ def slider(
     node.props["value"] = current
     if not isinstance(prev, type(value)) or prev != value:
         _run_callback(on_change, args, kwargs)
-    if isinstance(min_value, int) and isinstance(max_value, int) and step == 1:
+    # Return int if all parameters are integers
+    is_int_slider = (
+        isinstance(min_value, int)
+        and isinstance(max_value, int)
+        and isinstance(value, int)
+        and isinstance(step, int)
+    )
+    if is_int_slider:
         return WidgetValue(int(current), node.id)
     return WidgetValue(float(current), node.id)
 

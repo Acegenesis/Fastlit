@@ -7,7 +7,7 @@ Usage:
 
 from __future__ import annotations
 
-from fastlit.ui.text import title, header, subheader, markdown, write, text
+from fastlit.ui.text import title, header, subheader, markdown, write, text, metric, json
 from fastlit.ui.widgets import (
     button,
     slider,
@@ -32,6 +32,8 @@ from fastlit.ui.layout import (
     divider,
     navigation,
 )
+from fastlit.ui.dataframe import dataframe, data_editor, table
+from fastlit.ui import column_config
 from fastlit.ui.state import _get_session_state
 from fastlit.runtime.session import RerunException
 from fastlit.runtime.context import get_current_session
@@ -94,6 +96,8 @@ __all__ = [
     "markdown",
     "write",
     "text",
+    "metric",
+    "json",
     "button",
     "slider",
     "text_input",
@@ -102,6 +106,10 @@ __all__ = [
     "selectbox",
     "radio",
     "number_input",
+    "dataframe",
+    "data_editor",
+    "table",
+    "column_config",
     "sidebar",
     "columns",
     "container",

@@ -33,6 +33,12 @@ import { Selectbox } from "../components/input/Selectbox";
 import { Radio } from "../components/input/Radio";
 import { NumberInput } from "../components/input/NumberInput";
 
+// ---- Data elements ----
+import { DataFrame, Table } from "../components/data/DataFrame";
+import { DataEditor } from "../components/data/DataEditor";
+import { Metric } from "../components/data/Metric";
+import { Json } from "../components/data/Json";
+
 // ---- Layouts and containers ----
 import { Sidebar } from "../components/layout/Sidebar";
 import { Columns } from "../components/layout/Columns";
@@ -77,6 +83,13 @@ const registry: Record<string, ComponentType<NodeComponentProps>> = {
   selectbox: Selectbox,
   radio: Radio,
   number_input: NumberInput,
+
+  // Data elements
+  dataframe: DataFrame,
+  data_editor: DataEditor,
+  table: Table,
+  metric: Metric,
+  json: Json,
 
   // Layouts and containers
   sidebar: Sidebar,
