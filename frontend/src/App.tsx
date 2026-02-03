@@ -89,9 +89,7 @@ export const App: React.FC = () => {
       const timer = setTimeout(() => {
         debounceTimersRef.current.delete(id);
         pendingValuesRef.current.delete(id);
-        const msg = { type: "widget_event" as const, id, value, noRerun: true };
-        console.log("[DEBUG] Sending noRerun event:", msg);
-        wsRef.current?.send(msg);
+        wsRef.current?.send({ type: "widget_event", id, value, noRerun: true });
       }, DEBOUNCE_MS);
       debounceTimersRef.current.set(id, timer);
       return;
@@ -99,9 +97,7 @@ export const App: React.FC = () => {
 
     // For action events (button, etc.): flush pending values first, then send
     flushPendingEvents();
-    const msg = { type: "widget_event" as const, id, value, noRerun: options?.noRerun };
-    console.log("[DEBUG] Sending action event:", msg);
-    wsRef.current?.send(msg);
+    wsRef.current?.send({ type: "widget_event", id, value, noRerun: options?.noRerun });
   }, [flushPendingEvents]);
 
   // WebSocket setup

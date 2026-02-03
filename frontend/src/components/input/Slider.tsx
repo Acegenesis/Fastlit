@@ -10,9 +10,6 @@ export const Slider: React.FC<NodeComponentProps> = ({
   const { label, min, max, step, disabled, help } = props;
   const [value, setValue] = useWidgetValue(nodeId, props.value);
 
-  // Debug: log props to see if noRerun is present
-  console.log("[Slider] props.noRerun =", props.noRerun, "all props:", props);
-
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (disabled) return;
     const val = parseFloat(e.target.value);
