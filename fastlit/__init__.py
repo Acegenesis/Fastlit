@@ -34,6 +34,20 @@ from fastlit.ui.layout import (
 )
 from fastlit.ui.dataframe import dataframe, data_editor, table
 from fastlit.ui import column_config
+from fastlit.ui.charts import (
+    line_chart,
+    bar_chart,
+    area_chart,
+    scatter_chart,
+    map,
+    plotly_chart,
+    altair_chart,
+    vega_lite_chart,
+    pyplot,
+    bokeh_chart,
+    graphviz_chart,
+    pydeck_chart,
+)
 from fastlit.ui.state import _get_session_state
 from fastlit.runtime.session import RerunException
 from fastlit.runtime.context import get_current_session
@@ -110,6 +124,18 @@ __all__ = [
     "data_editor",
     "table",
     "column_config",
+    "line_chart",
+    "bar_chart",
+    "area_chart",
+    "scatter_chart",
+    "map",
+    "plotly_chart",
+    "altair_chart",
+    "vega_lite_chart",
+    "pyplot",
+    "bokeh_chart",
+    "graphviz_chart",
+    "pydeck_chart",
     "sidebar",
     "columns",
     "container",

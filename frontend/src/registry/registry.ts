@@ -39,6 +39,17 @@ import { DataEditor } from "../components/data/DataEditor";
 import { Metric } from "../components/data/Metric";
 import { Json } from "../components/data/Json";
 
+// ---- Chart elements ----
+import { LineChart } from "../components/chart/LineChart";
+import { BarChart } from "../components/chart/BarChart";
+import { AreaChart } from "../components/chart/AreaChart";
+import { ScatterChart } from "../components/chart/ScatterChart";
+import { Map } from "../components/chart/Map";
+import { PlotlyChart } from "../components/chart/PlotlyChart";
+import { VegaLiteChart } from "../components/chart/VegaLiteChart";
+import { Pyplot } from "../components/chart/Pyplot";
+import { GraphvizChart } from "../components/chart/GraphvizChart";
+
 // ---- Layouts and containers ----
 import { Sidebar } from "../components/layout/Sidebar";
 import { Columns } from "../components/layout/Columns";
@@ -90,6 +101,17 @@ const registry: Record<string, ComponentType<NodeComponentProps>> = {
   table: Table,
   metric: Metric,
   json: Json,
+
+  // Chart elements
+  line_chart: LineChart,
+  bar_chart: BarChart,
+  area_chart: AreaChart,
+  scatter_chart: ScatterChart,
+  map: Map,
+  plotly_chart: PlotlyChart,
+  vega_lite_chart: VegaLiteChart,
+  pyplot: Pyplot,
+  graphviz_chart: GraphvizChart,
 
   // Layouts and containers
   sidebar: Sidebar,
