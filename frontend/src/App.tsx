@@ -52,8 +52,6 @@ export const App: React.FC = () => {
     slugs: string[];
   } | null>(null);
 
-  // Prefetch tracking
-  const prefetchedRef = useRef<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
 
   // Debounce for value widgets
@@ -77,16 +75,6 @@ export const App: React.FC = () => {
     }
     debounceTimersRef.current.clear();
     pendingValuesRef.current.clear();
-  }, []);
-
-  // Prefetch a page silently (response cached by onRenderFull's shouldDisplay filter)
-  const prefetchPage = useCallback((pageIndex: number) => {
-    const nav = sidebarNavRef.current;
-    if (!nav) return;
-    const slug = nav.slugs[pageIndex];
-    if (!slug || pageCacheRef.current.has(slug) || prefetchedRef.current.has(slug)) return;
-    prefetchedRef.current.add(slug);
-    wsRef.current?.send({ type: "widget_event", id: nav.id, value: pageIndex });
   }, []);
 
   // PURE REACT NAVIGATION - no server waiting
@@ -123,11 +111,13 @@ export const App: React.FC = () => {
           const sidebar = prev.children.filter((c) => c.type === "sidebar");
           return { ...prev, children: [...sidebar, ...cachedContent] };
         });
-        // Stale-while-revalidate: fetch fresh content in background
+        // Sync backend state only (no rerun — cache is source of truth,
+        // a rerun would produce a patch against a stale base tree causing duplication)
         wsRef.current?.send({
           type: "widget_event",
           id: nav.id,
           value: pageIndex,
+          noRerun: true,
         });
       } else {
         // No cache - show skeleton and request content from server
@@ -144,14 +134,8 @@ export const App: React.FC = () => {
 
   // Main event handler
   const sendEvent = useCallback(
-    (id: string, value: any, options?: { noRerun?: boolean; prefetch?: boolean }) => {
+    (id: string, value: any, options?: { noRerun?: boolean }) => {
       const nav = sidebarNavRef.current;
-
-      // Prefetch events - silent background loading
-      if (options?.prefetch) {
-        if (nav && id === nav.id) prefetchPage(value as number);
-        return;
-      }
 
       // Navigation events - pure React
       if (nav && id === nav.id) {
@@ -245,20 +229,6 @@ export const App: React.FC = () => {
           setError(null);
           setIsNavigating(false);
         });
-      }
-
-      // Restore backend nav state after prefetch response
-      // (prefetch changes widget_store on the server — restore it to current page)
-      if (!shouldDisplay && responseSlug && responseSlug !== currentSlug && nav) {
-        const currentIdx = nav.slugs.indexOf(currentSlug);
-        if (currentIdx >= 0) {
-          wsRef.current?.send({
-            type: "widget_event",
-            id: nav.id,
-            value: currentIdx,
-            noRerun: true,
-          });
-        }
       }
     });
 

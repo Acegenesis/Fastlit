@@ -101,7 +101,6 @@ import { PageConfig } from "../components/layout/PageConfig";
 
 export interface SendEventOptions {
   noRerun?: boolean;
-  prefetch?: boolean;
 }
 
 export interface NodeComponentProps {

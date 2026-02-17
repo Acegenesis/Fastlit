@@ -21,11 +21,12 @@ interface Balloon {
   size: number;
 }
 
-export const Balloons: React.FC<NodeComponentProps> = () => {
+export const Balloons: React.FC<NodeComponentProps> = ({ props }) => {
   const [balloons, setBalloons] = useState<Balloon[]>([]);
   const [visible, setVisible] = useState(true);
 
   useEffect(() => {
+    setVisible(true);
     // Generate balloons
     const newBalloons: Balloon[] = Array.from({ length: 20 }, (_, i) => ({
       id: i,
@@ -43,7 +44,7 @@ export const Balloons: React.FC<NodeComponentProps> = () => {
     }, 5000);
 
     return () => clearTimeout(timer);
-  }, []);
+  }, [props._ts]);
 
   if (!visible || balloons.length === 0) return null;
 

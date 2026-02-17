@@ -10,11 +10,12 @@ interface Snowflake {
   opacity: number;
 }
 
-export const Snow: React.FC<NodeComponentProps> = () => {
+export const Snow: React.FC<NodeComponentProps> = ({ props }) => {
   const [snowflakes, setSnowflakes] = useState<Snowflake[]>([]);
   const [visible, setVisible] = useState(true);
 
   useEffect(() => {
+    setVisible(true);
     // Generate snowflakes
     const newSnowflakes: Snowflake[] = Array.from({ length: 50 }, (_, i) => ({
       id: i,
@@ -32,7 +33,7 @@ export const Snow: React.FC<NodeComponentProps> = () => {
     }, 8000);
 
     return () => clearTimeout(timer);
-  }, []);
+  }, [props._ts]);
 
   if (!visible || snowflakes.length === 0) return null;
 

@@ -255,26 +255,30 @@ def toast(
         body: The message to display.
         icon: Optional icon.
     """
+    import time
     _emit_node(
         "toast",
         {
             "body": str(body),
             "icon": icon,
+            "_ts": time.time(),
         },
     )
 
 
 def balloons() -> None:
     """Display celebratory balloons animation."""
+    import time
     _emit_node(
         "balloons",
-        {},
+        {"_ts": time.time()},
     )
 
 
 def snow() -> None:
     """Display snowfall animation."""
+    import time
     _emit_node(
         "snow",
-        {},
+        {"_ts": time.time()},
     )
