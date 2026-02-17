@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React, { useRef, useMemo } from "react";
 import type { NodeComponentProps } from "../../registry/registry";
 
 // Token-based syntax highlighting to avoid breaking HTML
@@ -91,8 +91,8 @@ export const Code: React.FC<NodeComponentProps> = ({ props }) => {
   const { code, language, lineNumbers, wrapLines } = props;
   const codeRef = useRef<HTMLPreElement>(null);
 
-  const lines = (code || "").split("\n");
-  const highlighted = highlightCode(code || "", language);
+  const lines = useMemo(() => (code || "").split("\n"), [code]);
+  const highlighted = useMemo(() => highlightCode(code || "", language), [code, language]);
 
   const handleCopy = async () => {
     try {

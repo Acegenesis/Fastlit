@@ -54,6 +54,10 @@ export const App: React.FC = () => {
 
   const [isPending, startTransition] = useTransition();
 
+  // After cached navigation, skip the next patch response (backend syncs _previous_tree
+  // but the patch is based on old→new diff which is wrong for the frontend's cached tree)
+  const skipNextPatchRef = useRef(false);
+
   // Debounce for value widgets
   const debounceTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const pendingValuesRef = useRef<Map<string, any>>(new Map());
@@ -111,13 +115,13 @@ export const App: React.FC = () => {
           const sidebar = prev.children.filter((c) => c.type === "sidebar");
           return { ...prev, children: [...sidebar, ...cachedContent] };
         });
-        // Sync backend state only (no rerun — cache is source of truth,
-        // a rerun would produce a patch against a stale base tree causing duplication)
+        // Send normal event so backend reruns and syncs _previous_tree.
+        // Skip the resulting patch (it's based on old→new diff, wrong for our cached tree).
+        skipNextPatchRef.current = true;
         wsRef.current?.send({
           type: "widget_event",
           id: nav.id,
           value: pageIndex,
-          noRerun: true,
         });
       } else {
         // No cache - show skeleton and request content from server
@@ -132,14 +136,18 @@ export const App: React.FC = () => {
     [flushPendingEvents]
   );
 
-  // Main event handler
+  // Ref to always access latest navigateToPage without changing sendEvent identity
+  const navigateToPageRef = useRef(navigateToPage);
+  navigateToPageRef.current = navigateToPage;
+
+  // Main event handler — stable reference (empty deps) so React.memo works on NodeRenderer
   const sendEvent = useCallback(
     (id: string, value: any, options?: { noRerun?: boolean }) => {
       const nav = sidebarNavRef.current;
 
       // Navigation events - pure React
       if (nav && id === nav.id) {
-        navigateToPage(value as number);
+        navigateToPageRef.current(value as number);
         return;
       }
 
@@ -160,10 +168,18 @@ export const App: React.FC = () => {
       }
 
       // Action events - flush and send
-      flushPendingEvents();
+      for (const [widgetId, t] of debounceTimersRef.current.entries()) {
+        clearTimeout(t);
+        const pv = pendingValuesRef.current.get(widgetId);
+        if (pv !== undefined) {
+          wsRef.current?.send({ type: "widget_event", id: widgetId, value: pv, noRerun: true });
+        }
+      }
+      debounceTimersRef.current.clear();
+      pendingValuesRef.current.clear();
       wsRef.current?.send({ type: "widget_event", id, value });
     },
-    [navigateToPage, flushPendingEvents]
+    [] // stable forever — all deps accessed via refs
   );
 
   // WebSocket setup
@@ -233,6 +249,16 @@ export const App: React.FC = () => {
     });
 
     ws.onRenderPatch((msg) => {
+      // After cached navigation, the backend reruns to sync _previous_tree.
+      // The patch it sends is based on (old page → new page) diff, but the
+      // frontend already shows the new page from cache. Applying this patch
+      // would corrupt the tree (duplication). Skip it — both sides are now synced.
+      if (skipNextPatchRef.current) {
+        skipNextPatchRef.current = false;
+        setIsNavigating(false);
+        return;
+      }
+
       startTransition(() => {
         setTree((prev) => {
           if (!prev) return prev;
@@ -299,12 +325,12 @@ export const App: React.FC = () => {
           const sidebar = prev.children.filter((c) => c.type === "sidebar");
           return { ...prev, children: [...sidebar, ...cachedContent] };
         });
-        // Fire-and-forget server sync
+        // Send normal event so backend syncs _previous_tree; skip the patch response
+        skipNextPatchRef.current = true;
         wsRef.current?.send({
           type: "widget_event",
           id: nav.id,
           value: idx,
-          noRerun: true,
         });
       } else {
         // No cache - show skeleton and request content from server

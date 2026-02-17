@@ -30,7 +30,7 @@ sections = [
     "State & Control",
 ]
 
-selected_section = st.sidebar.radio("Select Section", sections)
+selected_section = st.sidebar.navigation(sections)
 
 st.sidebar.divider()
 st.sidebar.caption("Fastlit v0.1.0")

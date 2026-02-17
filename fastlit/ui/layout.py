@@ -71,11 +71,11 @@ def _get_or_create_sidebar() -> UINode:
     """Return the shared sidebar node for this run, creating it if needed."""
     session = get_current_session()
     tree = session.current_tree
-    for child in tree.root.children:
-        if child.type == "sidebar":
-            return child
+    if tree._sidebar is not None:
+        return tree._sidebar
     node = UINode(type="sidebar", id="sidebar:0", props={})
     tree.root.children.insert(0, node)
+    tree._sidebar = node
     return node
 
 

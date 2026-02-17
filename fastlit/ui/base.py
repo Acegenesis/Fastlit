@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import inspect
+import os as _os
 from typing import Any
 
 from fastlit.runtime.context import get_current_session
 from fastlit.runtime.tree import UINode
+
+# Cache at module level (computed once, never changes)
+_fastlit_dir: str = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
 
 
 def _emit_node(
@@ -73,13 +77,15 @@ def _make_id(node_type: str, key: str | None = None) -> str:
 
 
 def _get_user_frame() -> Any:
-    """Walk the call stack to find the first frame outside the fastlit package."""
-    import os
+    """Walk frames manually to find the first frame outside the fastlit package.
 
-    fastlit_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    stack = inspect.stack()
-    for frame_info in stack:
-        filepath = os.path.abspath(frame_info.filename)
-        if not filepath.startswith(fastlit_dir):
-            return frame_info.frame
+    Uses inspect.currentframe() + f_back traversal instead of inspect.stack(),
+    which is ~100x faster (avoids reading source files from disk).
+    """
+    frame = inspect.currentframe()
+    while frame is not None:
+        filepath = _os.path.abspath(frame.f_code.co_filename)
+        if not filepath.startswith(_fastlit_dir):
+            return frame
+        frame = frame.f_back
     return None

@@ -23,8 +23,8 @@ def _diff_node(old: UINode, new: UINode, ops: list[PatchOp]) -> None:
         ops.append(PatchOp(op="replace", id=new.id, node=new.to_dict()))
         return
 
-    # Check for prop changes
-    if old.props != new.props:
+    # Fast path: skip prop comparison if same object reference
+    if old.props is not new.props and old.props != new.props:
         # Compute only the changed props
         changed: dict = {}
         all_keys = set(old.props) | set(new.props)
@@ -43,34 +43,30 @@ def _diff_node(old: UINode, new: UINode, ops: list[PatchOp]) -> None:
 def _diff_children(
     old_parent: UINode, new_parent: UINode, ops: list[PatchOp]
 ) -> None:
-    """Diff child lists using ID-based matching."""
+    """Diff child lists using ID-based matching (single-pass)."""
     old_by_id = {child.id: child for child in old_parent.children}
-    new_by_id = {child.id: child for child in new_parent.children}
+    new_ids: set[str] = set()
 
-    old_ids = [child.id for child in old_parent.children]
-    new_ids = [child.id for child in new_parent.children]
-
-    old_set = set(old_ids)
-    new_set = set(new_ids)
-
-    # Removed nodes
-    for cid in old_ids:
-        if cid not in new_set:
-            ops.append(PatchOp(op="remove", id=cid))
-
-    # Added or updated nodes
-    for i, cid in enumerate(new_ids):
-        if cid not in old_set:
+    # Single pass over new children: additions + updates
+    for i, child in enumerate(new_parent.children):
+        new_ids.add(child.id)
+        old_child = old_by_id.get(child.id)
+        if old_child is None:
             # New node — insert
             ops.append(
                 PatchOp(
                     op="insertChild",
-                    id=cid,
+                    id=child.id,
                     parent_id=new_parent.id,
                     index=i,
-                    node=new_by_id[cid].to_dict(),
+                    node=child.to_dict(),
                 )
             )
         else:
             # Existing node — recurse
-            _diff_node(old_by_id[cid], new_by_id[cid], ops)
+            _diff_node(old_child, child, ops)
+
+    # Removals: old children not present in new
+    for child in old_parent.children:
+        if child.id not in new_ids:
+            ops.append(PatchOp(op="remove", id=child.id))

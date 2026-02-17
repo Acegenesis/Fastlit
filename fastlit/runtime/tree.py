@@ -44,6 +44,7 @@ class UITree:
     def __init__(self) -> None:
         self.root = UINode(type="root", id="root", children=[])
         self._container_stack: list[UINode] = [self.root]
+        self._sidebar: UINode | None = None  # cached sidebar reference
 
     @property
     def current_container(self) -> UINode:

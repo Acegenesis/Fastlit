@@ -23,7 +23,7 @@ function FallbackComponent({ nodeId, props }: { nodeId: string; props: Record<st
   );
 }
 
-export const NodeRenderer: React.FC<NodeRendererProps> = ({ node, sendEvent }) => {
+const NodeRendererInner: React.FC<NodeRendererProps> = ({ node, sendEvent }) => {
   const children = node.children?.map((child) => (
     <NodeRenderer key={child.id} node={child} sendEvent={sendEvent} />
   ));
@@ -45,3 +45,7 @@ export const NodeRenderer: React.FC<NodeRendererProps> = ({ node, sendEvent }) =
     </Component>
   );
 };
+
+export const NodeRenderer = React.memo(NodeRendererInner, (prev, next) => {
+  return prev.node === next.node && prev.sendEvent === next.sendEvent;
+});
