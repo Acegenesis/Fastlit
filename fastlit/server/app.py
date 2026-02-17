@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 from starlette.applications import Starlette
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.responses import FileResponse, HTMLResponse
 from starlette.routing import Route, WebSocketRoute, Mount
 from starlette.staticfiles import StaticFiles
@@ -85,5 +86,6 @@ def create_app(script_path: str, static_dir: str | None = None) -> Starlette:
     routes.append(Route("/", homepage))
 
     app = Starlette(routes=routes)
+    app.add_middleware(GZipMiddleware, minimum_size=500)
 
     return app
