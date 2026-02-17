@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import type { NodeComponentProps } from "../../registry/registry";
 import { useResolvedText } from "../../context/WidgetStore";
 
@@ -43,8 +43,8 @@ export const Markdown: React.FC<NodeComponentProps> = ({ props }) => {
     );
   }
 
-  // Otherwise, parse simple markdown
-  const html = parseMarkdown(resolved);
+  // Otherwise, parse simple markdown (memoized to avoid regex on every render)
+  const html = useMemo(() => parseMarkdown(resolved), [resolved]);
 
   return (
     <div
