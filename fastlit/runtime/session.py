@@ -50,37 +50,50 @@ class Session:
         # Key = "filename:lineno", value = count of hits so far.
         self._id_counters: dict[str, int] = {}
 
+    _MAX_RERUNS = 5  # safety limit to prevent infinite rerun loops
+
     def run(self) -> RenderFull | RenderPatch:
         """Execute the script and return either a full render or a patch."""
-        self._id_counters = {}
-        new_tree = UITree()
-        self.current_tree = new_tree
+        for attempt in range(self._MAX_RERUNS):
+            self._id_counters = {}
+            new_tree = UITree()
+            self.current_tree = new_tree
 
-        set_current_session(self)
-        try:
-            run_script(self.script_path, self)
-        except RerunException:
-            # Script requested a rerun — we already have the partial tree,
-            # but we should re-execute cleanly.
-            pass
-        finally:
-            clear_current_session()
+            set_current_session(self)
+            try:
+                run_script(self.script_path, self)
+            except RerunException:
+                # Script requested a rerun — discard partial tree and restart
+                clear_current_session()
+                continue
+            except _StopException:
+                # st.stop() — keep the tree built so far
+                pass
+            finally:
+                clear_current_session()
 
+            # Script finished (normally or via st.stop()) — produce result
+            self.rev += 1
+
+            if self._previous_tree is None:
+                self._previous_tree = new_tree
+                return RenderFull(rev=self.rev, tree=new_tree.to_dict())
+            else:
+                ops = diff_trees(self._previous_tree.root, new_tree.root)
+                self._previous_tree = new_tree
+                if ops:
+                    return RenderPatch(rev=self.rev, ops=ops)
+                else:
+                    return RenderPatch(rev=self.rev, ops=[])
+
+        # Exhausted reruns — return whatever we have
         self.rev += 1
-
         if self._previous_tree is None:
-            # First run — send full tree
             self._previous_tree = new_tree
             return RenderFull(rev=self.rev, tree=new_tree.to_dict())
-        else:
-            # Subsequent run — diff and send patch
-            ops = diff_trees(self._previous_tree.root, new_tree.root)
-            self._previous_tree = new_tree
-            if ops:
-                return RenderPatch(rev=self.rev, ops=ops)
-            else:
-                # No changes — still send an empty patch to confirm rev
-                return RenderPatch(rev=self.rev, ops=[])
+        ops = diff_trees(self._previous_tree.root, new_tree.root)
+        self._previous_tree = new_tree
+        return RenderPatch(rev=self.rev, ops=ops or [])
 
     def handle_widget_event(self, widget_id: str, value: Any) -> RenderFull | RenderPatch:
         """Process a widget event and return the resulting render message."""
@@ -97,3 +110,12 @@ class Session:
 class RerunException(Exception):
     """Raised by st.rerun() to interrupt script execution."""
     pass
+
+
+class StopException(Exception):
+    """Raised by st.stop() to halt script execution."""
+    pass
+
+
+# Private alias used internally to avoid name clashes with `fastlit.__init__`
+_StopException = StopException

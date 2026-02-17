@@ -14,9 +14,12 @@ class UINode:
     id: str
     props: dict[str, Any] = field(default_factory=dict)
     children: list[UINode] = field(default_factory=list)
+    _dict_cache: dict[str, Any] | None = field(default=None, repr=False, compare=False)
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize to a JSON-compatible dict."""
+        """Serialize to a JSON-compatible dict (cached per node instance)."""
+        if self._dict_cache is not None:
+            return self._dict_cache
         result: dict[str, Any] = {
             "type": self.type,
             "id": self.id,
@@ -24,6 +27,7 @@ class UINode:
         }
         if self.children:
             result["children"] = [child.to_dict() for child in self.children]
+        self._dict_cache = result
         return result
 
     @staticmethod

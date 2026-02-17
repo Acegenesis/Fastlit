@@ -80,8 +80,9 @@ from fastlit.ui.status import (
     snow,
 )
 from fastlit.ui.state import _get_session_state
-from fastlit.runtime.session import RerunException
+from fastlit.runtime.session import RerunException, StopException
 from fastlit.runtime.context import get_current_session
+from fastlit.cache import cache_data, cache_resource
 
 
 # --- session_state as a module-level property ---
@@ -132,11 +133,6 @@ session_state = _SessionStateProxy()
 def rerun() -> None:
     """Stop the current script run and trigger a rerun."""
     raise RerunException()
-
-
-class StopException(Exception):
-    """Raised to stop script execution."""
-    pass
 
 
 def stop() -> None:
@@ -255,6 +251,9 @@ __all__ = [
     "rerun",
     "stop",
     "set_page_config",
+    # Cache
+    "cache_data",
+    "cache_resource",
     # Status elements
     "success",
     "info",

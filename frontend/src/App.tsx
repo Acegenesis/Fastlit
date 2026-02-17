@@ -209,13 +209,28 @@ export const App: React.FC = () => {
         const slugs = opts.map(toSlug);
         sidebarNavRef.current = { id: navNode.id, options: opts, slugs };
 
-        // Set initial page ref and URL
-        const serverIdx = responseNavIndex ?? 0;
-        const initialSlug = slugs[serverIdx];
-        if (initialSlug) {
-          currentPageRef.current = initialSlug;
-          const currentUrlSlug = getPageFromUrl();
-          if (!currentUrlSlug) {
+        // Respect the current URL on page reload; only fall back to server index
+        const currentUrlSlug = getPageFromUrl();
+        const urlIdx = currentUrlSlug ? slugs.indexOf(currentUrlSlug) : -1;
+
+        if (urlIdx >= 0) {
+          // URL matches a known page — use it (page reload case)
+          currentPageRef.current = currentUrlSlug;
+          // Tell server to switch to this page so the next response is correct
+          if (urlIdx !== (responseNavIndex ?? 0)) {
+            setIsNavigating(true);
+            wsRef.current?.send({
+              type: "widget_event",
+              id: navNode.id,
+              value: urlIdx,
+            });
+          }
+        } else {
+          // No URL or unknown slug — use server default
+          const serverIdx = responseNavIndex ?? 0;
+          const initialSlug = slugs[serverIdx];
+          if (initialSlug) {
+            currentPageRef.current = initialSlug;
             window.history.replaceState(null, "", `/${initialSlug}`);
           }
         }
@@ -235,11 +250,23 @@ export const App: React.FC = () => {
       }
 
       // Only display if this response is for the current page
-      // Always display on first load to show initial content
       const currentSlug = currentPageRef.current;
-      const shouldDisplay = isFirstLoad || responseSlug === currentSlug || (!nav && !currentSlug);
+      const isCorrectPage = responseSlug === currentSlug;
+      const shouldDisplay = isCorrectPage || (!nav && !currentSlug);
 
-      if (shouldDisplay) {
+      if (isFirstLoad) {
+        // ALWAYS set the tree on first load so sidebar is initialized and
+        // subsequent patches have a base tree to work with.
+        startTransition(() => {
+          setTree(msg.tree);
+          setError(null);
+          // If the URL matched the server response, show content;
+          // otherwise keep skeleton visible (we already sent an event for the right page)
+          if (isCorrectPage) {
+            setIsNavigating(false);
+          }
+        });
+      } else if (shouldDisplay) {
         startTransition(() => {
           setTree(msg.tree);
           setError(null);

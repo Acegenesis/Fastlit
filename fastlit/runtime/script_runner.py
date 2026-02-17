@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import os
 import sys
+from collections import OrderedDict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from fastlit.runtime.session import Session
 
-# Cache compiled code to avoid re-reading and re-compiling on every rerun
-_code_cache: dict[str, tuple[float, object]] = {}  # path -> (mtime, code)
+# Cache compiled code with LRU eviction (max 50 entries)
+_CODE_CACHE_MAX = 50
+_code_cache: OrderedDict[str, tuple[float, object]] = OrderedDict()
 
 
 def run_script(script_path: str, session: Session) -> None:
@@ -32,10 +34,15 @@ def run_script(script_path: str, session: Session) -> None:
     cached = _code_cache.get(path_str)
     if cached and cached[0] == mtime:
         code = cached[1]
+        # Move to end (most recently used)
+        _code_cache.move_to_end(path_str)
     else:
         source = path.read_text(encoding="utf-8")
         code = compile(source, path_str, "exec")
         _code_cache[path_str] = (mtime, code)
+        # Evict oldest entries if over limit
+        while len(_code_cache) > _CODE_CACHE_MAX:
+            _code_cache.popitem(last=False)
 
     # Build the execution namespace
     namespace: dict = {
