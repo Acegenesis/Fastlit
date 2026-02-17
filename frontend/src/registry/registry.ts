@@ -22,6 +22,9 @@ import { Title } from "../components/text/Title";
 import { Header } from "../components/text/Header";
 import { Markdown } from "../components/text/Markdown";
 import { Text } from "../components/text/Text";
+import { Code } from "../components/text/Code";
+import { Caption } from "../components/text/Caption";
+import { Latex } from "../components/text/Latex";
 
 // ---- Input widgets ----
 import { Button } from "../components/input/Button";
@@ -32,6 +35,16 @@ import { Checkbox } from "../components/input/Checkbox";
 import { Selectbox } from "../components/input/Selectbox";
 import { Radio } from "../components/input/Radio";
 import { NumberInput } from "../components/input/NumberInput";
+import { Multiselect } from "../components/input/Multiselect";
+import { DateInput } from "../components/input/DateInput";
+import { TimeInput } from "../components/input/TimeInput";
+import { Toggle } from "../components/input/Toggle";
+import { ColorPicker } from "../components/input/ColorPicker";
+import { LinkButton } from "../components/input/LinkButton";
+import { DownloadButton } from "../components/input/DownloadButton";
+import { PageLink } from "../components/input/PageLink";
+import { SelectSlider } from "../components/input/SelectSlider";
+import { FileUploader } from "../components/input/FileUploader";
 
 // ---- Data elements ----
 import { DataFrame, Table } from "../components/data/DataFrame";
@@ -39,16 +52,18 @@ import { DataEditor } from "../components/data/DataEditor";
 import { Metric } from "../components/data/Metric";
 import { Json } from "../components/data/Json";
 
-// ---- Chart elements ----
-import { LineChart } from "../components/chart/LineChart";
-import { BarChart } from "../components/chart/BarChart";
-import { AreaChart } from "../components/chart/AreaChart";
-import { ScatterChart } from "../components/chart/ScatterChart";
-import { Map } from "../components/chart/Map";
-import { PlotlyChart } from "../components/chart/PlotlyChart";
-import { VegaLiteChart } from "../components/chart/VegaLiteChart";
-import { Pyplot } from "../components/chart/Pyplot";
-import { GraphvizChart } from "../components/chart/GraphvizChart";
+// ---- Chart elements (lazy loaded for performance) ----
+import {
+  LineChart,
+  BarChart,
+  AreaChart,
+  ScatterChart,
+  Map,
+  PlotlyChart,
+  VegaLiteChart,
+  Pyplot,
+  GraphvizChart,
+} from "../components/chart/LazyCharts";
 
 // ---- Media elements ----
 import { Image } from "../components/media/Image";
@@ -56,6 +71,16 @@ import { Audio } from "../components/media/Audio";
 import { Video } from "../components/media/Video";
 import { Logo } from "../components/media/Logo";
 import { Pdf } from "../components/media/Pdf";
+
+// ---- Status elements ----
+import { Alert } from "../components/status/Alert";
+import { Exception } from "../components/status/Exception";
+import { Progress } from "../components/status/Progress";
+import { Spinner } from "../components/status/Spinner";
+import { Status } from "../components/status/Status";
+import { Toast } from "../components/status/Toast";
+import { Balloons } from "../components/status/Balloons";
+import { Snow } from "../components/status/Snow";
 
 // ---- Layouts and containers ----
 import { Sidebar } from "../components/layout/Sidebar";
@@ -72,9 +97,11 @@ import { Dialog } from "../components/layout/Dialog";
 import { Popover } from "../components/layout/Popover";
 import { Divider } from "../components/layout/Divider";
 import { Navigation } from "../components/layout/Navigation";
+import { PageConfig } from "../components/layout/PageConfig";
 
 export interface SendEventOptions {
   noRerun?: boolean;
+  prefetch?: boolean;
 }
 
 export interface NodeComponentProps {
@@ -91,6 +118,9 @@ const registry: Record<string, ComponentType<NodeComponentProps>> = {
   subheader: Header,
   markdown: Markdown,
   text: Text,
+  code: Code,
+  caption: Caption,
+  latex: Latex,
 
   // Input widgets
   button: Button,
@@ -101,6 +131,16 @@ const registry: Record<string, ComponentType<NodeComponentProps>> = {
   selectbox: Selectbox,
   radio: Radio,
   number_input: NumberInput,
+  multiselect: Multiselect,
+  date_input: DateInput,
+  time_input: TimeInput,
+  toggle: Toggle,
+  color_picker: ColorPicker,
+  link_button: LinkButton,
+  download_button: DownloadButton,
+  page_link: PageLink,
+  select_slider: SelectSlider,
+  file_uploader: FileUploader,
 
   // Data elements
   dataframe: DataFrame,
@@ -142,6 +182,17 @@ const registry: Record<string, ComponentType<NodeComponentProps>> = {
   popover: Popover,
   divider: Divider,
   navigation: Navigation,
+  page_config: PageConfig,
+
+  // Status elements
+  alert: Alert,
+  exception: Exception,
+  progress: Progress,
+  spinner: Spinner,
+  status: Status,
+  toast: Toast,
+  balloons: Balloons,
+  snow: Snow,
 };
 
 export function getComponent(

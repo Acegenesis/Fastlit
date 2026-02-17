@@ -67,20 +67,8 @@ class Session:
             clear_current_session()
 
         self.rev += 1
-
-        if self._previous_tree is None:
-            # First run — send full tree
-            self._previous_tree = new_tree
-            return RenderFull(rev=self.rev, tree=new_tree.to_dict())
-        else:
-            # Subsequent run — diff and send patch
-            ops = diff_trees(self._previous_tree.root, new_tree.root)
-            self._previous_tree = new_tree
-            if ops:
-                return RenderPatch(rev=self.rev, ops=ops)
-            else:
-                # No changes — still send an empty patch to confirm rev
-                return RenderPatch(rev=self.rev, ops=[])
+        self._previous_tree = new_tree
+        return RenderFull(rev=self.rev, tree=new_tree.to_dict())
 
     def handle_widget_event(self, widget_id: str, value: Any) -> RenderFull | RenderPatch:
         """Process a widget event and return the resulting render message."""

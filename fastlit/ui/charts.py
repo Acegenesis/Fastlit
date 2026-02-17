@@ -9,9 +9,12 @@ Provides Streamlit-compatible chart functions:
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Any, Sequence, TYPE_CHECKING
 
 from fastlit.ui.base import _emit_node
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def _prepare_chart_data(
@@ -58,14 +61,14 @@ def _prepare_chart_data(
 
 
 def _prepare_pandas_chart(
-    df: Any,
+    df: "pd.DataFrame",
     *,
     x: str | None = None,
     y: str | Sequence[str] | None = None,
     color: str | None = None,
 ) -> dict:
     """Prepare pandas DataFrame for charting."""
-    import pandas as pd
+    import pandas as pd  # noqa: F811 - runtime import after TYPE_CHECKING
 
     # Determine x column
     if x is None:

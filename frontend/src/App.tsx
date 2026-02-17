@@ -1,13 +1,23 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import React, {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  useMemo,
+  useTransition,
+} from "react";
 import { FastlitWS } from "./runtime/ws";
 import { applyPatch } from "./runtime/patcher";
 import { NodeRenderer } from "./registry/NodeRenderer";
 import { WidgetStoreProvider, WidgetStoreImpl } from "./context/WidgetStore";
+import { Toaster } from "@/components/ui/sonner";
+import { PageSkeleton } from "./components/layout/PageSkeleton";
+import { cn } from "@/lib/utils";
 import type { UINode, ErrorMessage } from "./runtime/types";
 
 type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
-/** Convert page name to URL slug: "Dialog & Popover" → "dialog-popover" */
+/** Convert page name to URL slug */
 function toSlug(page: string): string {
   return page
     .toLowerCase()
@@ -17,88 +27,160 @@ function toSlug(page: string): string {
 
 /** Get current page from URL pathname */
 function getPageFromUrl(): string {
-  const path = window.location.pathname;
-  // Remove leading slash, decode
-  return decodeURIComponent(path.slice(1));
+  return decodeURIComponent(window.location.pathname.slice(1));
 }
+
+// Page cache for instant navigation
+type PageCache = Map<string, UINode[]>;
 
 export const App: React.FC = () => {
   const [tree, setTree] = useState<UINode | null>(null);
   const [error, setError] = useState<ErrorMessage | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
+  const [isNavigating, setIsNavigating] = useState(false);
   const wsRef = useRef<FastlitWS | null>(null);
   const storeRef = useRef(new WidgetStoreImpl());
 
-  // --- Page routing: clean URLs like /layouts, /widgets ---
+  // Page cache for instant switching (caches visited pages)
+  const pageCacheRef = useRef<PageCache>(new Map());
+  const currentPageRef = useRef<string>("");
+
+  // Navigation state
   const sidebarNavRef = useRef<{
     id: string;
     options: string[];
-    slugs: string[]; // URL slugs for each option
-    type: "radio" | "navigation";
+    slugs: string[];
   } | null>(null);
-  const initialPathRef = useRef(getPageFromUrl());
 
-  // Debounce timers and pending values for noRerun events (slider, text_input, etc.)
+  // Prefetch tracking
+  const prefetchedRef = useRef<Set<string>>(new Set());
+  const [isPending, startTransition] = useTransition();
+
+  // Debounce for value widgets
   const debounceTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const pendingValuesRef = useRef<Map<string, any>>(new Map());
-  const DEBOUNCE_MS = 100; // 100ms debounce for value widgets
+  const DEBOUNCE_MS = 150;
 
-  // Flush all pending debounced events immediately (called before action events)
+  // Flush pending widget values
   const flushPendingEvents = useCallback(() => {
-    // Clear all timers and send pending values immediately
     for (const [widgetId, timer] of debounceTimersRef.current.entries()) {
       clearTimeout(timer);
       const pendingValue = pendingValuesRef.current.get(widgetId);
       if (pendingValue !== undefined) {
-        wsRef.current?.send({ type: "widget_event", id: widgetId, value: pendingValue, noRerun: true });
+        wsRef.current?.send({
+          type: "widget_event",
+          id: widgetId,
+          value: pendingValue,
+          noRerun: true,
+        });
       }
     }
     debounceTimersRef.current.clear();
     pendingValuesRef.current.clear();
   }, []);
 
-  // Send events — navigation updates store instantly, then server sends new content
-  const sendEvent = useCallback((id: string, value: any, options?: { noRerun?: boolean }) => {
+  // Prefetch a page silently (response cached by onRenderFull's shouldDisplay filter)
+  const prefetchPage = useCallback((pageIndex: number) => {
     const nav = sidebarNavRef.current;
-    if (nav && id === nav.id) {
-      const page = nav.options[value as number];
-      const slug = nav.slugs[value as number];
-      if (page && slug) {
-        // Flush pending widget values before navigation
-        flushPendingEvents();
-        // 1. Update store → instant re-render of nav component (no flicker)
-        storeRef.current.set(nav.id, page);
-        // 2. Update URL with clean path
-        window.history.pushState(null, "", `/${slug}`);
-        // 3. Tell server to navigate — it will rerun and send new page content
-        wsRef.current?.send({ type: "widget_event", id, value });
+    if (!nav) return;
+    const slug = nav.slugs[pageIndex];
+    if (!slug || pageCacheRef.current.has(slug) || prefetchedRef.current.has(slug)) return;
+    prefetchedRef.current.add(slug);
+    wsRef.current?.send({ type: "widget_event", id: nav.id, value: pageIndex });
+  }, []);
+
+  // PURE REACT NAVIGATION - no server waiting
+  const navigateToPage = useCallback(
+    (pageIndex: number) => {
+      const nav = sidebarNavRef.current;
+      if (!nav) return;
+
+      const page = nav.options[pageIndex];
+      const slug = nav.slugs[pageIndex];
+      if (!page || !slug) return;
+
+      // Skip if already on this page
+      if (currentPageRef.current === slug) return;
+
+      flushPendingEvents();
+
+      // 1. Update sidebar selection (React state)
+      storeRef.current.set(nav.id, page);
+
+      // 2. Update URL (browser)
+      window.history.pushState(null, "", `/${slug}`);
+
+      // 3. Update content from cache if available
+      const cachedContent = pageCacheRef.current.get(slug);
+      const hasCache = cachedContent && cachedContent.length > 0;
+
+      currentPageRef.current = slug;
+
+      if (hasCache) {
+        // Show cached content instantly
+        setTree((prev) => {
+          if (!prev?.children) return prev;
+          const sidebar = prev.children.filter((c) => c.type === "sidebar");
+          return { ...prev, children: [...sidebar, ...cachedContent] };
+        });
+        // Stale-while-revalidate: fetch fresh content in background
+        wsRef.current?.send({
+          type: "widget_event",
+          id: nav.id,
+          value: pageIndex,
+        });
+      } else {
+        // No cache - show skeleton and request content from server
+        setIsNavigating(true);
+        wsRef.current?.send({
+          type: "widget_event",
+          id: nav.id,
+          value: pageIndex,
+        });
+      }
+    },
+    [flushPendingEvents]
+  );
+
+  // Main event handler
+  const sendEvent = useCallback(
+    (id: string, value: any, options?: { noRerun?: boolean; prefetch?: boolean }) => {
+      const nav = sidebarNavRef.current;
+
+      // Prefetch events - silent background loading
+      if (options?.prefetch) {
+        if (nav && id === nav.id) prefetchPage(value as number);
         return;
       }
-    }
 
-    // For noRerun events: debounce to avoid flooding the server
-    if (options?.noRerun) {
-      // Store the pending value
-      pendingValuesRef.current.set(id, value);
-      // Clear any pending debounce for this widget
-      const existing = debounceTimersRef.current.get(id);
-      if (existing) {
-        clearTimeout(existing);
+      // Navigation events - pure React
+      if (nav && id === nav.id) {
+        navigateToPage(value as number);
+        return;
       }
-      // Schedule the send after debounce delay
-      const timer = setTimeout(() => {
-        debounceTimersRef.current.delete(id);
-        pendingValuesRef.current.delete(id);
-        wsRef.current?.send({ type: "widget_event", id, value, noRerun: true });
-      }, DEBOUNCE_MS);
-      debounceTimersRef.current.set(id, timer);
-      return;
-    }
 
-    // For action events (button, etc.): flush pending values first, then send
-    flushPendingEvents();
-    wsRef.current?.send({ type: "widget_event", id, value, noRerun: options?.noRerun });
-  }, [flushPendingEvents]);
+      // NoRerun events - debounce
+      if (options?.noRerun) {
+        pendingValuesRef.current.set(id, value);
+        const existing = debounceTimersRef.current.get(id);
+        if (existing) clearTimeout(existing);
+
+        const timer = setTimeout(() => {
+          debounceTimersRef.current.delete(id);
+          pendingValuesRef.current.delete(id);
+          wsRef.current?.send({ type: "widget_event", id, value, noRerun: true });
+        }, DEBOUNCE_MS);
+
+        debounceTimersRef.current.set(id, timer);
+        return;
+      }
+
+      // Action events - flush and send
+      flushPendingEvents();
+      wsRef.current?.send({ type: "widget_event", id, value });
+    },
+    [navigateToPage, flushPendingEvents]
+  );
 
   // WebSocket setup
   useEffect(() => {
@@ -108,74 +190,122 @@ export const App: React.FC = () => {
     ws.onStatusChange(setStatus);
 
     ws.onRenderFull((msg) => {
-      setTree(msg.tree);
-      setError(null);
+      // Extract nav info from response
+      const sidebar = msg.tree?.children?.find((c) => c.type === "sidebar");
+      const navNode = sidebar?.children?.find(
+        (c) => c.type === "navigation" || c.type === "radio"
+      );
+      const responseNavIndex = navNode?.props?.index as number | undefined;
+
+      // Track if this is first load (nav just initialized)
+      let isFirstLoad = false;
+
+      // CRITICAL: Initialize nav IMMEDIATELY on first message (before useEffect)
+      // This prevents prefetch responses from displaying before nav is set up
+      if (navNode && !sidebarNavRef.current) {
+        isFirstLoad = true;
+        const isNav = navNode.type === "navigation";
+        const opts = (isNav ? navNode.props.pages : navNode.props.options) as string[];
+        const slugs = opts.map(toSlug);
+        sidebarNavRef.current = { id: navNode.id, options: opts, slugs };
+
+        // Set initial page ref and URL
+        const serverIdx = responseNavIndex ?? 0;
+        const initialSlug = slugs[serverIdx];
+        if (initialSlug) {
+          currentPageRef.current = initialSlug;
+          const currentUrlSlug = getPageFromUrl();
+          if (!currentUrlSlug) {
+            window.history.replaceState(null, "", `/${initialSlug}`);
+          }
+        }
+      }
+
+      const nav = sidebarNavRef.current;
+
+      // Determine which page this response is for
+      const responseSlug = (responseNavIndex !== undefined && nav)
+        ? nav.slugs[responseNavIndex]
+        : null;
+
+      // Cache the content for this page (always cache, even if not displaying)
+      if (responseSlug && msg.tree?.children) {
+        const mainContent = msg.tree.children.filter((c) => c.type !== "sidebar");
+        pageCacheRef.current.set(responseSlug, mainContent);
+      }
+
+      // Only display if this response is for the current page
+      // Always display on first load to show initial content
+      const currentSlug = currentPageRef.current;
+      const shouldDisplay = isFirstLoad || responseSlug === currentSlug || (!nav && !currentSlug);
+
+      if (shouldDisplay) {
+        startTransition(() => {
+          setTree(msg.tree);
+          setError(null);
+          setIsNavigating(false);
+        });
+      }
+
+      // Restore backend nav state after prefetch response
+      // (prefetch changes widget_store on the server — restore it to current page)
+      if (!shouldDisplay && responseSlug && responseSlug !== currentSlug && nav) {
+        const currentIdx = nav.slugs.indexOf(currentSlug);
+        if (currentIdx >= 0) {
+          wsRef.current?.send({
+            type: "widget_event",
+            id: nav.id,
+            value: currentIdx,
+            noRerun: true,
+          });
+        }
+      }
     });
 
     ws.onRenderPatch((msg) => {
-      setTree((prev) => {
-        if (!prev) return prev;
-        return applyPatch(prev, msg.ops);
+      startTransition(() => {
+        setTree((prev) => {
+          if (!prev) return prev;
+          const patched = applyPatch(prev, msg.ops);
+
+          // Update cache
+          const currentSlug = currentPageRef.current;
+          if (currentSlug && patched?.children) {
+            const mainContent = patched.children.filter((c) => c.type !== "sidebar");
+            pageCacheRef.current.set(currentSlug, mainContent);
+          }
+
+          return patched;
+        });
+        setError(null);
+        setIsNavigating(false);
       });
-      setError(null);
     });
 
-    ws.onError((msg) => {
-      setError(msg);
-    });
-
+    ws.onError((msg) => setError(msg));
     ws.connect();
 
-    return () => {
-      ws.disconnect();
-    };
+    return () => ws.disconnect();
   }, []);
 
-  // Extract sidebar nav info — URL is source of truth, never overwrite it
+  // Cache current page content when tree changes
   useEffect(() => {
     if (!tree?.children) return;
 
-    const sidebar = tree.children.find((c) => c.type === "sidebar");
-    // Support both navigation (links) and radio (legacy) for page routing
-    const navNode = sidebar?.children?.find(
-      (c) => c.type === "navigation" || c.type === "radio",
-    );
+    const nav = sidebarNavRef.current;
+    if (!nav) return;
 
-    if (navNode) {
-      const isNav = navNode.type === "navigation";
-      const opts = (isNav ? navNode.props.pages : navNode.props.options) as string[];
-      const slugs = opts.map(toSlug);
-      const serverIdx = navNode.props.index as number;
-
-      sidebarNavRef.current = {
-        id: navNode.id,
-        options: opts,
-        slugs,
-        type: isNav ? "navigation" : "radio",
-      };
-
-      // URL is the source of truth — check what page the URL says we're on
-      const currentSlug = getPageFromUrl();
-      const urlIdx = slugs.indexOf(currentSlug);
-
-      // On first load with empty URL, set URL to server's default page
-      if (!currentSlug && serverIdx >= 0) {
-        const defaultSlug = slugs[serverIdx] || slugs[0];
-        if (defaultSlug) {
-          window.history.replaceState(null, "", `/${defaultSlug}`);
-        }
-      }
-      // If URL points to a valid page different from server, tell server to navigate
-      else if (urlIdx >= 0 && urlIdx !== serverIdx) {
-        // Update store for instant UI
-        storeRef.current.set(navNode.id, opts[urlIdx]);
-        // Tell server to navigate — it will rerun and send new page content
-        wsRef.current?.send({ type: "widget_event", id: navNode.id, value: urlIdx });
+    // Cache current page content
+    const currentSlug = currentPageRef.current;
+    if (currentSlug) {
+      const mainContent = tree.children.filter((c) => c.type !== "sidebar");
+      if (mainContent.length > 0) {
+        pageCacheRef.current.set(currentSlug, mainContent);
       }
     }
   }, [tree]);
 
-  // Browser back/forward navigation
+  // Browser back/forward - pure React
   useEffect(() => {
     const handlePopState = () => {
       const slug = getPageFromUrl();
@@ -185,50 +315,69 @@ export const App: React.FC = () => {
       const idx = nav.slugs.indexOf(slug);
       if (idx < 0) return;
 
-      // Update store directly for instant nav component re-render
+      // Update sidebar selection
       storeRef.current.set(nav.id, nav.options[idx]);
+      currentPageRef.current = slug;
 
-      // Tell server to navigate — it will rerun and send new page content
-      wsRef.current?.send({ type: "widget_event", id: nav.id, value: idx });
+      // Show cached content if available
+      const cachedContent = pageCacheRef.current.get(slug);
+      const hasCache = cachedContent && cachedContent.length > 0;
+
+      if (hasCache) {
+        setTree((prev) => {
+          if (!prev?.children) return prev;
+          const sidebar = prev.children.filter((c) => c.type === "sidebar");
+          return { ...prev, children: [...sidebar, ...cachedContent] };
+        });
+        // Fire-and-forget server sync
+        wsRef.current?.send({
+          type: "widget_event",
+          id: nav.id,
+          value: idx,
+          noRerun: true,
+        });
+      } else {
+        // No cache - show skeleton and request content from server
+        setIsNavigating(true);
+        wsRef.current?.send({
+          type: "widget_event",
+          id: nav.id,
+          value: idx,
+        });
+      }
     };
 
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
-  // Split tree into sidebar and main content
+  // Memoized tree splitting
   const hasSidebar = useMemo(() => {
-    if (!tree?.children) return false;
-    return tree.children.some((c) => c.type === "sidebar");
+    return tree?.children?.some((c) => c.type === "sidebar") ?? false;
   }, [tree]);
 
   const { sidebarNodes, mainNodes } = useMemo(() => {
-    if (!tree?.children)
+    if (!tree?.children) {
       return { sidebarNodes: [] as UINode[], mainNodes: [] as UINode[] };
+    }
     const sidebar: UINode[] = [];
     const main: UINode[] = [];
     for (const child of tree.children) {
-      if (child.type === "sidebar") {
-        sidebar.push(child);
-      } else {
-        main.push(child);
-      }
+      if (child.type === "sidebar") sidebar.push(child);
+      else main.push(child);
     }
     return { sidebarNodes: sidebar, mainNodes: main };
   }, [tree]);
 
-  // Display the real main nodes from the server
-  const displayMainNodes = mainNodes;
-
   return (
     <WidgetStoreProvider store={storeRef.current}>
+      <Toaster position="bottom-right" />
+
       {sidebarNodes.map((node) => (
         <NodeRenderer key={node.id} node={node} sendEvent={sendEvent} />
       ))}
 
-      <div
-        className={`${hasSidebar ? "ml-64" : ""} max-w-4xl mx-auto px-6 py-8`}
-      >
+      <div className={`${hasSidebar ? "ml-64" : ""} max-w-4xl mx-auto px-6 py-8`}>
         {status === "connecting" && (
           <div className="mb-4 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-700">
             Connecting to Fastlit server...
@@ -252,16 +401,28 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {tree ? (
-          displayMainNodes.map((node) => (
-            <NodeRenderer key={node.id} node={node} sendEvent={sendEvent} />
-          ))
-        ) : (
-          status === "connected" && (
-            <p className="text-gray-400 text-sm">
-              Waiting for app to render...
-            </p>
-          )
+        {/* Show skeleton while navigating to uncached page */}
+        {isNavigating && <PageSkeleton />}
+
+        {/* Main content with fade transition */}
+        {tree && mainNodes.length > 0 && !isNavigating && (
+          <div
+            key={currentPageRef.current}
+            className={cn(
+              "transition-opacity duration-200 ease-in-out",
+              isPending ? "opacity-70" : "opacity-100"
+            )}
+          >
+            {mainNodes.map((node) => (
+              <NodeRenderer key={node.id} node={node} sendEvent={sendEvent} />
+            ))}
+          </div>
+        )}
+
+        {!tree && !isNavigating && status === "connected" && (
+          <p className="text-muted-foreground text-sm">
+            Waiting for app to render...
+          </p>
         )}
       </div>
     </WidgetStoreProvider>

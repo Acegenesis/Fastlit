@@ -1,5 +1,7 @@
 import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
+import { Button as ShadcnButton } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export const Button: React.FC<NodeComponentProps> = ({
   nodeId,
@@ -13,27 +15,22 @@ export const Button: React.FC<NodeComponentProps> = ({
     sendEvent(nodeId, true);
   };
 
-  const baseClasses =
-    "px-4 py-2 rounded-md font-medium text-sm mb-2 transition-colors";
-  const typeClasses =
+  const variant =
     btnType === "primary"
-      ? "bg-red-600 text-white hover:bg-red-700 active:bg-red-800"
+      ? "destructive"
       : btnType === "tertiary"
-        ? "bg-transparent text-blue-600 hover:bg-blue-50 active:bg-blue-100"
-        : "bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800";
-  const disabledClasses = disabled
-    ? "opacity-50 cursor-not-allowed"
-    : "cursor-pointer";
-  const widthClass = useContainerWidth ? "w-full" : "";
+        ? "ghost"
+        : "default";
 
   return (
-    <button
+    <ShadcnButton
+      variant={variant}
       onClick={handleClick}
       disabled={!!disabled}
       title={help || undefined}
-      className={`${baseClasses} ${typeClasses} ${disabledClasses} ${widthClass}`}
+      className={cn("mb-2", useContainerWidth && "w-full")}
     >
       {label}
-    </button>
+    </ShadcnButton>
   );
 };

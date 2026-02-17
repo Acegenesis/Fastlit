@@ -1,6 +1,9 @@
 import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
 import { useWidgetValue } from "../../context/WidgetStore";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 export const Radio: React.FC<NodeComponentProps> = ({
   nodeId,
@@ -12,43 +15,36 @@ export const Radio: React.FC<NodeComponentProps> = ({
   const [value, setValue] = useWidgetValue(nodeId, opts[props.index ?? 0] ?? "");
   const currentIndex = Math.max(0, opts.indexOf(value));
 
-  const handleChange = (i: number) => {
+  const handleChange = (val: string) => {
     if (disabled) return;
-    setValue(opts[i] ?? "");
-    sendEvent(nodeId, i, { noRerun: props.noRerun });
+    const idx = parseInt(val, 10);
+    setValue(opts[idx] ?? "");
+    sendEvent(nodeId, idx, { noRerun: props.noRerun });
   };
 
   return (
-    <div className="mb-3" title={help || undefined}>
-      <label className="block text-sm font-medium text-gray-700 mb-1">
-        {label}
-      </label>
-      <div className={horizontal ? "flex flex-wrap gap-4" : "space-y-1"}>
+    <div className="mb-3 space-y-1.5" title={help || undefined}>
+      <Label>{label}</Label>
+      <RadioGroup
+        value={String(currentIndex)}
+        onValueChange={handleChange}
+        disabled={!!disabled}
+        className={cn(horizontal && "flex flex-wrap gap-4")}
+      >
         {opts.map((opt, i) => (
-          <label
-            key={i}
-            className={`flex items-center gap-2 cursor-pointer${
-              disabled ? " opacity-50 cursor-not-allowed" : ""
-            }`}
-          >
-            <input
-              type="radio"
-              name={nodeId}
-              checked={i === currentIndex}
-              onChange={() => handleChange(i)}
-              disabled={!!disabled}
-              className="h-4 w-4 border-gray-300 text-blue-600
-                         focus:ring-2 focus:ring-blue-500"
-            />
+          <div key={i} className="flex items-center gap-2">
+            <RadioGroupItem value={String(i)} id={`${nodeId}-${i}`} />
             <div>
-              <span className="text-sm text-gray-700">{opt}</span>
+              <Label htmlFor={`${nodeId}-${i}`} className="cursor-pointer font-normal">
+                {opt}
+              </Label>
               {captions && captions[i] && (
-                <p className="text-xs text-gray-500">{captions[i]}</p>
+                <p className="text-xs text-muted-foreground">{captions[i]}</p>
               )}
             </div>
-          </label>
+          </div>
         ))}
-      </div>
+      </RadioGroup>
     </div>
   );
 };

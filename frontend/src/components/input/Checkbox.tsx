@@ -1,6 +1,8 @@
 import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
 import { useWidgetValue } from "../../context/WidgetStore";
+import { Checkbox as ShadcnCheckbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 
 export const Checkbox: React.FC<NodeComponentProps> = ({
   nodeId,
@@ -10,22 +12,22 @@ export const Checkbox: React.FC<NodeComponentProps> = ({
   const { label, disabled, help } = props;
   const [checked, setChecked] = useWidgetValue(nodeId, !!props.value);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setChecked(e.target.checked);
-    sendEvent(nodeId, e.target.checked, { noRerun: props.noRerun });
+  const handleChange = (value: boolean) => {
+    setChecked(value);
+    sendEvent(nodeId, value, { noRerun: props.noRerun });
   };
 
   return (
     <div className="mb-3 flex items-center gap-2" title={help || undefined}>
-      <input
-        type="checkbox"
+      <ShadcnCheckbox
+        id={nodeId}
         checked={checked}
-        onChange={handleChange}
+        onCheckedChange={handleChange}
         disabled={!!disabled}
-        className={`h-4 w-4 rounded border-gray-300 text-blue-600
-                   focus:ring-2 focus:ring-blue-500${disabled ? " opacity-50 cursor-not-allowed" : ""}`}
       />
-      <label className="text-sm text-gray-700">{label}</label>
+      <Label htmlFor={nodeId} className="cursor-pointer">
+        {label}
+      </Label>
     </div>
   );
 };

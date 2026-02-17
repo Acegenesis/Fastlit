@@ -1,6 +1,8 @@
 import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
 import { useWidgetValue } from "../../context/WidgetStore";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export const TextInput: React.FC<NodeComponentProps> = ({
   nodeId,
@@ -19,12 +21,13 @@ export const TextInput: React.FC<NodeComponentProps> = ({
     sendEvent(nodeId, val, { noRerun: props.noRerun });
   };
 
+  const charCount = typeof value === "string" ? value.length : 0;
+
   return (
-    <div className="mb-3" title={help || undefined}>
-      <label className="block text-sm font-medium text-gray-700 mb-1">
-        {label}
-      </label>
-      <input
+    <div className="mb-3 space-y-1.5" title={help || undefined}>
+      <Label htmlFor={nodeId}>{label}</Label>
+      <Input
+        id={nodeId}
         type={inputType === "password" ? "password" : "text"}
         value={value}
         onChange={handleChange}
@@ -32,10 +35,12 @@ export const TextInput: React.FC<NodeComponentProps> = ({
         maxLength={maxChars ?? undefined}
         disabled={!!disabled}
         autoComplete={autocomplete || undefined}
-        className={`w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm
-                   focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-                   text-sm${disabled ? " opacity-50 bg-gray-100 cursor-not-allowed" : ""}`}
       />
+      {(maxChars || charCount > 0) && (
+        <p className="text-xs text-muted-foreground text-right">
+          {charCount}{maxChars ? ` / ${maxChars}` : ""} chars
+        </p>
+      )}
     </div>
   );
 };

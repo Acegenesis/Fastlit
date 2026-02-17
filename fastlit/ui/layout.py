@@ -6,12 +6,61 @@ st.form, st.form_submit_button, st.popover, st.empty, st.divider.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Sequence
+from typing import Callable, Sequence
 
-from fastlit.runtime.containers import container_context
 from fastlit.runtime.context import get_current_session
 from fastlit.runtime.tree import UINode
 from fastlit.ui.base import _make_id, _emit_node
+
+
+# ---------------------------------------------------------------------------
+# Base Container Proxy — eliminates duplicate __enter__/__exit__/__getattr__
+# ---------------------------------------------------------------------------
+
+class _ContainerProxy:
+    """Base class for container context managers.
+
+    Consolidates the common pattern of:
+    - __enter__: optionally append node to tree, push as container
+    - __exit__: pop container from tree
+    - __getattr__: wrap st.* functions to run within container context
+    """
+
+    _node: UINode
+    _append_on_enter: bool = True   # Whether to append node to tree on enter
+    _clear_on_enter: bool = False   # Whether to clear children on enter
+    _clear_on_call: bool = False    # Whether to clear children when calling methods
+    _name: str = "Container"        # Name for error messages
+
+    def __init__(self, node: UINode) -> None:
+        self._node = node
+
+    def __enter__(self):
+        session = get_current_session()
+        tree = session.current_tree
+        if self._clear_on_enter:
+            self._node.children.clear()
+        if self._append_on_enter:
+            tree.append(self._node)
+        tree.push_container(self._node)
+        return self
+
+    def __exit__(self, *args):
+        get_current_session().current_tree.pop_container()
+
+    def __getattr__(self, name: str):
+        import fastlit as st
+
+        func = getattr(st, name, None)
+        if func is None:
+            raise AttributeError(f"{self._name} has no attribute '{name}'")
+
+        def wrapper(*a, **kw):
+            with self:
+                if self._clear_on_call:
+                    self._node.children.clear()
+                return func(*a, **kw)
+        return wrapper
 
 
 # ---------------------------------------------------------------------------
@@ -35,14 +84,12 @@ class _SidebarProxy:
     ``with st.sidebar:`` work like in Streamlit."""
 
     def __enter__(self):
-        session = get_current_session()
         node = _get_or_create_sidebar()
-        session.current_tree.push_container(node)
+        get_current_session().current_tree.push_container(node)
         return self
 
     def __exit__(self, *args):
-        session = get_current_session()
-        session.current_tree.pop_container()
+        get_current_session().current_tree.pop_container()
 
     def __getattr__(self, name: str):
         import fastlit as st
@@ -65,33 +112,15 @@ sidebar = _SidebarProxy()
 #                        border=False)
 # ---------------------------------------------------------------------------
 
-class Column:
+class Column(_ContainerProxy):
     """A single column returned by st.columns(). Used as a context manager."""
 
+    _append_on_enter = False  # Parent columns node handles appending
+    _name = "Column"
+
     def __init__(self, node: UINode, parent_node: UINode) -> None:
-        self._node = node
+        super().__init__(node)
         self._parent = parent_node
-
-    def __enter__(self):
-        session = get_current_session()
-        session.current_tree.push_container(self._node)
-        return self
-
-    def __exit__(self, *args):
-        session = get_current_session()
-        session.current_tree.pop_container()
-
-    def __getattr__(self, name: str):
-        import fastlit as st
-
-        func = getattr(st, name, None)
-        if func is None:
-            raise AttributeError(f"Column has no attribute '{name}'")
-
-        def wrapper(*a, **kw):
-            with self:
-                return func(*a, **kw)
-        return wrapper
 
 
 def columns(
@@ -145,32 +174,11 @@ def columns(
 # Tabs — st.tabs(tabs, *, default=None)
 # ---------------------------------------------------------------------------
 
-class Tab:
+class Tab(_ContainerProxy):
     """A single tab returned by st.tabs(). Used as a context manager."""
 
-    def __init__(self, node: UINode) -> None:
-        self._node = node
-
-    def __enter__(self):
-        session = get_current_session()
-        session.current_tree.push_container(self._node)
-        return self
-
-    def __exit__(self, *args):
-        session = get_current_session()
-        session.current_tree.pop_container()
-
-    def __getattr__(self, name: str):
-        import fastlit as st
-
-        func = getattr(st, name, None)
-        if func is None:
-            raise AttributeError(f"Tab has no attribute '{name}'")
-
-        def wrapper(*a, **kw):
-            with self:
-                return func(*a, **kw)
-        return wrapper
+    _append_on_enter = False  # Parent tabs node handles appending
+    _name = "Tab"
 
 
 def tabs(
@@ -211,34 +219,10 @@ def tabs(
 # Expander — st.expander(label, expanded=False, *, icon=None)
 # ---------------------------------------------------------------------------
 
-class Expander:
+class Expander(_ContainerProxy):
     """An expandable/collapsible section. Used as a context manager."""
 
-    def __init__(self, node: UINode) -> None:
-        self._node = node
-
-    def __enter__(self):
-        session = get_current_session()
-        tree = session.current_tree
-        tree.append(self._node)
-        tree.push_container(self._node)
-        return self
-
-    def __exit__(self, *args):
-        session = get_current_session()
-        session.current_tree.pop_container()
-
-    def __getattr__(self, name: str):
-        import fastlit as st
-
-        func = getattr(st, name, None)
-        if func is None:
-            raise AttributeError(f"Expander has no attribute '{name}'")
-
-        def wrapper(*a, **kw):
-            with self:
-                return func(*a, **kw)
-        return wrapper
+    _name = "Expander"
 
 
 def expander(
@@ -262,34 +246,10 @@ def expander(
 # Container — st.container(*, border=None, key=None, height=None)
 # ---------------------------------------------------------------------------
 
-class Container:
+class Container(_ContainerProxy):
     """A generic container. Used as a context manager."""
 
-    def __init__(self, node: UINode) -> None:
-        self._node = node
-
-    def __enter__(self):
-        session = get_current_session()
-        tree = session.current_tree
-        tree.append(self._node)
-        tree.push_container(self._node)
-        return self
-
-    def __exit__(self, *args):
-        session = get_current_session()
-        session.current_tree.pop_container()
-
-    def __getattr__(self, name: str):
-        import fastlit as st
-
-        func = getattr(st, name, None)
-        if func is None:
-            raise AttributeError(f"Container has no attribute '{name}'")
-
-        def wrapper(*a, **kw):
-            with self:
-                return func(*a, **kw)
-        return wrapper
+    _name = "Container"
 
 
 def container(
@@ -312,43 +272,21 @@ def container(
 # Empty — st.empty()
 # ---------------------------------------------------------------------------
 
-class Empty:
+class Empty(_ContainerProxy):
     """A single-element placeholder that can be updated or cleared.
 
     Supports ``with st.empty():`` and direct method calls like
     ``placeholder.write(...)``.
     """
 
-    def __init__(self, node: UINode) -> None:
-        self._node = node
-
-    def __enter__(self):
-        session = get_current_session()
-        tree = session.current_tree
-        self._node.children.clear()
-        tree.push_container(self._node)
-        return self
-
-    def __exit__(self, *args):
-        session = get_current_session()
-        session.current_tree.pop_container()
+    _append_on_enter = False  # Already appended in empty() function
+    _clear_on_enter = True    # Clear children when entering context
+    _clear_on_call = True     # Clear children when calling methods
+    _name = "Empty"
 
     def empty(self):
         """Clear the placeholder."""
         self._node.children.clear()
-
-    def __getattr__(self, name: str):
-        import fastlit as st
-
-        func = getattr(st, name, None)
-        if func is None:
-            raise AttributeError(f"Empty has no attribute '{name}'")
-
-        def wrapper(*a, **kw):
-            with self:
-                self._node.children.clear()
-                return func(*a, **kw)
-        return wrapper
 
 
 def empty() -> Empty:
@@ -365,34 +303,10 @@ def empty() -> Empty:
 #                  border=True)
 # ---------------------------------------------------------------------------
 
-class Form:
+class Form(_ContainerProxy):
     """A form container that batches widget values until submitted."""
 
-    def __init__(self, node: UINode) -> None:
-        self._node = node
-
-    def __enter__(self):
-        session = get_current_session()
-        tree = session.current_tree
-        tree.append(self._node)
-        tree.push_container(self._node)
-        return self
-
-    def __exit__(self, *args):
-        session = get_current_session()
-        session.current_tree.pop_container()
-
-    def __getattr__(self, name: str):
-        import fastlit as st
-
-        func = getattr(st, name, None)
-        if func is None:
-            raise AttributeError(f"Form has no attribute '{name}'")
-
-        def wrapper(*a, **kw):
-            with self:
-                return func(*a, **kw)
-        return wrapper
+    _name = "Form"
 
 
 def form(
@@ -501,34 +415,10 @@ def dialog(
 # Popover — st.popover(label, *, help=None, disabled=False)
 # ---------------------------------------------------------------------------
 
-class Popover:
+class Popover(_ContainerProxy):
     """A popover container triggered by a button."""
 
-    def __init__(self, node: UINode) -> None:
-        self._node = node
-
-    def __enter__(self):
-        session = get_current_session()
-        tree = session.current_tree
-        tree.append(self._node)
-        tree.push_container(self._node)
-        return self
-
-    def __exit__(self, *args):
-        session = get_current_session()
-        session.current_tree.pop_container()
-
-    def __getattr__(self, name: str):
-        import fastlit as st
-
-        func = getattr(st, name, None)
-        if func is None:
-            raise AttributeError(f"Popover has no attribute '{name}'")
-
-        def wrapper(*a, **kw):
-            with self:
-                return func(*a, **kw)
-        return wrapper
+    _name = "Popover"
 
 
 def popover(

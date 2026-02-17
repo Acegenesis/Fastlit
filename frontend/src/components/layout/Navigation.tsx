@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef } from "react";
 import type { NodeComponentProps } from "../../registry/registry";
 import { useWidgetValue } from "../../context/WidgetStore";
 
@@ -14,11 +14,24 @@ export const Navigation: React.FC<NodeComponentProps> = ({
     opts[props.index ?? 0] ?? "",
   );
   const currentIndex = Math.max(0, opts.indexOf(value));
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const handleClick = (i: number) => {
     if (disabled) return;
+    clearTimeout(hoverTimerRef.current); // Cancel any pending prefetch
     setValue(opts[i] ?? "");
     sendEvent(nodeId, i);
+  };
+
+  const handleMouseEnter = (i: number) => {
+    if (disabled || i === currentIndex) return;
+    hoverTimerRef.current = setTimeout(() => {
+      sendEvent(nodeId, i, { prefetch: true });
+    }, 100);
+  };
+
+  const handleMouseLeave = () => {
+    clearTimeout(hoverTimerRef.current);
   };
 
   return (
@@ -29,6 +42,8 @@ export const Navigation: React.FC<NodeComponentProps> = ({
           <button
             key={i}
             onClick={() => handleClick(i)}
+            onMouseEnter={() => handleMouseEnter(i)}
+            onMouseLeave={handleMouseLeave}
             disabled={!!disabled}
             className={`text-left py-2 px-3 text-sm rounded-md transition-colors ${
               isActive

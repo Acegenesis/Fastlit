@@ -1,6 +1,8 @@
 import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
 import { useWidgetValue } from "../../context/WidgetStore";
+import { Slider as ShadcnSlider } from "@/components/ui/slider";
+import { Label } from "@/components/ui/label";
 
 export const Slider: React.FC<NodeComponentProps> = ({
   nodeId,
@@ -10,35 +12,29 @@ export const Slider: React.FC<NodeComponentProps> = ({
   const { label, min, max, step, disabled, help } = props;
   const [value, setValue] = useWidgetValue(nodeId, props.value);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (values: number[]) => {
     if (disabled) return;
-    const val = parseFloat(e.target.value);
+    const val = values[0];
     setValue(val);
     sendEvent(nodeId, val, { noRerun: props.noRerun });
   };
 
   return (
-    <div className="mb-3" title={help || undefined}>
-      <label className="block text-sm font-medium text-gray-700 mb-1">
-        {label}
-      </label>
-      <div className="flex items-center gap-3">
-        <input
-          type="range"
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          onChange={handleChange}
-          disabled={!!disabled}
-          className={`flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600${
-            disabled ? " opacity-50 cursor-not-allowed" : ""
-          }`}
-        />
-        <span className="text-sm font-mono text-gray-600 min-w-[3rem] text-right">
+    <div className="mb-3 space-y-3" title={help || undefined}>
+      <div className="flex items-center justify-between">
+        <Label>{label}</Label>
+        <span className="text-sm font-mono text-muted-foreground min-w-[3rem] text-right">
           {value}
         </span>
       </div>
+      <ShadcnSlider
+        value={[value]}
+        onValueChange={handleChange}
+        min={min}
+        max={max}
+        step={step}
+        disabled={!!disabled}
+      />
     </div>
   );
 };

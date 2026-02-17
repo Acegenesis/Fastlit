@@ -1,5 +1,12 @@
 import React, { useState } from "react";
 import type { NodeComponentProps } from "../../registry/registry";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { ChevronDown } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export const Expander: React.FC<NodeComponentProps> = ({
   props,
@@ -9,31 +16,19 @@ export const Expander: React.FC<NodeComponentProps> = ({
   const [open, setOpen] = useState<boolean>(!!defaultExpanded);
 
   return (
-    <div className="mb-3 border border-gray-200 rounded-md">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-4 py-2 text-sm font-medium
-                   text-gray-700 hover:bg-gray-50 transition-colors"
-      >
-        <span>
-          {icon && <span className="mr-2">{icon}</span>}
+    <Collapsible open={open} onOpenChange={setOpen} className="mb-3 border rounded-md">
+      <CollapsibleTrigger className="w-full flex items-center justify-between px-4 py-2 text-sm font-medium hover:bg-accent transition-colors">
+        <span className="flex items-center gap-2">
+          {icon && <span>{icon}</span>}
           {label}
         </span>
-        <svg
-          className={`w-4 h-4 transition-transform ${open ? "rotate-180" : ""}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-      {open && (
-        <div className="px-4 pb-3 pt-1 border-t border-gray-100">
-          {children}
-        </div>
-      )}
-    </div>
+        <ChevronDown
+          className={cn("h-4 w-4 transition-transform", open && "rotate-180")}
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent className="px-4 pb-3 pt-1 border-t">
+        {children}
+      </CollapsibleContent>
+    </Collapsible>
   );
 };

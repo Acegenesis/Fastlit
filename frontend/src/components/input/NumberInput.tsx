@@ -1,6 +1,10 @@
 import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
 import { useWidgetValue } from "../../context/WidgetStore";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Minus, Plus } from "lucide-react";
 
 export const NumberInput: React.FC<NodeComponentProps> = ({
   nodeId,
@@ -37,22 +41,19 @@ export const NumberInput: React.FC<NodeComponentProps> = ({
   };
 
   return (
-    <div className="mb-3" title={help || undefined}>
-      <label className="block text-sm font-medium text-gray-700 mb-1">
-        {label}
-      </label>
-      <div className="flex items-center gap-1">
-        <button
+    <div className="mb-3 space-y-1.5" title={help || undefined}>
+      <Label>{label}</Label>
+      <div className="flex items-center">
+        <Button
+          variant="outline"
+          size="icon"
           onClick={() => increment(-1)}
           disabled={!!disabled}
-          className={`px-2 py-2 border border-gray-300 rounded-l-md bg-gray-50
-                     hover:bg-gray-100 text-gray-600 text-sm${
-                       disabled ? " opacity-50 cursor-not-allowed" : ""
-                     }`}
+          className="rounded-r-none"
         >
-          −
-        </button>
-        <input
+          <Minus className="h-4 w-4" />
+        </Button>
+        <Input
           type="number"
           value={value}
           onChange={handleChange}
@@ -61,23 +62,17 @@ export const NumberInput: React.FC<NodeComponentProps> = ({
           step={step ?? undefined}
           disabled={!!disabled}
           placeholder={placeholder || undefined}
-          className={`w-24 px-3 py-2 border-t border-b border-gray-300 text-center
-                     focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-                     text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none
-                     [&::-webkit-inner-spin-button]:appearance-none${
-                       disabled ? " opacity-50 bg-gray-100 cursor-not-allowed" : ""
-                     }`}
+          className="w-24 rounded-none text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
         />
-        <button
+        <Button
+          variant="outline"
+          size="icon"
           onClick={() => increment(1)}
           disabled={!!disabled}
-          className={`px-2 py-2 border border-gray-300 rounded-r-md bg-gray-50
-                     hover:bg-gray-100 text-gray-600 text-sm${
-                       disabled ? " opacity-50 cursor-not-allowed" : ""
-                     }`}
+          className="rounded-l-none"
         >
-          +
-        </button>
+          <Plus className="h-4 w-4" />
+        </Button>
       </div>
     </div>
   );

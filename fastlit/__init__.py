@@ -7,7 +7,7 @@ Usage:
 
 from __future__ import annotations
 
-from fastlit.ui.text import title, header, subheader, markdown, write, text, metric, json
+from fastlit.ui.text import title, header, subheader, markdown, write, text, metric, json, code, caption, latex, echo
 from fastlit.ui.widgets import (
     button,
     slider,
@@ -17,6 +17,17 @@ from fastlit.ui.widgets import (
     selectbox,
     radio,
     number_input,
+    multiselect,
+    date_input,
+    time_input,
+    toggle,
+    color_picker,
+    link_button,
+    page_link,
+    download_button,
+    select_slider,
+    file_uploader,
+    UploadedFile,
 )
 from fastlit.ui.layout import (
     sidebar,
@@ -54,6 +65,19 @@ from fastlit.ui.media import (
     video,
     logo,
     pdf,
+)
+from fastlit.ui.status import (
+    success,
+    info,
+    warning,
+    error,
+    exception,
+    progress,
+    spinner,
+    status,
+    toast,
+    balloons,
+    snow,
 )
 from fastlit.ui.state import _get_session_state
 from fastlit.runtime.session import RerunException
@@ -110,7 +134,53 @@ def rerun() -> None:
     raise RerunException()
 
 
+class StopException(Exception):
+    """Raised to stop script execution."""
+    pass
+
+
+def stop() -> None:
+    """Stop execution of the script.
+
+    After calling st.stop(), no more elements will be rendered.
+    """
+    raise StopException()
+
+
+def set_page_config(
+    page_title: str | None = None,
+    page_icon: str | None = None,
+    layout: str = "centered",
+    initial_sidebar_state: str = "auto",
+    menu_items: dict | None = None,
+) -> None:
+    """Configure the page settings.
+
+    Must be called before any other Streamlit commands.
+
+    Args:
+        page_title: The page title shown in the browser tab.
+        page_icon: The page icon (emoji or image URL).
+        layout: Page layout ("centered" or "wide").
+        initial_sidebar_state: Initial sidebar state ("auto", "expanded", "collapsed").
+        menu_items: Custom menu items dict with keys "Get Help", "Report a bug", "About".
+    """
+    from fastlit.ui.base import _emit_node
+
+    _emit_node(
+        "page_config",
+        {
+            "pageTitle": page_title,
+            "pageIcon": page_icon,
+            "layout": layout,
+            "initialSidebarState": initial_sidebar_state,
+            "menuItems": menu_items,
+        },
+    )
+
+
 __all__ = [
+    # Text elements
     "title",
     "header",
     "subheader",
@@ -119,6 +189,11 @@ __all__ = [
     "text",
     "metric",
     "json",
+    "code",
+    "caption",
+    "latex",
+    "echo",
+    # Input widgets
     "button",
     "slider",
     "text_input",
@@ -127,10 +202,23 @@ __all__ = [
     "selectbox",
     "radio",
     "number_input",
+    "multiselect",
+    "date_input",
+    "time_input",
+    "toggle",
+    "color_picker",
+    "link_button",
+    "page_link",
+    "download_button",
+    "select_slider",
+    "file_uploader",
+    "UploadedFile",
+    # Data display
     "dataframe",
     "data_editor",
     "table",
     "column_config",
+    # Charts
     "line_chart",
     "bar_chart",
     "area_chart",
@@ -143,11 +231,13 @@ __all__ = [
     "bokeh_chart",
     "graphviz_chart",
     "pydeck_chart",
+    # Media
     "image",
     "audio",
     "video",
     "logo",
     "pdf",
+    # Layout
     "sidebar",
     "columns",
     "container",
@@ -160,6 +250,21 @@ __all__ = [
     "popover",
     "divider",
     "navigation",
+    # State
     "session_state",
     "rerun",
+    "stop",
+    "set_page_config",
+    # Status elements
+    "success",
+    "info",
+    "warning",
+    "error",
+    "exception",
+    "progress",
+    "spinner",
+    "status",
+    "toast",
+    "balloons",
+    "snow",
 ]
