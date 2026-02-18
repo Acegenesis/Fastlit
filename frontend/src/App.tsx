@@ -271,6 +271,8 @@ export const App: React.FC = () => {
         if (urlIdx >= 0) {
           // URL matches a known page — use it (page reload case)
           currentPageRef.current = currentUrlSlug;
+          // Update widget store so Navigation component shows correct selection
+          storeRef.current.set(navNode.id, opts[urlIdx]);
           // Tell server to switch to this page so the next response is correct
           if (urlIdx !== (responseNavIndex ?? 0)) {
             setIsNavigating(true);
