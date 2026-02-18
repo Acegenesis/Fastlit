@@ -30,8 +30,32 @@ function getPageFromUrl(): string {
   return decodeURIComponent(window.location.pathname.slice(1));
 }
 
-// Page cache for instant navigation
+// Page cache for instant navigation (LRU, max 20 entries)
 type PageCache = Map<string, UINode[]>;
+const PAGE_CACHE_MAX = 20;
+
+/** Set a page in the cache, evicting oldest if over limit */
+function setCacheEntry(cache: PageCache, slug: string, content: UINode[]) {
+  cache.delete(slug); // remove first so re-insert puts it at end (most recent)
+  cache.set(slug, content);
+  while (cache.size > PAGE_CACHE_MAX) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+    else break;
+  }
+}
+
+/** Collect all widget IDs from a UI tree (for orphan cleanup) */
+function collectIds(node: UINode): Set<string> {
+  const ids = new Set<string>();
+  const stack = [node];
+  while (stack.length) {
+    const n = stack.pop()!;
+    ids.add(n.id);
+    if (n.children) stack.push(...n.children);
+  }
+  return ids;
+}
 
 export const App: React.FC = () => {
   const [tree, setTree] = useState<UINode | null>(null);
@@ -246,7 +270,7 @@ export const App: React.FC = () => {
       // Cache the content for this page (always cache, even if not displaying)
       if (responseSlug && msg.tree?.children) {
         const mainContent = msg.tree.children.filter((c) => c.type !== "sidebar");
-        pageCacheRef.current.set(responseSlug, mainContent);
+        setCacheEntry(pageCacheRef.current,responseSlug, mainContent);
       }
 
       // Only display if this response is for the current page
@@ -295,7 +319,7 @@ export const App: React.FC = () => {
           const currentSlug = currentPageRef.current;
           if (currentSlug && patched?.children) {
             const mainContent = patched.children.filter((c) => c.type !== "sidebar");
-            pageCacheRef.current.set(currentSlug, mainContent);
+            setCacheEntry(pageCacheRef.current,currentSlug, mainContent);
           }
 
           return patched;
@@ -311,7 +335,7 @@ export const App: React.FC = () => {
     return () => ws.disconnect();
   }, []);
 
-  // Cache current page content when tree changes
+  // Cache current page content + clean orphan debounce timers when tree changes
   useEffect(() => {
     if (!tree?.children) return;
 
@@ -323,7 +347,19 @@ export const App: React.FC = () => {
     if (currentSlug) {
       const mainContent = tree.children.filter((c) => c.type !== "sidebar");
       if (mainContent.length > 0) {
-        pageCacheRef.current.set(currentSlug, mainContent);
+        setCacheEntry(pageCacheRef.current, currentSlug, mainContent);
+      }
+    }
+
+    // Clean debounce timers for widgets no longer in the tree
+    if (debounceTimersRef.current.size > 0) {
+      const activeIds = collectIds(tree);
+      for (const [widgetId, timer] of debounceTimersRef.current.entries()) {
+        if (!activeIds.has(widgetId)) {
+          clearTimeout(timer);
+          debounceTimersRef.current.delete(widgetId);
+          pendingValuesRef.current.delete(widgetId);
+        }
       }
     }
   }, [tree]);
