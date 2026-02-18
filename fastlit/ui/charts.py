@@ -514,28 +514,51 @@ def plotly_chart(
     *,
     use_container_width: bool = True,
     theme: str | None = "streamlit",
+    on_select: Any = None,
     key: str | None = None,
-) -> None:
+) -> list[int] | None:
     """Display a Plotly chart.
 
     Args:
         figure_or_data: A Plotly figure or dict/list of traces.
         use_container_width: If True, use full container width.
         theme: Chart theme ("streamlit" or None).
+        on_select: Callback called with selected point indices when the user
+            selects points on the chart (box/lasso select). If provided, the
+            chart is rendered in selectable mode and this function returns the
+            list of selected point indices.
         key: Optional key for stable identity.
+
+    Returns:
+        List of selected point indices if on_select is set, else None.
     """
+    from fastlit.runtime.context import get_current_session
+
     # Convert Plotly figure to JSON
     spec = _plotly_to_spec(figure_or_data)
 
-    _emit_node(
+    selectable = on_select is not None
+    node = _emit_node(
         "plotly_chart",
         {
             "spec": spec,
             "useContainerWidth": use_container_width,
             "theme": theme,
+            "selectable": selectable,
         },
         key=key,
+        is_widget=selectable,
     )
+
+    if not selectable:
+        return None
+
+    # D2: Read selected indices from widget store
+    session = get_current_session()
+    selected = session.widget_store.get(node.id)
+    if selected is not None and on_select is not None:
+        on_select(selected)
+    return selected if selected is not None else []
 
 
 def _plotly_to_spec(figure_or_data: Any) -> dict:

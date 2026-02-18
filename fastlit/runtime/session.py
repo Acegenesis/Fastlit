@@ -42,6 +42,7 @@ class Session:
         self.script_path: str = script_path
         self.widget_store: dict[str, Any] = {}
         self.session_state: SessionState = SessionState()
+        self.query_params: dict[str, str] = {}
         self.current_tree: UITree | None = None
         self._previous_tree: UITree | None = None
         self.rev: int = 0
@@ -66,6 +67,11 @@ class Session:
             except RerunException:
                 # Script requested a rerun — discard partial tree and restart
                 clear_current_session()
+                continue
+            except SwitchPageException as spe:
+                # st.switch_page() — find the nav widget, update index, rerun
+                clear_current_session()
+                self._handle_switch_page(spe.page_name)
                 continue
             except _StopException:
                 # st.stop() — keep the tree built so far
@@ -109,6 +115,39 @@ class Session:
         self.widget_store[widget_id] = value
         return self.run()
 
+    def _handle_switch_page(self, page_name: str) -> None:
+        """Update widget store so the navigation widget selects the given page."""
+        # Search the previous tree for a navigation widget
+        if self._previous_tree is None:
+            return
+        nav_node = self._find_nav_node(self._previous_tree.root)
+        if nav_node is None:
+            return
+
+        # Match page_name to the pages list (case-insensitive slug match)
+        pages = nav_node.props.get("pages", nav_node.props.get("options", []))
+        target_slug = page_name.lower().replace(" ", "-").strip("/")
+
+        for idx, page in enumerate(pages):
+            slug = page.lower().replace(" ", "-").replace("/", "").strip()
+            if slug == target_slug or page.lower() == page_name.lower():
+                self.widget_store[nav_node.id] = idx
+                return
+
+    @staticmethod
+    def _find_nav_node(node: "UINode") -> "UINode | None":
+        """Find the navigation widget in the tree."""
+        from fastlit.runtime.tree import UINode
+        stack = [node]
+        while stack:
+            n = stack.pop()
+            if n.type in ("navigation", "radio"):
+                if "pages" in n.props or "options" in n.props:
+                    return n
+            for child in n.children:
+                stack.append(child)
+        return None
+
     def next_id_for_location(self, location: str) -> int:
         """Return and increment the per-location counter for the given file:line key."""
         val = self._id_counters.get(location, 0)
@@ -124,6 +163,14 @@ class RerunException(Exception):
 class StopException(Exception):
     """Raised by st.stop() to halt script execution."""
     pass
+
+
+class SwitchPageException(Exception):
+    """Raised by st.switch_page() to navigate to another page programmatically."""
+
+    def __init__(self, page_name: str) -> None:
+        self.page_name = page_name
+        super().__init__(f"Switch to page: {page_name}")
 
 
 # Private alias used internally to avoid name clashes with `fastlit.__init__`

@@ -7,7 +7,10 @@ Usage:
 
 from __future__ import annotations
 
-from fastlit.ui.text import title, header, subheader, markdown, write, text, metric, json, code, caption, latex, echo
+from fastlit.ui.text import (
+    title, header, subheader, markdown, write, text, metric, json, code,
+    caption, latex, echo, html, help, write_stream, badge,
+)
 from fastlit.ui.widgets import (
     button,
     slider,
@@ -28,6 +31,11 @@ from fastlit.ui.widgets import (
     select_slider,
     file_uploader,
     UploadedFile,
+    feedback,
+    pills,
+    segmented_control,
+    camera_input,
+    audio_input,
 )
 from fastlit.ui.layout import (
     sidebar,
@@ -42,7 +50,10 @@ from fastlit.ui.layout import (
     popover,
     divider,
     navigation,
+    switch_page,
+    set_sidebar_state,
 )
+from fastlit.ui.chat import chat_message, chat_input
 from fastlit.ui.dataframe import dataframe, data_editor, table
 from fastlit.ui import column_config
 from fastlit.ui.charts import (
@@ -79,10 +90,42 @@ from fastlit.ui.status import (
     balloons,
     snow,
 )
-from fastlit.ui.state import _get_session_state
+from fastlit.ui.state import _get_session_state, _QueryParamsProxy
+from fastlit.ui.secrets import _SecretsProxy
+from fastlit.ui.context import _ContextProxy
 from fastlit.runtime.session import RerunException, StopException
-from fastlit.runtime.context import get_current_session
+from fastlit.runtime.context import get_current_session, run_with_session_context, run_in_thread
 from fastlit.cache import cache_data, cache_resource
+
+
+# --- Lifecycle hooks (B3) ---
+
+def on_startup(fn):
+    """Decorator to register a function to call on ASGI startup.
+
+    Example::
+
+        @st.on_startup
+        def init_db():
+            db_pool = create_pool(...)
+    """
+    from fastlit.server.app import register_startup
+    register_startup(fn)
+    return fn
+
+
+def on_shutdown(fn):
+    """Decorator to register a function to call on ASGI shutdown.
+
+    Example::
+
+        @st.on_shutdown
+        async def close_db():
+            await db_pool.close()
+    """
+    from fastlit.server.app import register_shutdown
+    register_shutdown(fn)
+    return fn
 
 
 # --- session_state as a module-level property ---
@@ -155,6 +198,9 @@ class _SessionStateProxy:
 
 
 session_state = _SessionStateProxy()
+query_params = _QueryParamsProxy()
+secrets = _SecretsProxy()
+context = _ContextProxy()
 
 
 def rerun() -> None:
@@ -216,6 +262,10 @@ __all__ = [
     "caption",
     "latex",
     "echo",
+    "html",
+    "help",
+    "write_stream",
+    "badge",
     # Input widgets
     "button",
     "slider",
@@ -236,6 +286,14 @@ __all__ = [
     "select_slider",
     "file_uploader",
     "UploadedFile",
+    "feedback",
+    "pills",
+    "segmented_control",
+    "camera_input",
+    "audio_input",
+    # Chat
+    "chat_message",
+    "chat_input",
     # Data display
     "dataframe",
     "data_editor",
@@ -273,11 +331,22 @@ __all__ = [
     "popover",
     "divider",
     "navigation",
+    "switch_page",
+    "set_sidebar_state",
     # State
     "session_state",
+    "query_params",
     "rerun",
     "stop",
     "set_page_config",
+    # Runtime context & secrets
+    "secrets",
+    "context",
+    # Threading & lifecycle
+    "run_in_thread",
+    "run_with_session_context",
+    "on_startup",
+    "on_shutdown",
     # Cache
     "cache_data",
     "cache_resource",

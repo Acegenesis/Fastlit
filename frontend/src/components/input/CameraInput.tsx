@@ -1,0 +1,118 @@
+import React, { useRef, useState, useCallback } from "react";
+import type { NodeComponentProps } from "../../registry/registry";
+import { Label } from "@/components/ui/label";
+
+export const CameraInput: React.FC<NodeComponentProps> = ({
+  nodeId,
+  props,
+  sendEvent,
+}) => {
+  const { label, help, disabled, labelVisibility } = props;
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [captured, setCaptured] = useState<string | null>(null);
+
+  const startCamera = useCallback(async () => {
+    if (disabled) return;
+    try {
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user" },
+      });
+      setStream(mediaStream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+      }
+      setCaptured(null);
+    } catch {
+      // Camera access denied or unavailable
+    }
+  }, [disabled]);
+
+  const capture = useCallback(() => {
+    if (!videoRef.current || !canvasRef.current) return;
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0);
+
+    const dataUrl = canvas.toDataURL("image/png");
+    const base64 = dataUrl.split(",")[1];
+    setCaptured(dataUrl);
+
+    // Stop camera
+    stream?.getTracks().forEach((t) => t.stop());
+    setStream(null);
+
+    sendEvent(nodeId, {
+      name: "camera_capture.png",
+      type: "image/png",
+      content: base64,
+    });
+  }, [stream, nodeId, sendEvent]);
+
+  const clear = useCallback(() => {
+    setCaptured(null);
+    stream?.getTracks().forEach((t) => t.stop());
+    setStream(null);
+    sendEvent(nodeId, null);
+  }, [stream, nodeId, sendEvent]);
+
+  return (
+    <div className="mb-3" title={help || undefined}>
+      {labelVisibility !== "collapsed" && (
+        <Label
+          className={`mb-2 block ${
+            labelVisibility === "hidden" ? "sr-only" : ""
+          }`}
+        >
+          {label}
+        </Label>
+      )}
+
+      {captured ? (
+        <div className="space-y-2">
+          <img
+            src={captured}
+            alt="Captured"
+            className="rounded-md border max-w-sm"
+          />
+          <button
+            onClick={clear}
+            className="px-3 py-1 text-sm border rounded-md hover:bg-muted"
+          >
+            Retake
+          </button>
+        </div>
+      ) : stream ? (
+        <div className="space-y-2">
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className="rounded-md border max-w-sm"
+          />
+          <button
+            onClick={capture}
+            className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+          >
+            Capture
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={startCamera}
+          disabled={!!disabled}
+          className="px-4 py-2 text-sm border rounded-md hover:bg-muted disabled:opacity-50"
+        >
+          Open Camera
+        </button>
+      )}
+      <canvas ref={canvasRef} className="hidden" />
+    </div>
+  );
+};

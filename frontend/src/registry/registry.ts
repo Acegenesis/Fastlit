@@ -25,6 +25,8 @@ import { Text } from "../components/text/Text";
 import { Code } from "../components/text/Code";
 import { Caption } from "../components/text/Caption";
 import { Latex } from "../components/text/Latex";
+import { Html } from "../components/text/Html";
+import { Badge } from "../components/text/Badge";
 
 // ---- Input widgets ----
 import { Button } from "../components/input/Button";
@@ -45,6 +47,15 @@ import { DownloadButton } from "../components/input/DownloadButton";
 import { PageLink } from "../components/input/PageLink";
 import { SelectSlider } from "../components/input/SelectSlider";
 import { FileUploader } from "../components/input/FileUploader";
+import { Feedback } from "../components/input/Feedback";
+import { Pills } from "../components/input/Pills";
+import { SegmentedControl } from "../components/input/SegmentedControl";
+import { CameraInput } from "../components/input/CameraInput";
+import { AudioInput } from "../components/input/AudioInput";
+
+// ---- Chat elements ----
+import { ChatMessage } from "../components/chat/ChatMessage";
+import { ChatInput } from "../components/chat/ChatInput";
 
 // ---- Data elements ----
 import { DataFrame, Table } from "../components/data/DataFrame";
@@ -63,6 +74,8 @@ import {
   VegaLiteChart,
   Pyplot,
   GraphvizChart,
+  BokehChart,
+  PydeckChart,
 } from "../components/chart/LazyCharts";
 
 // ---- Media elements ----
@@ -99,6 +112,9 @@ import { Divider } from "../components/layout/Divider";
 import { Navigation } from "../components/layout/Navigation";
 import { PageConfig } from "../components/layout/PageConfig";
 
+// Control nodes that render nothing (processed by App.tsx as side-effects)
+const NullComponent: ComponentType<NodeComponentProps> = () => null as any;
+
 export interface SendEventOptions {
   noRerun?: boolean;
 }
@@ -120,6 +136,8 @@ const registry: Record<string, ComponentType<NodeComponentProps>> = {
   code: Code,
   caption: Caption,
   latex: Latex,
+  html: Html,
+  badge: Badge,
 
   // Input widgets
   button: Button,
@@ -140,6 +158,15 @@ const registry: Record<string, ComponentType<NodeComponentProps>> = {
   page_link: PageLink,
   select_slider: SelectSlider,
   file_uploader: FileUploader,
+  feedback: Feedback,
+  pills: Pills,
+  segmented_control: SegmentedControl,
+  camera_input: CameraInput,
+  audio_input: AudioInput,
+
+  // Chat elements
+  chat_message: ChatMessage,
+  chat_input: ChatInput,
 
   // Data elements
   dataframe: DataFrame,
@@ -158,6 +185,8 @@ const registry: Record<string, ComponentType<NodeComponentProps>> = {
   vega_lite_chart: VegaLiteChart,
   pyplot: Pyplot,
   graphviz_chart: GraphvizChart,
+  bokeh_chart: BokehChart,
+  pydeck_chart: PydeckChart,
 
   // Media elements
   image: Image,
@@ -182,6 +211,7 @@ const registry: Record<string, ComponentType<NodeComponentProps>> = {
   divider: Divider,
   navigation: Navigation,
   page_config: PageConfig,
+  sidebar_state: NullComponent,
 
   // Status elements
   alert: Alert,

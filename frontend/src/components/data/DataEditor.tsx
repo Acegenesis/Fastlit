@@ -18,6 +18,7 @@ interface DataEditorProps {
   numRows?: "fixed" | "dynamic";
   disabledColumns?: string[];
   columnConfig?: Record<string, any>;
+  rerunOnChange?: boolean;
 }
 
 const ROW_HEIGHT = 36;
@@ -38,6 +39,7 @@ export const DataEditor: React.FC<NodeComponentProps> = ({
     useContainerWidth = true,
     numRows = "fixed",
     disabledColumns = [],
+    rerunOnChange = false,
   } = props as DataEditorProps;
 
   const parentRef = useRef<HTMLDivElement>(null);
@@ -48,6 +50,8 @@ export const DataEditor: React.FC<NodeComponentProps> = ({
     row: number;
     col: number;
   } | null>(null);
+  // Buffered value during editing — only committed to rows on blur/Enter/Tab
+  const [editValue, setEditValue] = useState<string>("");
 
   // Calculate column widths
   const columnWidths = useMemo(() => {
@@ -101,24 +105,26 @@ export const DataEditor: React.FC<NodeComponentProps> = ({
       newRows[rowIdx][colIdx] = value;
       setRows(newRows);
 
-      // Send update to server
-      sendEvent(nodeId, { rows: newRows }, { noRerun: true });
+      // Send update to server; rerun if on_change is set
+      sendEvent(nodeId, { rows: newRows }, { noRerun: !rerunOnChange });
     },
-    [rows, nodeId, sendEvent]
+    [rows, nodeId, sendEvent, rerunOnChange]
   );
 
-  // Handle cell click to start editing
+  // Handle cell click to start editing — initializes the edit buffer
   const handleCellClick = useCallback(
     (rowIdx: number, colIdx: number, colName: string) => {
       if (disabledColumns.includes(colName)) return;
       setEditingCell({ row: rowIdx, col: colIdx });
+      setEditValue(String(rows[rowIdx]?.[colIdx] ?? ""));
     },
-    [disabledColumns]
+    [disabledColumns, rows]
   );
 
   // Handle blur to finish editing
   const handleBlur = useCallback(() => {
     setEditingCell(null);
+    setEditValue("");
   }, []);
 
   // Add row (for dynamic mode)
@@ -126,17 +132,17 @@ export const DataEditor: React.FC<NodeComponentProps> = ({
     const newRow = columns.map(() => "");
     const newRows = [...rows, newRow];
     setRows(newRows);
-    sendEvent(nodeId, { rows: newRows }, { noRerun: true });
-  }, [columns, rows, nodeId, sendEvent]);
+    sendEvent(nodeId, { rows: newRows }, { noRerun: !rerunOnChange });
+  }, [columns, rows, nodeId, sendEvent, rerunOnChange]);
 
   // Delete row
   const handleDeleteRow = useCallback(
     (rowIdx: number) => {
       const newRows = rows.filter((_, i) => i !== rowIdx);
       setRows(newRows);
-      sendEvent(nodeId, { rows: newRows }, { noRerun: true });
+      sendEvent(nodeId, { rows: newRows }, { noRerun: !rerunOnChange });
     },
-    [rows, nodeId, sendEvent]
+    [rows, nodeId, sendEvent, rerunOnChange]
   );
 
   if (columns.length === 0) {
@@ -253,23 +259,66 @@ export const DataEditor: React.FC<NodeComponentProps> = ({
                         handleCellClick(virtualRow.index, colIdx, col.name)
                       }
                     >
-                      {isEditing ? (
+                      {/* E1: boolean → native checkbox; E2: date/datetime → date picker */}
+                      {col.type === "boolean" ? (
+                        <div className="px-3 flex items-center">
+                          <input
+                            type="checkbox"
+                            checked={!!rowData[colIdx]}
+                            disabled={isDisabled}
+                            onChange={(e) =>
+                              handleCellChange(virtualRow.index, colIdx, e.target.checked)
+                            }
+                            className="w-4 h-4 accent-blue-500 cursor-pointer"
+                          />
+                        </div>
+                      ) : col.type === "date" || col.type === "datetime" ? (
+                        isEditing ? (
+                          <input
+                            type={col.type === "datetime" ? "datetime-local" : "date"}
+                            className="w-full h-full px-3 py-1 border-2 border-blue-500 outline-none bg-white text-sm"
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onBlur={(e) => {
+                              const committed = e.target.validity.valid ? editValue : "";
+                              handleCellChange(virtualRow.index, colIdx, committed);
+                              handleBlur();
+                            }}
+                            autoFocus
+                          />
+                        ) : (
+                          <span className="px-3 truncate">
+                            {formatCell(rowData[colIdx], col.type)}
+                          </span>
+                        )
+                      ) : isEditing ? (
                         <input
-                          type={col.type === "number" ? "number" : "text"}
-                          className="w-full h-full px-3 py-1 border-2 border-blue-500 outline-none bg-white"
-                          value={rowData[colIdx] ?? ""}
-                          onChange={(e) =>
-                            handleCellChange(
-                              virtualRow.index,
-                              colIdx,
-                              col.type === "number"
-                                ? parseFloat(e.target.value) || 0
-                                : e.target.value
-                            )
+                          type={
+                            col.type === "number" || col.type === "integer"
+                              ? "number"
+                              : "text"
                           }
-                          onBlur={handleBlur}
+                          className="w-full h-full px-3 py-1 border-2 border-blue-500 outline-none bg-white"
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onBlur={() => {
+                            const committed =
+                              col.type === "number" || col.type === "integer"
+                                ? parseFloat(editValue) || 0
+                                : editValue;
+                            handleCellChange(virtualRow.index, colIdx, committed);
+                            handleBlur();
+                          }}
                           onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === "Escape") {
+                            if (e.key === "Enter" || e.key === "Tab") {
+                              e.preventDefault();
+                              const committed =
+                                col.type === "number" || col.type === "integer"
+                                  ? parseFloat(editValue) || 0
+                                  : editValue;
+                              handleCellChange(virtualRow.index, colIdx, committed);
+                              handleBlur();
+                            } else if (e.key === "Escape") {
                               handleBlur();
                             }
                           }}

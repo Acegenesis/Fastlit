@@ -110,6 +110,7 @@ def data_editor(
         "editable": True,
         "numRows": num_rows,
         "disabledColumns": disabled_cols,
+        "rerunOnChange": on_change is not None,
     }
 
     if not (hide_index or False) and index is not None:
@@ -125,6 +126,13 @@ def data_editor(
     stored = session.widget_store.get(node.id)
 
     if stored is not None:
+        # Call on_change callback when data changed (A3: was silently ignored before)
+        if on_change is not None:
+            prev_key = f"_de_prev_{node.id}"
+            prev = session.widget_store.get(prev_key)
+            if prev != stored:
+                session.widget_store[prev_key] = stored
+                on_change()
         # Return edited data in original format
         return _deserialize_to_original(stored, data, columns)
 

@@ -418,6 +418,100 @@ def echo(code_location: str = "above") -> "EchoContext":
     return EchoContext(code_location)
 
 
+def html(body: str, *, width: str | int = "stretch") -> None:
+    """Display raw HTML in the app.
+
+    The HTML is sanitized on the client side for security.
+
+    Args:
+        body: The HTML string to display.
+        width: Element width - "stretch" (default), "content", or pixel value.
+    """
+    _emit_node("html", {"body": str(body), "width": width})
+
+
+def help(obj: Any) -> None:
+    """Display the documentation of a Python object.
+
+    Shows the object's type, signature (if callable), and docstring.
+
+    Args:
+        obj: The Python object to display help for.
+    """
+    import inspect
+
+    parts: list[str] = []
+
+    # Type info
+    obj_type = type(obj).__name__
+    obj_name = getattr(obj, "__name__", getattr(obj, "__qualname__", repr(obj)))
+    parts.append(f"# {obj_name}")
+    parts.append(f"**Type:** `{obj_type}`")
+
+    # Signature for callables
+    if callable(obj):
+        try:
+            sig = inspect.signature(obj)
+            parts.append(f"**Signature:** `{obj_name}{sig}`")
+        except (ValueError, TypeError):
+            pass
+
+    # Docstring
+    doc = inspect.getdoc(obj)
+    if doc:
+        parts.append(f"\n{doc}")
+    else:
+        parts.append("\n*No documentation available.*")
+
+    _emit_node("markdown", {"text": "\n\n".join(parts)})
+
+
+def write_stream(stream: Any) -> str:
+    """Consume a generator/stream and display the concatenated result.
+
+    Compatible with Streamlit's st.write_stream() API. Iterates through
+    the stream, collects all chunks, and displays the final text as markdown.
+
+    Args:
+        stream: A generator, iterator, or any iterable that yields text chunks.
+
+    Returns:
+        The full concatenated text.
+    """
+    chunks: list[str] = []
+    for chunk in stream:
+        chunks.append(str(chunk))
+
+    full_text = "".join(chunks)
+    props = _process_text(full_text)
+    _emit_node("markdown", props)
+    return full_text
+
+
+def badge(
+    label: str,
+    *,
+    color: str = "blue",
+    icon: str | None = None,
+) -> None:
+    """Display an inline badge/tag.
+
+    Args:
+        label: The badge text.
+        color: Badge color - "blue" (default), "green", "red", "orange",
+            "violet", "yellow", "gray", "grey".
+        icon: Optional icon (emoji).
+    """
+    _emit_node(
+        "badge",
+        {
+            "label": str(label),
+            "color": color,
+            "icon": icon,
+        },
+    )
+
+
 class EchoContext:
     """Context manager for st.echo."""
 

@@ -16,6 +16,9 @@ type OnRenderPatch = (msg: RenderPatchMessage) => void;
 type OnError = (msg: ErrorMessage) => void;
 type OnStatusChange = (status: "connected" | "disconnected" | "connecting") => void;
 
+const BASE_DELAY = 2000;
+const MAX_DELAY = 30000;
+
 export class FastlitWS {
   private ws: WebSocket | null = null;
   private url: string;
@@ -24,6 +27,7 @@ export class FastlitWS {
   private onErrorCb: OnError | null = null;
   private onStatusChangeCb: OnStatusChange | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempts = 0;
 
   constructor(url?: string) {
     // Default: connect to same host on /ws
@@ -36,6 +40,7 @@ export class FastlitWS {
     this.ws = new WebSocket(this.url);
 
     this.ws.onopen = () => {
+      this.reconnectAttempts = 0; // reset backoff on successful connection
       this.onStatusChangeCb?.("connected");
     };
 
@@ -70,10 +75,13 @@ export class FastlitWS {
 
   private scheduleReconnect(): void {
     if (this.reconnectTimer) return;
+    // Exponential backoff: 2s → 4s → 8s → 16s → 30s (capped)
+    const delay = Math.min(BASE_DELAY * Math.pow(2, this.reconnectAttempts), MAX_DELAY);
+    this.reconnectAttempts++;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
-    }, 2000);
+    }, delay);
   }
 
   send(msg: WidgetEvent): void {

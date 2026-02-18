@@ -106,7 +106,7 @@ def slider(
     label: str,
     min_value: float | None = None,
     max_value: float | None = None,
-    value: float | None = None,
+    value: float | tuple[float, float] | None = None,
     step: float | None = None,
     format: str | None = None,
     key: str | None = None,
@@ -118,14 +118,15 @@ def slider(
     disabled: bool = False,
     label_visibility: str = "visible",
     width: str | int = "stretch",
-) -> float | int:
+) -> "float | int | tuple[float, float] | tuple[int, int]":
     """Display a slider widget.
 
     Args:
         label: Slider label (supports Markdown).
         min_value: Minimum value (default: 0).
         max_value: Maximum value (default: 100).
-        value: Initial value (default: min_value).
+        value: Initial value (default: min_value). Pass a tuple ``(lo, hi)``
+            for a range slider that returns two values.
         step: Step increment (default: 1 for int, 0.01 for float).
         format: Printf-style format string (e.g., "%d", "%.2f", "percent", "dollar").
         key: Unique widget key.
@@ -138,20 +139,33 @@ def slider(
         width: Slider width - "stretch" (default) or pixel value.
 
     Returns:
-        Current slider value (int or float based on input types).
+        Current slider value (int or float), or tuple for range sliders.
     """
     # Streamlit defaults: min=0, max=100 when all None
     if min_value is None:
         min_value = 0
     if max_value is None:
         max_value = 100
+
+    # Detect range mode
+    is_range = isinstance(value, (tuple, list))
+
     if value is None:
         value = min_value
+
+    if is_range:
+        lo, hi = value[0], value[1]
+        ref_val = lo
+    else:
+        ref_val = value
+
     if step is None:
-        if isinstance(min_value, int) and isinstance(max_value, int) and isinstance(value, int):
+        if isinstance(min_value, int) and isinstance(max_value, int) and isinstance(ref_val, int):
             step = 1
         else:
             step = (max_value - min_value) / 100
+
+    send_value = [lo, hi] if is_range else value
 
     node = _emit_node(
         "slider",
@@ -159,34 +173,42 @@ def slider(
             "label": label,
             "min": min_value,
             "max": max_value,
-            "value": value,
+            "value": send_value,
             "step": step,
             "format": format,
             "help": help,
             "disabled": disabled,
             "labelVisibility": label_visibility,
             "width": width,
+            "isRange": is_range,
         },
         key=key,
         is_widget=True,
         no_rerun=True,
     )
     session = get_current_session()
-    prev = session.widget_store.get(node.id, value)
-    current = prev
+    current = session.widget_store.get(node.id, send_value)
     node.props["value"] = current
-    if not isinstance(prev, type(value)) or prev != value:
-        _run_callback(on_change, args, kwargs)
-    # Return int if all parameters are integers
+
     is_int_slider = (
         isinstance(min_value, int)
         and isinstance(max_value, int)
-        and isinstance(value, int)
+        and isinstance(ref_val, int)
         and isinstance(step, int)
     )
-    if is_int_slider:
-        return WidgetValue(int(current), node.id)
-    return WidgetValue(float(current), node.id)
+
+    if is_range:
+        if isinstance(current, list) and len(current) == 2:
+            if is_int_slider:
+                return WidgetValue((int(current[0]), int(current[1])), node.id)
+            return WidgetValue((float(current[0]), float(current[1])), node.id)
+        if is_int_slider:
+            return WidgetValue((int(lo), int(hi)), node.id)
+        return WidgetValue((float(lo), float(hi)), node.id)
+    else:
+        if is_int_slider:
+            return WidgetValue(int(current), node.id)
+        return WidgetValue(float(current), node.id)
 
 
 # ---------------------------------------------------------------------------
@@ -1376,3 +1398,322 @@ class UploadedFile:
 
     def __repr__(self) -> str:
         return f"UploadedFile(name='{self.name}', size={self.size})"
+
+
+# ---------------------------------------------------------------------------
+# st.feedback
+# ---------------------------------------------------------------------------
+
+def feedback(
+    sentiment_mapping: dict[int, str] | str | None = None,
+    *,
+    key: str | None = None,
+    disabled: bool = False,
+    on_change: Callable | None = None,
+    args: list | tuple | None = None,
+    kwargs: dict | None = None,
+) -> int | None:
+    """Display a feedback widget (thumbs or stars).
+
+    Args:
+        sentiment_mapping: Either a dict mapping index to label,
+            or a preset string: "thumbs" (default), "faces", "stars".
+        key: Unique widget key.
+        disabled: If True, disable the widget.
+        on_change: Callback when selection changes.
+        args: Arguments to pass to the callback.
+        kwargs: Keyword arguments to pass to the callback.
+
+    Returns:
+        Index of the selected option, or None if nothing selected.
+    """
+    if sentiment_mapping is None:
+        sentiment_mapping = "thumbs"
+
+    if isinstance(sentiment_mapping, str):
+        preset = sentiment_mapping
+        options_map = None
+    else:
+        preset = "custom"
+        options_map = {str(k): v for k, v in sentiment_mapping.items()}
+
+    node = _emit_node(
+        "feedback",
+        {
+            "preset": preset,
+            "optionsMap": options_map,
+            "disabled": disabled,
+        },
+        key=key,
+        is_widget=True,
+    )
+
+    session = get_current_session()
+    selected = session.widget_store.get(node.id)
+    if selected is not None:
+        _run_callback(on_change, args, kwargs)
+        return int(selected)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# st.pills
+# ---------------------------------------------------------------------------
+
+def pills(
+    label: str,
+    options: Sequence,
+    *,
+    selection_mode: str = "single",
+    default: Any | Sequence | None = None,
+    format_func: Callable | None = None,
+    key: str | None = None,
+    help: str | None = None,
+    on_change: Callable | None = None,
+    args: list | tuple | None = None,
+    kwargs: dict | None = None,
+    disabled: bool = False,
+    label_visibility: str = "visible",
+) -> Any:
+    """Display a pill selector widget.
+
+    Args:
+        label: Widget label.
+        options: List of options.
+        selection_mode: "single" (default) or "multi".
+        default: Default selection(s).
+        format_func: Function to format option labels.
+        key: Unique widget key.
+        help: Tooltip text.
+        on_change: Callback when selection changes.
+        args: Arguments to pass to the callback.
+        kwargs: Keyword arguments to pass to the callback.
+        disabled: If True, disable the widget.
+        label_visibility: "visible" (default), "hidden", or "collapsed".
+
+    Returns:
+        Selected option (single mode) or list of options (multi mode).
+    """
+    raw_options = list(options)
+    if not raw_options:
+        return [] if selection_mode == "multi" else None
+
+    display_labels = _format_options(raw_options, format_func)
+    is_multi = selection_mode == "multi"
+
+    # Compute default indices
+    if default is None:
+        default_indices = [] if is_multi else None
+    elif is_multi:
+        default_indices = [raw_options.index(d) for d in default if d in raw_options]
+    else:
+        default_indices = raw_options.index(default) if default in raw_options else None
+
+    node = _emit_node(
+        "pills",
+        {
+            "label": label,
+            "options": display_labels,
+            "selectionMode": selection_mode,
+            "defaultIndices": default_indices,
+            "help": help,
+            "disabled": disabled,
+            "labelVisibility": label_visibility,
+        },
+        key=key,
+        is_widget=True,
+    )
+
+    session = get_current_session()
+    stored = session.widget_store.get(node.id, default_indices)
+
+    if is_multi:
+        if isinstance(stored, list):
+            return WidgetValue([raw_options[i] for i in stored if 0 <= i < len(raw_options)], node.id)
+        return WidgetValue([], node.id)
+    else:
+        if isinstance(stored, int) and 0 <= stored < len(raw_options):
+            return WidgetValue(raw_options[stored], node.id)
+        return WidgetValue(None, node.id)
+
+
+# ---------------------------------------------------------------------------
+# st.segmented_control
+# ---------------------------------------------------------------------------
+
+def segmented_control(
+    label: str,
+    options: Sequence,
+    *,
+    default: Any | None = None,
+    format_func: Callable | None = None,
+    selection_mode: str = "single",
+    key: str | None = None,
+    help: str | None = None,
+    on_change: Callable | None = None,
+    args: list | tuple | None = None,
+    kwargs: dict | None = None,
+    disabled: bool = False,
+    label_visibility: str = "visible",
+) -> Any:
+    """Display a segmented control (button group) widget.
+
+    Args:
+        label: Widget label.
+        options: List of options.
+        default: Default selection.
+        format_func: Function to format option labels.
+        selection_mode: "single" (default) or "multi".
+        key: Unique widget key.
+        help: Tooltip text.
+        on_change: Callback when selection changes.
+        args: Arguments to pass to the callback.
+        kwargs: Keyword arguments to pass to the callback.
+        disabled: If True, disable the widget.
+        label_visibility: "visible" (default), "hidden", or "collapsed".
+
+    Returns:
+        Selected option (single mode) or list of options (multi mode).
+    """
+    raw_options = list(options)
+    if not raw_options:
+        return [] if selection_mode == "multi" else None
+
+    display_labels = _format_options(raw_options, format_func)
+    is_multi = selection_mode == "multi"
+
+    if default is None:
+        default_idx = [] if is_multi else 0
+    elif is_multi:
+        default_idx = [raw_options.index(d) for d in default if d in raw_options]
+    else:
+        default_idx = raw_options.index(default) if default in raw_options else 0
+
+    node = _emit_node(
+        "segmented_control",
+        {
+            "label": label,
+            "options": display_labels,
+            "selectionMode": selection_mode,
+            "defaultIndex": default_idx,
+            "help": help,
+            "disabled": disabled,
+            "labelVisibility": label_visibility,
+        },
+        key=key,
+        is_widget=True,
+    )
+
+    session = get_current_session()
+    stored = session.widget_store.get(node.id, default_idx)
+
+    if is_multi:
+        if isinstance(stored, list):
+            return WidgetValue([raw_options[i] for i in stored if 0 <= i < len(raw_options)], node.id)
+        return WidgetValue([], node.id)
+    else:
+        if isinstance(stored, int) and 0 <= stored < len(raw_options):
+            return WidgetValue(raw_options[stored], node.id)
+        return WidgetValue(raw_options[0], node.id)
+
+
+# ---------------------------------------------------------------------------
+# st.camera_input
+# ---------------------------------------------------------------------------
+
+def camera_input(
+    label: str,
+    *,
+    key: str | None = None,
+    help: str | None = None,
+    disabled: bool = False,
+    on_change: Callable | None = None,
+    args: list | tuple | None = None,
+    kwargs: dict | None = None,
+    label_visibility: str = "visible",
+) -> "UploadedFile | None":
+    """Display a camera input widget for capturing photos.
+
+    Args:
+        label: Widget label.
+        key: Unique widget key.
+        help: Tooltip text.
+        disabled: If True, disable the widget.
+        on_change: Callback when photo is captured.
+        args: Arguments to pass to the callback.
+        kwargs: Keyword arguments to pass to the callback.
+        label_visibility: "visible" (default), "hidden", or "collapsed".
+
+    Returns:
+        Captured photo as UploadedFile, or None.
+    """
+    node = _emit_node(
+        "camera_input",
+        {
+            "label": label,
+            "help": help,
+            "disabled": disabled,
+            "labelVisibility": label_visibility,
+        },
+        key=key,
+        is_widget=True,
+    )
+
+    session = get_current_session()
+    stored = session.widget_store.get(node.id)
+
+    if stored and isinstance(stored, dict):
+        _run_callback(on_change, args, kwargs)
+        return _make_uploaded_file(stored)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# st.audio_input
+# ---------------------------------------------------------------------------
+
+def audio_input(
+    label: str,
+    *,
+    key: str | None = None,
+    help: str | None = None,
+    disabled: bool = False,
+    on_change: Callable | None = None,
+    args: list | tuple | None = None,
+    kwargs: dict | None = None,
+    label_visibility: str = "visible",
+) -> "UploadedFile | None":
+    """Display an audio recorder widget.
+
+    Args:
+        label: Widget label.
+        key: Unique widget key.
+        help: Tooltip text.
+        disabled: If True, disable the widget.
+        on_change: Callback when recording is captured.
+        args: Arguments to pass to the callback.
+        kwargs: Keyword arguments to pass to the callback.
+        label_visibility: "visible" (default), "hidden", or "collapsed".
+
+    Returns:
+        Recorded audio as UploadedFile, or None.
+    """
+    node = _emit_node(
+        "audio_input",
+        {
+            "label": label,
+            "help": help,
+            "disabled": disabled,
+            "labelVisibility": label_visibility,
+        },
+        key=key,
+        is_widget=True,
+    )
+
+    session = get_current_session()
+    stored = session.widget_store.get(node.id)
+
+    if stored and isinstance(stored, dict):
+        _run_callback(on_change, args, kwargs)
+        return _make_uploaded_file(stored)
+    return None

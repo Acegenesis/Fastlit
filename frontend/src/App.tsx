@@ -10,6 +10,7 @@ import { FastlitWS } from "./runtime/ws";
 import { applyPatch } from "./runtime/patcher";
 import { NodeRenderer } from "./registry/NodeRenderer";
 import { WidgetStoreProvider, WidgetStoreImpl } from "./context/WidgetStore";
+import { SidebarContext } from "./context/SidebarContext";
 import { Toaster } from "@/components/ui/sonner";
 import { PageSkeleton } from "./components/layout/PageSkeleton";
 import { cn } from "@/lib/utils";
@@ -62,6 +63,8 @@ export const App: React.FC = () => {
   const [error, setError] = useState<ErrorMessage | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [isNavigating, setIsNavigating] = useState(false);
+  const [layout, setLayout] = useState<string>("centered");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const wsRef = useRef<FastlitWS | null>(null);
   const storeRef = useRef(new WidgetStoreImpl());
 
@@ -86,6 +89,29 @@ export const App: React.FC = () => {
   const debounceTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const pendingValuesRef = useRef<Map<string, any>>(new Map());
   const DEBOUNCE_MS = 150;
+
+  // Listen for page-config events from PageConfig component (A1, A4)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { layout: l, initialSidebarState } = (e as CustomEvent).detail;
+      if (l) setLayout(l);
+      if (initialSidebarState === "collapsed") setSidebarCollapsed(true);
+      else if (initialSidebarState === "expanded") setSidebarCollapsed(false);
+    };
+    window.addEventListener("fastlit:page-config", handler);
+    return () => window.removeEventListener("fastlit:page-config", handler);
+  }, []);
+
+  // Listen for sidebar_state nodes from backend (C2)
+  // Backend emits a sidebar_state node via set_sidebar_state()
+  const handleSidebarStateNode = useCallback((nodes: UINode[]) => {
+    for (const node of nodes) {
+      if (node.type === "sidebar_state") {
+        if (node.props?.state === "collapsed") setSidebarCollapsed(true);
+        else if (node.props?.state === "expanded") setSidebarCollapsed(false);
+      }
+    }
+  }, []);
 
   // Flush pending widget values
   const flushPendingEvents = useCallback(() => {
@@ -214,6 +240,11 @@ export const App: React.FC = () => {
     ws.onStatusChange(setStatus);
 
     ws.onRenderFull((msg) => {
+      // Check for sidebar_state nodes
+      if (msg.tree?.children) {
+        handleSidebarStateNode(msg.tree.children);
+      }
+
       // Extract nav info from response
       const sidebar = msg.tree?.children?.find((c) => c.type === "sidebar");
       const navNode = sidebar?.children?.find(
@@ -270,7 +301,7 @@ export const App: React.FC = () => {
       // Cache the content for this page (always cache, even if not displaying)
       if (responseSlug && msg.tree?.children) {
         const mainContent = msg.tree.children.filter((c) => c.type !== "sidebar");
-        setCacheEntry(pageCacheRef.current,responseSlug, mainContent);
+        setCacheEntry(pageCacheRef.current, responseSlug, mainContent);
       }
 
       // Only display if this response is for the current page
@@ -315,11 +346,16 @@ export const App: React.FC = () => {
           if (!prev) return prev;
           const patched = applyPatch(prev, msg.ops);
 
+          // Check for sidebar_state in patched tree
+          if (patched?.children) {
+            handleSidebarStateNode(patched.children);
+          }
+
           // Update cache
           const currentSlug = currentPageRef.current;
           if (currentSlug && patched?.children) {
             const mainContent = patched.children.filter((c) => c.type !== "sidebar");
-            setCacheEntry(pageCacheRef.current,currentSlug, mainContent);
+            setCacheEntry(pageCacheRef.current, currentSlug, mainContent);
           }
 
           return patched;
@@ -333,7 +369,7 @@ export const App: React.FC = () => {
     ws.connect();
 
     return () => ws.disconnect();
-  }, []);
+  }, [handleSidebarStateNode]);
 
   // Cache current page content + clean orphan debounce timers when tree changes
   useEffect(() => {
@@ -428,62 +464,77 @@ export const App: React.FC = () => {
     return { sidebarNodes: sidebar, mainNodes: main };
   }, [tree]);
 
+  // Compute main content container classes + style.
+  // When a sidebar is present, use inline marginLeft (numeric px) so the
+  // 200ms CSS transition can interpolate between 256px and 0 — CSS cannot
+  // transition to/from "auto", so Tailwind ml-64 would jump instantly.
+  const mainClass = cn(
+    "layout-main",
+    layout === "wide" ? "!max-w-none" : "",
+    layout === "compact" ? "!py-3 !px-4" : "",
+  );
+  const mainStyle: React.CSSProperties = hasSidebar
+    ? { marginLeft: sidebarCollapsed ? 0 : 256, transition: "margin-left 200ms ease" }
+    : {};
+
   return (
     <WidgetStoreProvider store={storeRef.current}>
-      <Toaster position="bottom-right" />
+      <SidebarContext.Provider value={{ collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed }}>
+        <Toaster position="bottom-right" />
 
-      {sidebarNodes.map((node) => (
-        <NodeRenderer key={node.id} node={node} sendEvent={sendEvent} />
-      ))}
+        {sidebarNodes.map((node) => (
+          <NodeRenderer key={node.id} node={node} sendEvent={sendEvent} />
+        ))}
 
-      <div className={`${hasSidebar ? "ml-64" : ""} max-w-4xl mx-auto px-6 py-8`}>
-        {status === "connecting" && (
-          <div className="mb-4 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-700">
-            Connecting to Fastlit server...
-          </div>
-        )}
-        {status === "disconnected" && (
-          <div className="mb-4 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
-            Disconnected. Reconnecting...
-          </div>
-        )}
+        <div className={mainClass} style={mainStyle}>
+          {status === "connecting" && (
+            <div className="mb-4 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-700">
+              Connecting to Fastlit server...
+            </div>
+          )}
+          {status === "disconnected" && (
+            <div className="mb-4 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+              Disconnected. Reconnecting...
+            </div>
+          )}
 
-        {error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-300 rounded-lg">
-            <h3 className="text-red-800 font-semibold mb-1">Error</h3>
-            <p className="text-red-700 text-sm">{error.message}</p>
-            {error.traceback && (
-              <pre className="mt-2 text-xs text-red-600 bg-red-100 p-2 rounded overflow-auto">
-                {error.traceback}
-              </pre>
-            )}
-          </div>
-        )}
+          {error && (
+            <div className="mb-4 p-4 bg-red-50 border border-red-300 rounded-lg">
+              <h3 className="text-red-800 font-semibold mb-1">Error</h3>
+              <p className="text-red-700 text-sm">{error.message}</p>
+              {error.traceback && (
+                <pre className="mt-2 text-xs text-red-600 bg-red-100 p-2 rounded overflow-auto">
+                  {error.traceback}
+                </pre>
+              )}
+            </div>
+          )}
 
-        {/* Show skeleton while navigating to uncached page */}
-        {isNavigating && <PageSkeleton />}
+          {/* Show skeleton while navigating to uncached page */}
+          {isNavigating && <PageSkeleton />}
 
-        {/* Main content with fade transition */}
-        {tree && mainNodes.length > 0 && !isNavigating && (
-          <div
-            key={currentPageRef.current}
-            className={cn(
-              "transition-opacity duration-200 ease-in-out",
-              isPending ? "opacity-70" : "opacity-100"
-            )}
-          >
-            {mainNodes.map((node) => (
-              <NodeRenderer key={node.id} node={node} sendEvent={sendEvent} />
-            ))}
-          </div>
-        )}
+          {/* Main content with fade transition */}
+          {tree && mainNodes.length > 0 && !isNavigating && (
+            <div
+              key={currentPageRef.current}
+              className={cn(
+                "transition-opacity duration-200 ease-in-out",
+                isPending ? "opacity-70" : "opacity-100"
+              )}
+            >
+              {mainNodes.map((node) => (
+                <NodeRenderer key={node.id} node={node} sendEvent={sendEvent} />
+              ))}
+            </div>
+          )}
 
-        {!tree && !isNavigating && status === "connected" && (
-          <p className="text-muted-foreground text-sm">
-            Waiting for app to render...
-          </p>
-        )}
-      </div>
+          {!tree && !isNavigating && status === "connected" && (
+            <p className="text-muted-foreground text-sm">
+              Waiting for app to render...
+            </p>
+          )}
+        </div>
+      </SidebarContext.Provider>
     </WidgetStoreProvider>
   );
 };

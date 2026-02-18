@@ -39,6 +39,12 @@ const LazyPyplot = React.lazy(() =>
 const LazyGraphvizChart = React.lazy(() =>
   import("./GraphvizChart").then((m) => ({ default: m.GraphvizChart }))
 );
+const LazyBokehChart = React.lazy(() =>
+  import("./BokehChart").then((m) => ({ default: m.BokehChart }))
+);
+const LazyPydeckChart = React.lazy(() =>
+  import("./PydeckChart").then((m) => ({ default: m.PydeckChart }))
+);
 
 // Export wrapped components for registry
 export const LineChart: React.FC<NodeComponentProps> = (props) => (
@@ -92,5 +98,17 @@ export const Pyplot: React.FC<NodeComponentProps> = (props) => (
 export const GraphvizChart: React.FC<NodeComponentProps> = (props) => (
   <Suspense fallback={<ChartLoading />}>
     <LazyGraphvizChart {...props} />
+  </Suspense>
+);
+
+export const BokehChart: React.FC<NodeComponentProps> = (props) => (
+  <Suspense fallback={<ChartLoading />}>
+    <LazyBokehChart {...props} />
+  </Suspense>
+);
+
+export const PydeckChart: React.FC<NodeComponentProps> = (props) => (
+  <Suspense fallback={<ChartLoading />}>
+    <LazyPydeckChart {...props} />
   </Suspense>
 );

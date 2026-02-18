@@ -57,3 +57,38 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ---- Layout modes ---- */
+/* centered (default): max-w-4xl, standard padding */
+/* wide: no max-width, fills viewport */
+/* compact: tighter padding */
+
+.layout-main {
+  max-width: 56rem; /* 4xl = 896px */
+  margin-left: auto;
+  margin-right: auto;
+  padding: 2rem 1.5rem;
+}
+
+body.layout-wide .layout-main {
+  max-width: none;
+}
+
+body.layout-compact .layout-main {
+  padding: 0.75rem 1rem;
+}
+
+body.layout-compact .layout-main > * + * {
+  margin-top: 0.5rem;
+}
+
+/* Sidebar collapse transition */
+.sidebar-panel {
+  transition: width 200ms ease, opacity 200ms ease;
+  overflow: hidden;
+}
+
+.sidebar-panel.collapsed {
+  width: 0 !important;
+  opacity: 0;
+}

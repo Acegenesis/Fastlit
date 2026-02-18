@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
 
 from starlette.applications import Starlette
 from starlette.middleware.gzip import GZipMiddleware
@@ -17,6 +18,46 @@ from fastlit.server.websocket_handler import handle_websocket
 # Will be set by CLI before the app starts
 _script_path: str = ""
 _static_dir: str = ""
+
+# Lifecycle hook registries (B3)
+_startup_handlers: list = []
+_shutdown_handlers: list = []
+_server_started: bool = False
+_registered_startup_keys: set = set()  # deduplicate by qualname across reruns
+
+
+def register_startup(fn) -> None:
+    """Register a startup handler (called by @st.on_startup).
+
+    If the server has already started (i.e., the handler is registered during
+    a session rerun rather than at import time), the handler is called
+    immediately. Handlers are deduplicated by qualname to avoid multiple calls
+    on successive reruns.
+    """
+    import logging
+    fn_key = f"{getattr(fn, '__module__', '')}:{getattr(fn, '__qualname__', id(fn))}"
+    if fn_key in _registered_startup_keys:
+        return
+    _registered_startup_keys.add(fn_key)
+    _startup_handlers.append(fn)
+
+    if _server_started:
+        # Lifespan already ran — call immediately in the current sync context
+        try:
+            import asyncio
+            if asyncio.iscoroutinefunction(fn):
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.ensure_future(fn())
+            else:
+                fn()
+        except Exception as exc:
+            logging.getLogger("fastlit.app").error("startup handler error: %s", exc)
+
+
+def register_shutdown(fn) -> None:
+    """Register a shutdown handler (called by @st.on_shutdown)."""
+    _shutdown_handlers.append(fn)
 
 
 def set_script_path(path: str) -> None:
@@ -60,8 +101,40 @@ async def ws_endpoint(websocket: WebSocket):
     await handle_websocket(websocket, _script_path)
 
 
-def create_app(script_path: str, static_dir: str | None = None) -> Starlette:
-    """Create and configure the Starlette ASGI app."""
+@asynccontextmanager
+async def _lifespan(app: Starlette) -> AsyncIterator[None]:
+    """ASGI lifespan: run startup/shutdown hooks (B3)."""
+    global _server_started
+    import asyncio
+
+    for fn in _startup_handlers:
+        if asyncio.iscoroutinefunction(fn):
+            await fn()
+        else:
+            fn()
+
+    _server_started = True
+    yield
+    _server_started = False
+    # Clear dedup set so hooks re-register correctly after hot reload
+    _registered_startup_keys.clear()
+
+    for fn in _shutdown_handlers:
+        if asyncio.iscoroutinefunction(fn):
+            await fn()
+        else:
+            fn()
+
+
+def create_app(script_path: str | None = None, static_dir: str | None = None) -> Starlette:
+    """Create and configure the Starlette ASGI app.
+
+    When called by uvicorn factory=True (hot reload), script_path is read
+    from the FASTLIT_SCRIPT_PATH environment variable set by the CLI.
+    """
+    if script_path is None:
+        script_path = os.environ.get("FASTLIT_SCRIPT_PATH", "")
+
     set_script_path(script_path)
 
     # Resolve static directory
@@ -85,7 +158,7 @@ def create_app(script_path: str, static_dir: str | None = None) -> Starlette:
     routes.append(Route("/{path:path}", homepage))
     routes.append(Route("/", homepage))
 
-    app = Starlette(routes=routes)
+    app = Starlette(routes=routes, lifespan=_lifespan)
     app.add_middleware(GZipMiddleware, minimum_size=500)
 
     return app

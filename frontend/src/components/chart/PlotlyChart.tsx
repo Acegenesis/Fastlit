@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef, useCallback } from "react";
 import Plot from "react-plotly.js";
 import type { NodeComponentProps } from "../../registry/registry";
 
@@ -10,18 +10,39 @@ interface PlotlyChartProps {
   };
   useContainerWidth?: boolean;
   theme?: string;
+  selectable?: boolean;
 }
 
-export const PlotlyChart: React.FC<NodeComponentProps> = ({ props }) => {
+export const PlotlyChart: React.FC<NodeComponentProps> = ({ nodeId, props, sendEvent }) => {
   const {
     spec = { data: [], layout: {} },
     useContainerWidth = true,
     theme,
+    selectable = false,
   } = props as PlotlyChartProps;
 
-  // Apply Streamlit-like theme
+  // D1: Preserve zoom/pan between reruns by storing the relayout state
+  const viewportRef = useRef<Record<string, any>>({});
+
+  const handleRelayout = useCallback((eventData: any) => {
+    // Merge new viewport state (zoom, pan, range axes) into our store
+    viewportRef.current = { ...viewportRef.current, ...eventData };
+  }, []);
+
+  // D2: Cross-filtering — send selected point indices to Python
+  const handleSelected = useCallback(
+    (eventData: any) => {
+      if (!selectable || !eventData?.points) return;
+      const indices = eventData.points.map((p: any) => p.pointIndex ?? p.pointNumber);
+      sendEvent(nodeId, indices);
+    },
+    [selectable, nodeId, sendEvent]
+  );
+
+  // D1: Merge stored viewport into layout so Plotly restores zoom on rerender
   const themedLayout = {
     ...spec.layout,
+    ...viewportRef.current,  // restore zoom/pan
     autosize: useContainerWidth,
     margin: spec.layout?.margin || { l: 50, r: 50, t: 50, b: 50 },
     paper_bgcolor: "transparent",
@@ -48,6 +69,8 @@ export const PlotlyChart: React.FC<NodeComponentProps> = ({ props }) => {
         config={config}
         style={{ width: "100%", height: "100%" }}
         useResizeHandler={useContainerWidth}
+        onRelayout={handleRelayout}
+        onSelected={selectable ? handleSelected : undefined}
       />
     </div>
   );

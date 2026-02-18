@@ -456,6 +456,41 @@ def divider() -> None:
 
 
 # ---------------------------------------------------------------------------
+# set_sidebar_state — st.set_sidebar_state(state)
+# ---------------------------------------------------------------------------
+
+def set_sidebar_state(state: str) -> None:
+    """Set the sidebar state programmatically.
+
+    Args:
+        state: "collapsed" or "expanded".
+
+    The node is always emitted at the root level so App.tsx can find it
+    regardless of what container is currently active.
+    """
+    session = get_current_session()
+    node_id = "k:sidebar_state"  # stable ID — only one sidebar state at a time
+    node = UINode(type="sidebar_state", id=node_id, props={"state": state})
+    session.current_tree.root.children.append(node)
+
+
+# ---------------------------------------------------------------------------
+# switch_page — st.switch_page(page)
+# ---------------------------------------------------------------------------
+
+def switch_page(page: str) -> None:
+    """Switch to a different page programmatically.
+
+    This stops the current script and reruns with the target page selected.
+
+    Args:
+        page: The name of the page to switch to (must match a page in st.navigation).
+    """
+    from fastlit.runtime.session import SwitchPageException
+    raise SwitchPageException(page)
+
+
+# ---------------------------------------------------------------------------
 # Navigation — st.navigation(pages, *, key=None)
 # ---------------------------------------------------------------------------
 

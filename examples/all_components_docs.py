@@ -20,6 +20,7 @@ st.sidebar.title("Components Demo")
 st.sidebar.markdown("Navigate through all Fastlit components")
 
 sections = [
+    "🆕 Phase 5 Demo",
     "Text Elements",
     "Input Widgets",
     "Layout",
@@ -37,9 +38,210 @@ st.sidebar.caption("Fastlit v0.1.0")
 st.sidebar.link_button("View Documentation", "https://github.com/fastlit/fastlit")
 
 # =============================================================================
+# PHASE 5 DEMO — Test all Phase 5 modifications
+# =============================================================================
+if selected_section == "🆕 Phase 5 Demo":
+    st.title("Phase 5 — New Features & Bug Fixes")
+    st.markdown(
+        "This section lets you test every change introduced in Phase 5. "
+        "Open each sub-section to see the feature in action."
+    )
+
+    # ---- A1: layout wide ------------------------------------------------
+    st.header("A1 — layout='wide' (was a no-op)", divider="blue")
+    st.code("""st.set_page_config(layout="wide")   # now actually works""", language="python")
+    with st.container(border=True):
+        st.caption("The page is currently using `layout='wide'` — content fills the full viewport width. "
+                   "Before the fix, `max-w-4xl` was always applied regardless of the layout setting.")
+        col1, col2, col3, col4 = st.columns(4)
+        for i, (col, label) in enumerate(zip([col1, col2, col3, col4],
+                                              ["Column 1", "Column 2", "Column 3", "Column 4"])):
+            with col:
+                st.metric(label, i + 1)
+
+    # ---- A2: hot reload -------------------------------------------------
+    st.header("A2 — Hot reload (--dev)", divider="blue")
+    st.code("""fastlit run examples/all_components_docs.py --dev
+# Uvicorn now uses factory=True so reload actually works""", language="bash")
+    with st.container(border=True):
+        st.success("Fix: CLI now passes `factory=True` + module string to uvicorn. "
+                   "Edit any .py file and the server reloads automatically.")
+
+    # ---- A3: data_editor on_change --------------------------------------
+    st.header("A3 — data_editor(on_change=...) callback", divider="blue")
+    st.code("""def on_edit():
+    st.toast("Data changed!")
+
+df = st.data_editor(data, on_change=on_edit)""", language="python")
+
+    if "edit_count" not in st.session_state:
+        st.session_state.edit_count = 0
+
+    def _on_edit():
+        st.session_state.edit_count += 1
+        st.toast(f"on_change called! ({st.session_state.edit_count} edits)")
+
+    import datetime
+    with st.container(border=True):
+        st.caption("Edit a cell — the callback fires immediately after the change.")
+        test_data = {
+            "name": ["Alice", "Bob", "Charlie"],
+            "score": [95, 87, 92],
+            "active": [True, False, True],
+            "joined": ["2024-01-15", "2024-03-22", "2023-11-08"],
+        }
+        edited = st.data_editor(test_data, on_change=_on_edit, key="phase5_editor")
+        st.metric("Callbacks fired", st.session_state.edit_count)
+
+    # ---- A4 + C2: initial_sidebar_state + set_sidebar_state ------------
+    st.header("A4 + C2 — initial_sidebar_state & sidebar toggle", divider="blue")
+    st.code("""# A4: set_page_config now applies initial sidebar state
+st.set_page_config(initial_sidebar_state="collapsed")
+
+# C2: toggle sidebar programmatically
+st.set_sidebar_state("collapsed")
+st.set_sidebar_state("expanded")""", language="python")
+    with st.container(border=True):
+        st.caption("The chevron button in the top-left corner toggles the sidebar. "
+                   "You can also control it from Python:")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Collapse sidebar", type="secondary"):
+                st.set_sidebar_state("collapsed")
+        with col2:
+            if st.button("Expand sidebar", type="primary"):
+                st.set_sidebar_state("expanded")
+
+    # ---- B1: WS exponential backoff ------------------------------------
+    st.header("B1 — WebSocket reconnect with exponential backoff", divider="blue")
+    st.code("""# frontend/src/runtime/ws.ts
+# reconnect delay: 2s → 4s → 8s → 16s → 30s (capped)
+const delay = Math.min(BASE_DELAY * Math.pow(2, reconnectAttempts), MAX_DELAY);""", language="typescript")
+    with st.container(border=True):
+        st.info("Disconnect your network and reconnect — the UI will show 'Disconnected. Reconnecting...' "
+                "with increasing delays between attempts (2s, 4s, 8s, 16s, 30s max).")
+
+    # ---- B2: run_in_thread ---------------------------------------------
+    st.header("B2 — Thread safety: st.run_in_thread()", divider="blue")
+    st.code("""import threading
+
+def background_task():
+    # st.* calls work because the session context is copied
+    st.session_state.result = expensive_computation()
+
+t = st.run_in_thread(background_task)
+t.start()
+t.join()""", language="python")
+
+    if "thread_result" not in st.session_state:
+        st.session_state.thread_result = None
+
+    def _thread_work():
+        import time
+        time.sleep(0.1)
+        st.session_state.thread_result = "✅ Thread completed — st.session_state works from background thread!"
+
+    with st.container(border=True):
+        if st.button("Run background thread"):
+            t = st.run_in_thread(_thread_work)
+            t.start()
+            t.join()
+        if st.session_state.thread_result:
+            st.success(st.session_state.thread_result)
+
+    # ---- B3: lifecycle hooks -------------------------------------------
+    st.header("B3 — ASGI lifecycle hooks", divider="blue")
+    st.code("""@st.on_startup
+def init_resources():
+    st.session_state  # called once when the server starts
+    print("Server started!")
+
+@st.on_shutdown
+async def cleanup():
+    print("Server shutting down — closing connections...")""", language="python")
+    with st.container(border=True):
+        st.info("Lifecycle hooks are registered via `@st.on_startup` / `@st.on_shutdown` "
+                "and called automatically by the Starlette ASGI lifespan manager.")
+
+    # ---- C1: compact mode ---------------------------------------------
+    st.header("C1 — Compact mode layout", divider="blue")
+    st.code("""st.set_page_config(layout="compact")  # tighter padding""", language="python")
+    with st.container(border=True):
+        st.caption("Switch the layout in `set_page_config`. "
+                   "Available modes: `'centered'` (default), `'wide'`, `'compact'`.")
+        st.json({"centered": "max-w-4xl, padding 2rem", "wide": "no max-width", "compact": "padding 0.75rem"})
+
+    # ---- D1 + D2: Plotly zoom preservation + cross-filtering ----------
+    st.header("D1 — Plotly: zoom/pan preserved between reruns", divider="blue")
+    st.header("D2 — Plotly: cross-filtering with on_select", divider="blue")
+
+    try:
+        import plotly.express as px
+        import pandas as pd
+
+        st.code("""# D1: zoom is preserved — rerun the app and zoom stays
+selected = st.plotly_chart(fig, on_select=lambda pts: st.write(pts))""", language="python")
+
+        df_scatter = pd.DataFrame({
+            "x": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            "y": [4, 7, 3, 9, 2, 8, 5, 6, 1, 10],
+            "label": [f"Point {i}" for i in range(10)],
+        })
+
+        if "selected_points" not in st.session_state:
+            st.session_state.selected_points = []
+
+        def _on_select(indices):
+            st.session_state.selected_points = indices
+
+        fig = px.scatter(df_scatter, x="x", y="y", text="label",
+                         title="Zoom/pan me (D1) — lasso/box select points (D2)")
+
+        with st.container(border=True):
+            col_chart, col_info = st.columns([3, 1])
+            with col_chart:
+                st.plotly_chart(fig, on_select=_on_select, key="phase5_plotly")
+            with col_info:
+                st.markdown("**Instructions**")
+                st.markdown("- Zoom in → trigger a rerun via a widget below → zoom stays")
+                st.markdown("- Use box/lasso select to pick points")
+                if st.session_state.selected_points:
+                    st.success(f"Selected indices:\n{st.session_state.selected_points}")
+                else:
+                    st.info("No points selected yet")
+            # A widget to trigger rerun (to test zoom preservation)
+            _ = st.slider("Trigger rerun (zoom should be preserved)", 0, 10, 5, key="zoom_test")
+
+    except ImportError:
+        st.warning("Install plotly (`pip install plotly pandas`) to see D1/D2 demos.")
+
+    # ---- E1 + E2: DataEditor boolean + date --------------------------
+    st.header("E1 — DataEditor: native checkbox for boolean columns", divider="blue")
+    st.header("E2 — DataEditor: date picker for date/datetime columns", divider="blue")
+    st.code("""# E1: boolean columns now show a native checkbox
+# E2: date/datetime columns now show a native date picker
+df = pd.DataFrame({"name": [...], "active": [True, False], "joined": ["2024-01-01", ...]})
+st.data_editor(df)""", language="python")
+
+    with st.container(border=True):
+        rich_data = {
+            "employee": ["Alice Martin", "Bob Dupont", "Charlie Lee", "Diana Chen"],
+            "department": ["Engineering", "Marketing", "Design", "Engineering"],
+            "active": [True, True, False, True],
+            "start_date": ["2022-03-15", "2021-07-01", "2023-11-20", "2024-01-08"],
+            "score": [92.5, 78.3, 85.0, 96.1],
+        }
+        st.data_editor(
+            rich_data,
+            key="phase5_rich_editor",
+            num_rows="dynamic",
+        )
+        st.caption("✅ `active` column → checkbox | `start_date` column → date picker | `score` → number input")
+
+# =============================================================================
 # TEXT ELEMENTS
 # =============================================================================
-if selected_section == "Text Elements":
+elif selected_section == "Text Elements":
     st.title("Text Elements", help="Components for displaying text content")
 
     # --- st.title ---

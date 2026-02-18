@@ -23,6 +23,12 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
     await websocket.accept()
 
     session = Session(script_path)
+
+    # Parse query parameters from the WebSocket URL
+    if websocket.query_params:
+        for key in websocket.query_params:
+            session.query_params[key] = websocket.query_params[key]
+
     logger.info("Session %s connected", session.session_id)
 
     try:

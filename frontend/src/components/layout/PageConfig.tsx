@@ -34,19 +34,22 @@ export const PageConfig: React.FC<NodeComponentProps> = ({ props }) => {
       }
     }
 
-    // Apply layout class to body
+    // Apply layout class to body (for CSS overrides)
+    document.body.classList.remove("layout-centered", "layout-wide", "layout-compact");
     if (layout === "wide") {
       document.body.classList.add("layout-wide");
-      document.body.classList.remove("layout-centered");
+    } else if (layout === "compact") {
+      document.body.classList.add("layout-compact");
     } else {
       document.body.classList.add("layout-centered");
-      document.body.classList.remove("layout-wide");
     }
 
-    // Store sidebar state preference
-    if (initialSidebarState) {
-      document.body.dataset.sidebarState = initialSidebarState;
-    }
+    // Notify App.tsx of layout + initial sidebar state via custom event
+    window.dispatchEvent(
+      new CustomEvent("fastlit:page-config", {
+        detail: { layout: layout ?? "centered", initialSidebarState },
+      })
+    );
   }, [pageTitle, pageIcon, layout, initialSidebarState]);
 
   // This component doesn't render anything visible
