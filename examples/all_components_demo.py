@@ -1,0 +1,3114 @@
+"""
+Fastlit Complete Components Demo
+================================
+A comprehensive test of ALL Fastlit components with all parameters.
+
+Run with: fastlit run examples/all_components_demo.py --dev
+"""
+
+import fastlit as st
+import datetime
+import time
+
+# =============================================================================
+# PAGE CONFIGURATION (must be first!)
+# =============================================================================
+st.set_page_config(
+    page_title="Fastlit Complete Demo",
+    page_icon="🚀",
+    layout="wide",  # "centered", "wide", "compact"
+    initial_sidebar_state="expanded",  # "auto", "expanded", "collapsed"
+)
+
+# =============================================================================
+# SIDEBAR NAVIGATION
+# =============================================================================
+st.sidebar.title("🚀 Fastlit Demo")
+st.sidebar.caption("Complete components showcase")
+
+sections = [
+    "🏠 Home",
+    "📝 Text Elements",
+    "🎛️ Input Widgets",
+    "📊 Data Display",
+    "📈 Charts",
+    "🖼️ Media",
+    "⚡ Status & Feedback",
+    "📐 Layout",
+    "💬 Chat Components",
+    "🔧 State & Control",
+    "🎨 Advanced Features",
+]
+
+selected = st.sidebar.navigation(sections)
+
+st.sidebar.divider()
+
+# Sidebar widgets demo
+st.sidebar.subheader("Sidebar Widgets")
+sidebar_toggle = st.sidebar.toggle("Enable feature", value=True)
+sidebar_slider = st.sidebar.slider("Value", 0, 100, 50)
+st.sidebar.caption(f"Toggle: {sidebar_toggle} | Slider: {sidebar_slider}")
+
+st.sidebar.divider()
+st.sidebar.link_button("📖 Documentation", "https://github.com/fastlit/fastlit", use_container_width=True)
+st.sidebar.caption("Fastlit v0.1.0")
+
+
+# =============================================================================
+# 🏠 HOME
+# =============================================================================
+if selected == "🏠 Home":
+    st.title("🚀 Fastlit Complete Demo")
+    st.markdown("""
+    Welcome to the **complete Fastlit components demo**! This app showcases **every component** 
+    with **all available parameters**.
+    
+    Use the **sidebar navigation** to explore different component categories.
+    """)
+    
+    st.divider()
+    
+    # Quick stats
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Components", "70+", delta="+5 new")
+    with col2:
+        st.metric("Categories", "10", help="Component categories")
+    with col3:
+        st.metric("Parameters", "200+", delta="documented")
+    with col4:
+        st.metric("Examples", "50+", help="Code examples")
+    
+    st.divider()
+    
+    # Feature highlights
+    st.header("✨ Key Features")
+    
+    features = st.columns(3)
+    with features[0]:
+        st.subheader("⚡ Fast")
+        st.markdown("""
+        - Diff/patch UI updates
+        - No full page reloads
+        - Virtualized DataFrames
+        - WebSocket communication
+        """)
+    
+    with features[1]:
+        st.subheader("🎯 Compatible")
+        st.markdown("""
+        - Same `st.*` API as Streamlit
+        - Drop-in replacement
+        - session_state works
+        - Same caching decorators
+        """)
+    
+    with features[2]:
+        st.subheader("🔧 Modern")
+        st.markdown("""
+        - React 18 frontend
+        - Tailwind CSS styling
+        - Radix UI components
+        - Hot reload in dev
+        """)
+
+
+# =============================================================================
+# 📝 TEXT ELEMENTS
+# =============================================================================
+elif selected == "📝 Text Elements":
+    st.title("📝 Text Elements")
+    st.caption("Components for displaying text content")
+    
+    # -------------------------------------------------------------------------
+    # st.title()
+    # -------------------------------------------------------------------------
+    st.header("st.title()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `body` (str): Title text (supports Markdown)
+        - `anchor` (str | bool | None): Custom anchor ID, False to disable
+        - `help` (str | None): Tooltip text
+        - `width` (str | int): "stretch", "content", or pixel value
+        - `text_alignment` (str): "left", "center", "right", "justify"
+        """)
+    
+    st.code('''st.title("Main Title")
+st.title("With Help Tooltip", help="This is helpful tooltip text!")
+st.title("Centered Title", text_alignment="center")''', language="python")
+    
+    with st.container(border=True):
+        st.title("Main Title")
+        st.title("With Help Tooltip", help="This is helpful tooltip text!")
+        st.title("Centered Title", text_alignment="center")
+    
+    # -------------------------------------------------------------------------
+    # st.header()
+    # -------------------------------------------------------------------------
+    st.header("st.header()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `body` (str): Header text
+        - `anchor` (str | bool | None): Custom anchor ID
+        - `divider` (bool | str): Show divider - True, False, or color ("blue", "green", "orange", "red", "violet", "rainbow")
+        - `help` (str | None): Tooltip text
+        - `width`, `text_alignment`: Same as title
+        """)
+    
+    st.code('''st.header("With Default Divider", divider=True)
+st.header("Blue Divider", divider="blue")
+st.header("Green Divider", divider="green")
+st.header("Orange Divider", divider="orange")
+st.header("Rainbow Divider", divider="rainbow")''', language="python")
+    
+    with st.container(border=True):
+        st.header("With Default Divider", divider=True)
+        st.header("Blue Divider", divider="blue")
+        st.header("Green Divider", divider="green")
+        st.header("Orange Divider", divider="orange")
+        st.header("Rainbow Divider", divider="rainbow")
+    
+    # -------------------------------------------------------------------------
+    # st.subheader()
+    # -------------------------------------------------------------------------
+    st.header("st.subheader()", divider="blue")
+    
+    st.code('''st.subheader("Default Subheader")
+st.subheader("With Divider", divider="violet")
+st.subheader("With Help", help="Subheader tooltip")''', language="python")
+    
+    with st.container(border=True):
+        st.subheader("Default Subheader")
+        st.subheader("With Divider", divider="violet")
+        st.subheader("With Help", help="Subheader tooltip")
+    
+    # -------------------------------------------------------------------------
+    # st.markdown()
+    # -------------------------------------------------------------------------
+    st.header("st.markdown()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `body` (str): Markdown text
+        - `unsafe_allow_html` (bool): Allow raw HTML (use with caution!)
+        - `help` (str | None): Tooltip
+        - `width`, `text_alignment`: Layout options
+        
+        **Special syntax:**
+        - `:emoji_name:` for emoji shortcodes
+        - `:color[text]` for colored text (blue, green, red, orange, violet)
+        - `:color-background[text]` for highlighted background
+        - `$math$` for inline LaTeX
+        - `$$math$$` for block LaTeX
+        """)
+    
+    st.code('''st.markdown("**Bold**, *italic*, ~~strikethrough~~, `code`")
+st.markdown(":blue[Blue text] :green[Green] :red[Red] :orange[Orange] :violet[Violet]")
+st.markdown(":blue-background[Blue bg] :red-background[Red bg] :green-background[Green bg]")
+st.markdown("Emoji shortcodes: :rocket: :fire: :heart: :star: :+1:")
+st.markdown("Inline math: $E = mc^2$ and $\\sum_{i=1}^n x_i$")
+st.markdown("[Link text](https://example.com)")''', language="python")
+    
+    with st.container(border=True):
+        st.markdown("**Bold**, *italic*, ~~strikethrough~~, `code`")
+        st.markdown(":blue[Blue text] :green[Green] :red[Red] :orange[Orange] :violet[Violet]")
+        st.markdown(":blue-background[Blue bg] :red-background[Red bg] :green-background[Green bg]")
+        st.markdown("Emoji shortcodes: :rocket: :fire: :heart: :star: :+1:")
+        st.markdown("Inline math: $E = mc^2$ and $\\sum_{i=1}^n x_i$")
+        st.markdown("[Link text](https://example.com)")
+        st.markdown("""
+        - Bullet list item 1
+        - Bullet list item 2
+          - Nested item
+        
+        1. Numbered item 1
+        2. Numbered item 2
+        """)
+    
+    # -------------------------------------------------------------------------
+    # st.write()
+    # -------------------------------------------------------------------------
+    st.header("st.write()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Smart content renderer** - automatically detects type:
+        - `str` → Markdown
+        - `dict`, `list` → JSON viewer
+        - `pd.DataFrame` → Interactive dataframe
+        - `Exception` → Error with traceback
+        - Plotly/Altair figures → Charts
+        
+        **Parameters:**
+        - `*args`: Any number of objects to display
+        - `unsafe_allow_html` (bool): Allow HTML in strings
+        """)
+    
+    st.code('''st.write("Simple string becomes markdown")
+st.write("Multiple", "arguments", "work!")
+st.write({"name": "Fastlit", "version": "0.1.0", "features": ["fast", "compatible"]})
+st.write([1, 2, 3, "four", {"five": 5}])''', language="python")
+    
+    with st.container(border=True):
+        st.write("Simple string becomes markdown")
+        st.write("Multiple", "arguments", "work!")
+        st.write({"name": "Fastlit", "version": "0.1.0", "features": ["fast", "compatible"]})
+        st.write([1, 2, 3, "four", {"five": 5}])
+    
+    # -------------------------------------------------------------------------
+    # st.text()
+    # -------------------------------------------------------------------------
+    st.header("st.text()", divider="blue")
+    
+    st.code('''st.text("This is fixed-width monospace text.")
+st.text("Useful for preformatted output.")''', language="python")
+    
+    with st.container(border=True):
+        st.text("This is fixed-width monospace text.")
+        st.text("Useful for preformatted output.")
+    
+    # -------------------------------------------------------------------------
+    # st.code()
+    # -------------------------------------------------------------------------
+    st.header("st.code()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `body` (str): Code to display
+        - `language` (str | None): Language for syntax highlighting
+        - `line_numbers` (bool): Show line numbers
+        - `wrap_lines` (bool): Wrap long lines
+        - `height` (str | int): "content", "stretch", or pixels
+        - `width` (str | int): Width
+        """)
+    
+    st.code('''st.code(\'''def fibonacci(n):
+    if n <= 1:
+        return n
+    return fibonacci(n-1) + fibonacci(n-2)
+
+# Calculate first 10 numbers
+for i in range(10):
+    print(fibonacci(i))\''', language="python", line_numbers=True)
+
+st.code('SELECT * FROM users WHERE active = true;', language="sql")
+st.code('const hello = () => console.log("Hello!");', language="javascript")''', language="python")
+    
+    with st.container(border=True):
+        st.code('''def fibonacci(n):
+    if n <= 1:
+        return n
+    return fibonacci(n-1) + fibonacci(n-2)
+
+# Calculate first 10 numbers
+for i in range(10):
+    print(fibonacci(i))''', language="python", line_numbers=True)
+        
+        st.code('SELECT * FROM users WHERE active = true;', language="sql")
+        st.code('const hello = () => console.log("Hello!");', language="javascript")
+    
+    # -------------------------------------------------------------------------
+    # st.caption()
+    # -------------------------------------------------------------------------
+    st.header("st.caption()", divider="blue")
+    
+    st.code('''st.caption("This is a small caption for footnotes and metadata.")
+st.caption("Supports **markdown** and :blue[colors] too!")''', language="python")
+    
+    with st.container(border=True):
+        st.caption("This is a small caption for footnotes and metadata.")
+        st.caption("Supports **markdown** and :blue[colors] too!")
+    
+    # -------------------------------------------------------------------------
+    # st.latex()
+    # -------------------------------------------------------------------------
+    st.header("st.latex()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `body` (str): LaTeX expression (no delimiters needed)
+        - `help` (str | None): Tooltip
+        - `width` (str | int): Width
+        """)
+    
+    st.code('''st.latex(r"E = mc^2")
+st.latex(r"\\int_0^\\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}")
+st.latex(r"\\sum_{i=1}^{n} x_i = x_1 + x_2 + \\cdots + x_n")
+st.latex(r"\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}")''', language="python")
+    
+    with st.container(border=True):
+        st.latex(r"E = mc^2")
+        st.latex(r"\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}")
+        st.latex(r"\sum_{i=1}^{n} x_i = x_1 + x_2 + \cdots + x_n")
+        st.latex(r"\begin{pmatrix} a & b \\ c & d \end{pmatrix}")
+    
+    # -------------------------------------------------------------------------
+    # st.html()
+    # -------------------------------------------------------------------------
+    st.header("st.html()", divider="blue")
+    
+    st.code('st.html("<div style=\'padding: 10px; background: linear-gradient(90deg, #3b82f6, #8b5cf6); color: white; border-radius: 8px; text-align: center;\'><b>Custom HTML Content</b></div>")', language="python")
+    
+    with st.container(border=True):
+        st.html("<div style='padding: 10px; background: linear-gradient(90deg, #3b82f6, #8b5cf6); color: white; border-radius: 8px; text-align: center;'><b>Custom HTML Content</b></div>")
+    
+    # -------------------------------------------------------------------------
+    # st.json()
+    # -------------------------------------------------------------------------
+    st.header("st.json()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `body` (dict | list | str): JSON data
+        - `expanded` (bool | int): Expand all (True), collapse all (False), or expand to depth (int)
+        """)
+    
+    st.code('st.json({"key": "value"}, expanded=2)', language="python")
+    
+    with st.container(border=True):
+        st.json({
+            "user": {
+                "name": "Alice",
+                "email": "alice@example.com",
+                "settings": {
+                    "theme": "dark",
+                    "notifications": True,
+                    "language": "en"
+                }
+            },
+            "permissions": ["read", "write", "admin"]
+        }, expanded=2)
+    
+    # -------------------------------------------------------------------------
+    # st.metric()
+    # -------------------------------------------------------------------------
+    st.header("st.metric()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Metric label
+        - `value` (Any): Metric value
+        - `delta` (Any): Delta value (shows +/- indicator)
+        - `delta_color` (str): "normal" (green=up), "inverse" (red=up), "off" (no color)
+        - `help` (str | None): Tooltip
+        - `label_visibility` (str): "visible", "hidden", "collapsed"
+        - `border` (bool): Show border around metric
+        """)
+    
+    st.code('''col1, col2, col3, col4 = st.columns(4)
+with col1:
+    st.metric("Revenue", "$12,345", delta="+5.2%")
+with col2:
+    st.metric("Users", "1,234", delta="+120", help="Active users this month")
+with col3:
+    st.metric("Errors", 23, delta="-8%", delta_color="inverse")
+with col4:
+    st.metric("Uptime", "99.9%", delta="0%", delta_color="off", border=True)''', language="python")
+    
+    with st.container(border=True):
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Revenue", "$12,345", delta="+5.2%")
+        with col2:
+            st.metric("Users", "1,234", delta="+120", help="Active users this month")
+        with col3:
+            st.metric("Errors", 23, delta="-8%", delta_color="inverse")
+        with col4:
+            st.metric("Uptime", "99.9%", delta="0%", delta_color="off", border=True)
+    
+    # -------------------------------------------------------------------------
+    # st.badge()
+    # -------------------------------------------------------------------------
+    st.header("st.badge()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Badge text
+        - `color` (str): "blue", "green", "red", "orange", "violet", "yellow", "gray"
+        - `icon` (str | None): Optional emoji icon
+        """)
+    
+    st.code('''cols = st.columns(7)
+colors = ["blue", "green", "red", "orange", "violet", "yellow", "gray"]
+for col, color in zip(cols, colors):
+    with col:
+        st.badge(color.title(), color=color)
+
+st.badge("New Feature", color="green", icon="🆕")
+st.badge("Deprecated", color="red", icon="⚠️")
+st.badge("In Progress", color="orange", icon="🔄")''', language="python")
+    
+    with st.container(border=True):
+        cols = st.columns(7)
+        colors = ["blue", "green", "red", "orange", "violet", "yellow", "gray"]
+        for col, color in zip(cols, colors):
+            with col:
+                st.badge(color.title(), color=color)
+        
+        st.badge("New Feature", color="green", icon="🆕")
+        st.badge("Deprecated", color="red", icon="⚠️")
+        st.badge("In Progress", color="orange", icon="🔄")
+    
+    # -------------------------------------------------------------------------
+    # st.echo()
+    # -------------------------------------------------------------------------
+    st.header("st.echo()", divider="blue")
+    
+    st.code('''with st.echo():
+    # This code is displayed AND executed
+    result = 2 + 2
+    st.write(f"2 + 2 = {result}")''', language="python")
+    
+    with st.container(border=True):
+        with st.echo():
+            # This code is displayed AND executed
+            result = 2 + 2
+            st.write(f"2 + 2 = {result}")
+    
+    # -------------------------------------------------------------------------
+    # st.divider()
+    # -------------------------------------------------------------------------
+    st.header("st.divider()", divider="blue")
+    
+    st.code('st.divider()', language="python")
+    
+    with st.container(border=True):
+        st.write("Content above")
+        st.divider()
+        st.write("Content below")
+
+
+# =============================================================================
+# 🎛️ INPUT WIDGETS
+# =============================================================================
+elif selected == "🎛️ Input Widgets":
+    st.title("🎛️ Input Widgets")
+    st.caption("Interactive input components")
+    
+    # -------------------------------------------------------------------------
+    # st.button()
+    # -------------------------------------------------------------------------
+    st.header("st.button()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Button label
+        - `key` (str | None): Unique widget key
+        - `help` (str | None): Tooltip
+        - `on_click` (Callable): Callback function
+        - `args` (tuple): Callback arguments
+        - `kwargs` (dict): Callback keyword arguments
+        - `type` (str): "primary", "secondary", "tertiary"
+        - `icon` (str | None): Emoji or icon
+        - `icon_position` (str): "left" or "right"
+        - `disabled` (bool): Disable the button
+        - `width` (str | int): "content", "stretch", or pixels
+        - `shortcut` (str | None): Keyboard shortcut (e.g., "Ctrl+K")
+        
+        **Returns:** bool - True if clicked
+        """)
+    
+    st.code('''col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    if st.button("Primary", type="primary"):
+        st.toast("Primary clicked!")
+
+with col2:
+    if st.button("Secondary", type="secondary"):
+        st.toast("Secondary clicked!")
+
+with col3:
+    if st.button("With Icon", icon="🚀"):
+        st.toast("Icon button clicked!")
+
+with col4:
+    st.button("Disabled", disabled=True)
+
+# Full width button
+if st.button("Full Width Button", width="stretch", type="primary", icon="🎯"):
+    st.balloons()''', language="python")
+    
+    with st.container(border=True):
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            if st.button("Primary", type="primary"):
+                st.toast("Primary clicked!")
+        
+        with col2:
+            if st.button("Secondary", type="secondary"):
+                st.toast("Secondary clicked!")
+        
+        with col3:
+            if st.button("With Icon", icon="🚀"):
+                st.toast("Icon button clicked!")
+        
+        with col4:
+            st.button("Disabled", disabled=True)
+        
+        # Full width button
+        if st.button("Full Width Button", width="stretch", type="primary", icon="🎯"):
+            st.balloons()
+    
+    # -------------------------------------------------------------------------
+    # st.link_button()
+    # -------------------------------------------------------------------------
+    st.header("st.link_button()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Button label
+        - `url` (str): URL to open
+        - `help` (str | None): Tooltip
+        - `type` (str): "primary", "secondary"
+        - `icon` (str | None): Icon
+        - `disabled` (bool): Disable
+        - `use_container_width` (bool): Full width
+        """)
+    
+    st.code('''col1, col2, col3 = st.columns(3)
+with col1:
+    st.link_button("GitHub", "https://github.com", icon="🐙")
+with col2:
+    st.link_button("Google", "https://google.com", type="primary")
+with col3:
+    st.link_button("Disabled", "https://example.com", disabled=True)''', language="python")
+    
+    with st.container(border=True):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.link_button("GitHub", "https://github.com", icon="🐙")
+        with col2:
+            st.link_button("Google", "https://google.com", type="primary")
+        with col3:
+            st.link_button("Disabled", "https://example.com", disabled=True)
+    
+    # -------------------------------------------------------------------------
+    # st.download_button()
+    # -------------------------------------------------------------------------
+    st.header("st.download_button()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Button label
+        - `data` (str | bytes): Data to download
+        - `file_name` (str | None): Downloaded file name
+        - `mime` (str | None): MIME type (auto-detected if None)
+        - All button parameters (type, icon, disabled, etc.)
+        
+        **Returns:** bool - True if clicked
+        """)
+    
+    st.code('''csv_data = "name,age,city\\nAlice,30,Paris\\nBob,25,London\\nCharlie,35,Berlin"
+st.download_button(
+    "📥 Download CSV",
+    data=csv_data,
+    file_name="users.csv",
+    mime="text/csv"
+)
+
+json_data = \'{"users": [{"name": "Alice"}, {"name": "Bob"}]}\'
+st.download_button(
+    "📥 Download JSON",
+    data=json_data,
+    file_name="data.json",
+    mime="application/json"
+)''', language="python")
+    
+    with st.container(border=True):
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            csv_data = "name,age,city\nAlice,30,Paris\nBob,25,London\nCharlie,35,Berlin"
+            st.download_button(
+                "📥 Download CSV",
+                data=csv_data,
+                file_name="users.csv",
+                mime="text/csv"
+            )
+        
+        with col2:
+            json_data = '{"users": [{"name": "Alice"}, {"name": "Bob"}]}'
+            st.download_button(
+                "📥 Download JSON",
+                data=json_data,
+                file_name="data.json",
+                mime="application/json"
+            )
+        
+        with col3:
+            st.download_button(
+                "📥 Download TXT",
+                data="Hello, World!\nThis is a text file.",
+                file_name="hello.txt",
+                mime="text/plain"
+            )
+    
+    # -------------------------------------------------------------------------
+    # st.checkbox()
+    # -------------------------------------------------------------------------
+    st.header("st.checkbox()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Checkbox label
+        - `value` (bool): Initial state (default: False)
+        - `key` (str | None): Unique key
+        - `help` (str | None): Tooltip
+        - `on_change` (Callable): Callback when changed
+        - `args`, `kwargs`: Callback arguments
+        - `disabled` (bool): Disable checkbox
+        - `label_visibility` (str): "visible", "hidden", "collapsed"
+        - `width` (str | int): Width
+        
+        **Returns:** bool
+        """)
+    
+    st.code('''agree = st.checkbox("I agree to the terms of service")
+newsletter = st.checkbox("Subscribe to newsletter", value=True)
+disabled_cb = st.checkbox("Disabled checkbox", disabled=True)
+
+st.write(f"Agree: `{agree}`")
+st.write(f"Newsletter: `{newsletter}`")''', language="python")
+    
+    with st.container(border=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            agree = st.checkbox("I agree to the terms of service")
+            newsletter = st.checkbox("Subscribe to newsletter", value=True)
+            disabled_cb = st.checkbox("Disabled checkbox", disabled=True)
+        
+        with col2:
+            st.write(f"Agree: `{agree}`")
+            st.write(f"Newsletter: `{newsletter}`")
+            st.write(f"Disabled: `{disabled_cb}`")
+    
+    # -------------------------------------------------------------------------
+    # st.toggle()
+    # -------------------------------------------------------------------------
+    st.header("st.toggle()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:** Same as st.checkbox()
+        
+        Visual difference: Switch/toggle style instead of checkbox.
+        
+        **Returns:** bool
+        """)
+    
+    st.code('''dark_mode = st.toggle("Dark mode", value=False)
+notifications = st.toggle("Notifications", value=True)
+auto_save = st.toggle("Auto-save", value=True, help="Save changes automatically")
+
+st.write(f"Dark mode: `{dark_mode}`")
+st.write(f"Notifications: `{notifications}`")
+st.write(f"Auto-save: `{auto_save}`")''', language="python")
+    
+    with st.container(border=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            dark_mode = st.toggle("Dark mode", value=False)
+            notifications = st.toggle("Notifications", value=True)
+            auto_save = st.toggle("Auto-save", value=True, help="Save changes automatically")
+        
+        with col2:
+            st.write(f"Dark mode: `{dark_mode}`")
+            st.write(f"Notifications: `{notifications}`")
+            st.write(f"Auto-save: `{auto_save}`")
+    
+    # -------------------------------------------------------------------------
+    # st.radio()
+    # -------------------------------------------------------------------------
+    st.header("st.radio()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Widget label
+        - `options` (Sequence): List of options
+        - `index` (int | None): Default selection index (None for no selection)
+        - `format_func` (Callable): Function to format option labels
+        - `key`, `help`, `on_change`, `args`, `kwargs`: Standard params
+        - `disabled` (bool): Disable widget
+        - `horizontal` (bool): Arrange options horizontally
+        - `captions` (Sequence[str]): Captions below each option
+        - `label_visibility`, `width`: Layout params
+        
+        **Returns:** Selected option value
+        """)
+    
+    st.code('''lang = st.radio(
+    "Programming Language",
+    ["Python", "JavaScript", "Rust", "Go"],
+    horizontal=True,
+    captions=["Dynamic typing", "Web & Node", "Memory safe", "Simple & fast"]
+)
+
+plan = st.radio(
+    "Select Plan",
+    ["Free", "Pro ($10/mo)", "Enterprise ($50/mo)"],
+    index=1
+)
+
+st.write(f"Language: `{lang}` | Plan: `{plan}`")''', language="python")
+    
+    with st.container(border=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            lang = st.radio(
+                "Programming Language",
+                ["Python", "JavaScript", "Rust", "Go"],
+                horizontal=True,
+                captions=["Dynamic typing", "Web & Node", "Memory safe", "Simple & fast"]
+            )
+        
+        with col2:
+            plan = st.radio(
+                "Select Plan",
+                ["Free", "Pro ($10/mo)", "Enterprise ($50/mo)"],
+                index=1
+            )
+        
+        st.write(f"Language: `{lang}` | Plan: `{plan}`")
+    
+    # -------------------------------------------------------------------------
+    # st.selectbox()
+    # -------------------------------------------------------------------------
+    st.header("st.selectbox()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Widget label
+        - `options` (Sequence): Options to select from
+        - `index` (int | None): Default index (None for empty selection)
+        - `format_func` (Callable): Format option labels
+        - `placeholder` (str | None): Placeholder text
+        - `disabled` (bool): Disable widget
+        - `accept_new_options` (bool): Allow user to add new options
+        - `label_visibility`, `width`: Layout params
+        
+        **Returns:** Selected value or None
+        """)
+    
+    st.code('''country = st.selectbox(
+    "Country",
+    ["France", "Germany", "Italy", "Spain", "UK", "USA"],
+    placeholder="Choose a country..."
+)
+
+city = st.selectbox(
+    "City (with new options)",
+    ["Paris", "London", "Berlin"],
+    accept_new_options=True,
+    help="You can type a new city!"
+)
+
+st.write(f"Country: `{country}` | City: `{city}`")''', language="python")
+    
+    with st.container(border=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            country = st.selectbox(
+                "Country",
+                ["France", "Germany", "Italy", "Spain", "UK", "USA"],
+                placeholder="Choose a country..."
+            )
+        
+        with col2:
+            city = st.selectbox(
+                "City (with new options)",
+                ["Paris", "London", "Berlin"],
+                accept_new_options=True,
+                help="You can type a new city!"
+            )
+        
+        st.write(f"Country: `{country}` | City: `{city}`")
+    
+    # -------------------------------------------------------------------------
+    # st.multiselect()
+    # -------------------------------------------------------------------------
+    st.header("st.multiselect()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Widget label
+        - `options` (Sequence): Options to select from
+        - `default` (Sequence | None): Default selected values
+        - `format_func` (Callable): Format option labels
+        - `max_selections` (int | None): Maximum selections allowed
+        - `placeholder` (str): Placeholder text
+        - `accept_new_options` (bool): Allow adding new options
+        
+        **Returns:** list of selected values
+        """)
+    
+    st.code('''skills = st.multiselect(
+    "Select your skills (max 4)",
+    ["Python", "JavaScript", "SQL", "Docker", "Kubernetes", "AWS", "GCP", "Azure"],
+    default=["Python", "SQL"],
+    max_selections=4
+)
+
+tags = st.multiselect(
+    "Add tags (can create new)",
+    ["bug", "feature", "documentation", "help wanted"],
+    accept_new_options=True
+)
+
+st.write(f"Skills: `{skills}`")
+st.write(f"Tags: `{tags}`")''', language="python")
+    
+    with st.container(border=True):
+        skills = st.multiselect(
+            "Select your skills (max 4)",
+            ["Python", "JavaScript", "SQL", "Docker", "Kubernetes", "AWS", "GCP", "Azure"],
+            default=["Python", "SQL"],
+            max_selections=4
+        )
+        
+        tags = st.multiselect(
+            "Add tags (can create new)",
+            ["bug", "feature", "documentation", "help wanted"],
+            accept_new_options=True
+        )
+        
+        st.write(f"Skills: `{skills}`")
+        st.write(f"Tags: `{tags}`")
+    
+    # -------------------------------------------------------------------------
+    # st.slider()
+    # -------------------------------------------------------------------------
+    st.header("st.slider()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Widget label
+        - `min_value` (float | None): Minimum value (default: 0)
+        - `max_value` (float | None): Maximum value (default: 100)
+        - `value` (float | tuple | None): Initial value(s) - tuple for range slider
+        - `step` (float | None): Step increment
+        - `format` (str | None): Printf format (e.g., "%.2f", "percent")
+        - `disabled` (bool): Disable slider
+        
+        **Returns:** float/int or tuple for range slider
+        """)
+    
+    st.code('''volume = st.slider("Volume", 0, 100, 50)
+temperature = st.slider("Temperature", -20.0, 40.0, 20.0, step=0.5, format="%.1f°C")
+price_range = st.slider("Price Range", 0.0, 1000.0, (100.0, 500.0), format="$%.2f")
+age_range = st.slider("Age Range", 18, 100, (25, 45))
+
+st.write(f"Volume: `{volume}` | Temp: `{temperature}`")
+st.write(f"Price: `{price_range}` | Age: `{age_range}`")''', language="python")
+    
+    with st.container(border=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            volume = st.slider("Volume", 0, 100, 50)
+            temperature = st.slider("Temperature", -20.0, 40.0, 20.0, step=0.5, format="%.1f°C")
+        
+        with col2:
+            price_range = st.slider("Price Range", 0.0, 1000.0, (100.0, 500.0), format="$%.2f")
+            age_range = st.slider("Age Range", 18, 100, (25, 45))
+        
+        st.write(f"Volume: `{volume}` | Temp: `{temperature}`")
+        st.write(f"Price: `{price_range}` | Age: `{age_range}`")
+    
+    # -------------------------------------------------------------------------
+    # st.select_slider()
+    # -------------------------------------------------------------------------
+    st.header("st.select_slider()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Widget label
+        - `options` (Sequence): Options to select from
+        - `value` (Any | tuple): Default value(s)
+        - `format_func` (Callable): Format labels
+        
+        **Returns:** Selected value or tuple for range
+        """)
+    
+    st.code('''size = st.select_slider("T-Shirt Size", ["XS", "S", "M", "L", "XL", "XXL"], value="M")
+
+quality = st.select_slider(
+    "Quality Range",
+    ["Poor", "Fair", "Good", "Very Good", "Excellent"],
+    value=("Fair", "Very Good")
+)
+
+st.write(f"Size: `{size}` | Quality: `{quality}`")''', language="python")
+    
+    with st.container(border=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            size = st.select_slider("T-Shirt Size", ["XS", "S", "M", "L", "XL", "XXL"], value="M")
+        
+        with col2:
+            quality = st.select_slider(
+                "Quality Range",
+                ["Poor", "Fair", "Good", "Very Good", "Excellent"],
+                value=("Fair", "Very Good")
+            )
+        
+        st.write(f"Size: `{size}` | Quality: `{quality}`")
+    
+    # -------------------------------------------------------------------------
+    # st.number_input()
+    # -------------------------------------------------------------------------
+    st.header("st.number_input()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Widget label
+        - `min_value`, `max_value` (float | None): Range limits
+        - `value` (float | int | str): Initial value ("min" for min_value)
+        - `step` (float | None): Step increment (1 for int, 0.01 for float)
+        - `format` (str | None): Printf format
+        - `placeholder` (str | None): Placeholder text
+        - `icon` (str | None): Icon before input
+        
+        **Returns:** int or float
+        """)
+    
+    st.code('''quantity = st.number_input("Quantity", min_value=1, max_value=100, value=1)
+price = st.number_input("Price ($)", min_value=0.0, value=9.99, step=0.01, format="%.2f")
+year = st.number_input("Year", min_value=1900, max_value=2100, value=2024)
+
+st.write(f"Quantity: `{quantity}` | Price: `${price:.2f}` | Year: `{year}`")''', language="python")
+    
+    with st.container(border=True):
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            quantity = st.number_input("Quantity", min_value=1, max_value=100, value=1)
+        
+        with col2:
+            price = st.number_input("Price ($)", min_value=0.0, value=9.99, step=0.01, format="%.2f")
+        
+        with col3:
+            year = st.number_input("Year", min_value=1900, max_value=2100, value=2024)
+        
+        st.write(f"Quantity: `{quantity}` | Price: `${price:.2f}` | Year: `{year}`")
+    
+    # -------------------------------------------------------------------------
+    # st.text_input()
+    # -------------------------------------------------------------------------
+    st.header("st.text_input()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Widget label
+        - `value` (str): Initial value
+        - `max_chars` (int | None): Maximum characters
+        - `type` (str): "default" or "password"
+        - `placeholder` (str | None): Placeholder text
+        - `autocomplete` (str | None): HTML autocomplete attribute
+        - `icon` (str | None): Icon or "spinner"
+        
+        **Returns:** str
+        """)
+    
+    st.code('''name = st.text_input("Full Name", placeholder="Enter your name...")
+email = st.text_input("Email", placeholder="you@example.com", autocomplete="email")
+username = st.text_input("Username", max_chars=20, help="Max 20 characters")
+password = st.text_input("Password", type="password", placeholder="••••••••")
+
+st.write(f"Name: `{name}` | Email: `{email}` | Username: `{username}`")''', language="python")
+    
+    with st.container(border=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            name = st.text_input("Full Name", placeholder="Enter your name...")
+            email = st.text_input("Email", placeholder="you@example.com", autocomplete="email")
+        
+        with col2:
+            username = st.text_input("Username", max_chars=20, help="Max 20 characters")
+            password = st.text_input("Password", type="password", placeholder="••••••••")
+        
+        st.write(f"Name: `{name}` | Email: `{email}` | Username: `{username}`")
+    
+    # -------------------------------------------------------------------------
+    # st.text_area()
+    # -------------------------------------------------------------------------
+    st.header("st.text_area()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Widget label
+        - `value` (str): Initial value
+        - `height` (str | int | None): None (3 lines), "content", "stretch", or pixels
+        - `max_chars` (int | None): Maximum characters
+        - `placeholder` (str | None): Placeholder
+        
+        **Returns:** str
+        """)
+    
+    st.code('''bio = st.text_area(
+    "Tell us about yourself",
+    height=100,
+    placeholder="Write a short bio...",
+    help="Markdown is supported"
+)
+
+code = st.text_area(
+    "Paste your code",
+    height=150,
+    placeholder="# Your code here..."
+)
+
+st.caption(f"Bio length: {len(bio)} chars | Code length: {len(code)} chars")''', language="python")
+    
+    with st.container(border=True):
+        bio = st.text_area(
+            "Tell us about yourself",
+            height=100,
+            placeholder="Write a short bio...",
+            help="Markdown is supported"
+        )
+        
+        code = st.text_area(
+            "Paste your code",
+            height=150,
+            placeholder="# Your code here..."
+        )
+        
+        st.caption(f"Bio length: {len(bio)} chars | Code length: {len(code)} chars")
+    
+    # -------------------------------------------------------------------------
+    # st.date_input()
+    # -------------------------------------------------------------------------
+    st.header("st.date_input()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Widget label
+        - `value` (date | tuple | str | None): Default date(s) - "today" for current date
+        - `min_value`, `max_value` (date | None): Date range limits
+        - `format` (str): Display format - "YYYY/MM/DD", "DD/MM/YYYY", "MM/DD/YYYY"
+        
+        **Returns:** date or tuple[date, date] for range
+        """)
+    
+    st.code('''single_date = st.date_input(
+    "Select a date",
+    value=datetime.date.today(),
+    min_value=datetime.date(2020, 1, 1),
+    max_value=datetime.date(2030, 12, 31)
+)
+
+date_range = st.date_input(
+    "Select date range",
+    value=(datetime.date.today(), datetime.date.today() + datetime.timedelta(days=7)),
+    format="DD/MM/YYYY"
+)
+
+st.write(f"Single: `{single_date}` | Range: `{date_range}`")''', language="python")
+    
+    with st.container(border=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            single_date = st.date_input(
+                "Select a date",
+                value=datetime.date.today(),
+                min_value=datetime.date(2020, 1, 1),
+                max_value=datetime.date(2030, 12, 31)
+            )
+        
+        with col2:
+            date_range = st.date_input(
+                "Select date range",
+                value=(datetime.date.today(), datetime.date.today() + datetime.timedelta(days=7)),
+                format="DD/MM/YYYY"
+            )
+        
+        st.write(f"Single: `{single_date}` | Range: `{date_range}`")
+    
+    # -------------------------------------------------------------------------
+    # st.time_input()
+    # -------------------------------------------------------------------------
+    st.header("st.time_input()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Widget label
+        - `value` (time | str | None): Default time - "now" for current time
+        - `step` (int): Step in seconds (default: 900 = 15 minutes)
+        
+        **Returns:** datetime.time
+        """)
+    
+    st.code('''start_time = st.time_input("Start time", datetime.time(9, 0), step=900)
+end_time = st.time_input("End time", datetime.time(17, 0), step=900)
+
+st.write(f"Start: `{start_time}` | End: `{end_time}`")''', language="python")
+    
+    with st.container(border=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            start_time = st.time_input("Start time", datetime.time(9, 0), step=900)
+        
+        with col2:
+            end_time = st.time_input("End time", datetime.time(17, 0), step=900)
+        
+        st.write(f"Start: `{start_time}` | End: `{end_time}`")
+    
+    # -------------------------------------------------------------------------
+    # st.color_picker()
+    # -------------------------------------------------------------------------
+    st.header("st.color_picker()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Widget label
+        - `value` (str): Default hex color (e.g., "#FF0000")
+        
+        **Returns:** str (hex color)
+        """)
+    
+    st.code('''primary = st.color_picker("Primary", "#3B82F6")
+secondary = st.color_picker("Secondary", "#10B981")
+accent = st.color_picker("Accent", "#F59E0B")''', language="python")
+    
+    with st.container(border=True):
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            primary = st.color_picker("Primary", "#3B82F6")
+        with col2:
+            secondary = st.color_picker("Secondary", "#10B981")
+        with col3:
+            accent = st.color_picker("Accent", "#F59E0B")
+        
+        st.html(f"""
+        <div style="display: flex; gap: 10px;">
+            <div style="width: 100px; height: 50px; background: {primary}; border-radius: 8px;"></div>
+            <div style="width: 100px; height: 50px; background: {secondary}; border-radius: 8px;"></div>
+            <div style="width: 100px; height: 50px; background: {accent}; border-radius: 8px;"></div>
+        </div>
+        """)
+    
+    # -------------------------------------------------------------------------
+    # st.file_uploader()
+    # -------------------------------------------------------------------------
+    st.header("st.file_uploader()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Widget label
+        - `type` (str | list | None): Allowed file extensions (e.g., ["csv", "txt"])
+        - `accept_multiple_files` (bool): Allow multiple file uploads
+        
+        **Returns:** UploadedFile | list[UploadedFile] | None
+        
+        **UploadedFile properties:**
+        - `name`: File name
+        - `type`: MIME type
+        - `size`: Size in bytes
+        - `read()`: Read content as bytes
+        - `getvalue()`: Get all bytes
+        """)
+    
+    st.code('''single_file = st.file_uploader(
+    "Upload a single file",
+    type=["csv", "txt", "json"],
+    help="Supported: CSV, TXT, JSON"
+)
+
+if single_file:
+    st.success(f"Uploaded: {single_file.name} ({single_file.size} bytes)")
+
+multi_files = st.file_uploader(
+    "Upload multiple files",
+    type=["png", "jpg", "jpeg", "gif"],
+    accept_multiple_files=True
+)
+
+if multi_files:
+    for f in multi_files:
+        st.info(f"📄 {f.name} ({f.size} bytes)")''', language="python")
+    
+    with st.container(border=True):
+        single_file = st.file_uploader(
+            "Upload a single file",
+            type=["csv", "txt", "json"],
+            help="Supported: CSV, TXT, JSON"
+        )
+        
+        if single_file:
+            st.success(f"Uploaded: {single_file.name} ({single_file.size} bytes)")
+        
+        multi_files = st.file_uploader(
+            "Upload multiple files",
+            type=["png", "jpg", "jpeg", "gif"],
+            accept_multiple_files=True
+        )
+        
+        if multi_files:
+            for f in multi_files:
+                st.info(f"📄 {f.name} ({f.size} bytes)")
+    
+    # -------------------------------------------------------------------------
+    # st.feedback()
+    # -------------------------------------------------------------------------
+    st.header("st.feedback()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `sentiment_mapping` (dict | str | None): Feedback style:
+          - "thumbs": 👍/👎
+          - "stars": ⭐ rating
+          - "faces": 😀/😐/😞
+          - dict: Custom mapping
+        
+        **Returns:** int | None (selected index)
+        """)
+    
+    st.code('''thumbs = st.feedback("thumbs")
+stars = st.feedback("stars")
+faces = st.feedback("faces")
+
+st.write(f"Thumbs: `{thumbs}` | Stars: `{stars}` | Faces: `{faces}`")''', language="python")
+    
+    with st.container(border=True):
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.caption("Thumbs")
+            thumbs = st.feedback("thumbs")
+            st.write(f"Value: `{thumbs}`")
+        
+        with col2:
+            st.caption("Stars")
+            stars = st.feedback("stars")
+            st.write(f"Value: `{stars}`")
+        
+        with col3:
+            st.caption("Faces")
+            faces = st.feedback("faces")
+            st.write(f"Value: `{faces}`")
+    
+    # -------------------------------------------------------------------------
+    # st.pills()
+    # -------------------------------------------------------------------------
+    st.header("st.pills()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Widget label
+        - `options` (Sequence): Options
+        - `selection_mode` (str): "single" or "multi"
+        - `default` (Any): Default selection
+        - `format_func` (Callable): Format labels
+        
+        **Returns:** value (single) or list (multi)
+        """)
+    
+    st.code('''category = st.pills(
+    "Filter by category",
+    ["All", "Technology", "Design", "Marketing", "Finance"],
+    default="All"
+)
+
+features = st.pills(
+    "Select features",
+    ["Fast", "Secure", "Scalable", "Modern", "Easy"],
+    selection_mode="multi",
+    default=["Fast", "Modern"]
+)
+
+st.write(f"Category: `{category}`")
+st.write(f"Features: `{features}`")''', language="python")
+    
+    with st.container(border=True):
+        category = st.pills(
+            "Filter by category",
+            ["All", "Technology", "Design", "Marketing", "Finance"],
+            default="All"
+        )
+        
+        features = st.pills(
+            "Select features",
+            ["Fast", "Secure", "Scalable", "Modern", "Easy"],
+            selection_mode="multi",
+            default=["Fast", "Modern"]
+        )
+        
+        st.write(f"Category: `{category}`")
+        st.write(f"Features: `{features}`")
+    
+    # -------------------------------------------------------------------------
+    # st.segmented_control()
+    # -------------------------------------------------------------------------
+    st.header("st.segmented_control()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:** Same as st.pills()
+        
+        Visual difference: Button group style instead of pills.
+        """)
+    
+    st.code('''view = st.segmented_control(
+    "View mode",
+    ["📋 List", "📊 Grid", "📈 Chart"],
+    default="📋 List"
+)
+
+theme = st.segmented_control(
+    "Theme",
+    ["Light", "Dark", "System"],
+    default="System"
+)
+
+st.write(f"View: `{view}` | Theme: `{theme}`")''', language="python")
+    
+    with st.container(border=True):
+        view = st.segmented_control(
+            "View mode",
+            ["📋 List", "📊 Grid", "📈 Chart"],
+            default="📋 List"
+        )
+        
+        theme = st.segmented_control(
+            "Theme",
+            ["Light", "Dark", "System"],
+            default="System"
+        )
+        
+        st.write(f"View: `{view}` | Theme: `{theme}`")
+
+
+# =============================================================================
+# 📊 DATA DISPLAY
+# =============================================================================
+elif selected == "📊 Data Display":
+    st.title("📊 Data Display")
+    st.caption("Components for displaying data")
+    
+    # Sample data
+    sample_data = {
+        "Name": ["Alice Martin", "Bob Johnson", "Charlie Lee", "Diana Chen", "Eve Wilson"],
+        "Age": [25, 30, 35, 28, 32],
+        "City": ["Paris", "London", "Berlin", "Madrid", "Rome"],
+        "Score": [85.5, 92.0, 78.5, 95.0, 88.5],
+        "Active": [True, False, True, True, False],
+        "Joined": ["2024-01-15", "2023-06-20", "2024-03-01", "2023-11-10", "2024-02-28"],
+    }
+    
+    # -------------------------------------------------------------------------
+    # st.dataframe()
+    # -------------------------------------------------------------------------
+    st.header("st.dataframe()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `data` (DataFrame | dict | list): Data to display
+        - `height` (int | None): Height in pixels (auto-sizes up to 400px)
+        - `use_container_width` (bool): Stretch to container width
+        - `hide_index` (bool): Hide row index
+        - `key` (str | None): Unique key
+        
+        **Features:**
+        - Virtualized rendering (handles millions of rows)
+        - Column sorting (click headers)
+        - Column resizing
+        - Smooth scrolling
+        """)
+    
+    st.code('''sample_data = {
+    "Name": ["Alice Martin", "Bob Johnson", "Charlie Lee", "Diana Chen", "Eve Wilson"],
+    "Age": [25, 30, 35, 28, 32],
+    "City": ["Paris", "London", "Berlin", "Madrid", "Rome"],
+    "Score": [85.5, 92.0, 78.5, 95.0, 88.5],
+    "Active": [True, False, True, True, False],
+}
+st.dataframe(sample_data, height=200)
+
+# With hidden index:
+st.dataframe(sample_data, height=150, hide_index=True)''', language="python")
+    
+    with st.container(border=True):
+        st.dataframe(sample_data, height=200)
+        
+        st.caption("With hidden index:")
+        st.dataframe(sample_data, height=150, hide_index=True)
+    
+    # -------------------------------------------------------------------------
+    # st.data_editor()
+    # -------------------------------------------------------------------------
+    st.header("st.data_editor()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `data`: Data to edit
+        - `height`, `width`: Dimensions
+        - `use_container_width` (bool): Full width
+        - `hide_index` (bool): Hide index
+        - `column_order` (list[str]): Column display order
+        - `column_config` (dict): Column configurations
+        - `num_rows` (str): "fixed" or "dynamic" (allow add/remove rows)
+        - `disabled` (bool | list[str]): Disable all or specific columns
+        - `on_change` (Callable): Callback when data changes
+        
+        **Returns:** Edited data
+        """)
+    
+    st.code('''edited = st.data_editor(
+    sample_data,
+    height=250,
+    num_rows="dynamic",
+    column_config={
+        "Score": st.column_config.NumberColumn("Score", min_value=0, max_value=100, format="%.1f"),
+        "Active": st.column_config.CheckboxColumn("Active"),
+        "Joined": st.column_config.DateColumn("Joined", format="YYYY-MM-DD"),
+    }
+)
+
+st.caption("Edited data is returned:")
+st.json(edited)''', language="python")
+    
+    with st.container(border=True):
+        edited = st.data_editor(
+            sample_data,
+            height=250,
+            num_rows="dynamic",
+            column_config={
+                "Score": st.column_config.NumberColumn("Score", min_value=0, max_value=100, format="%.1f"),
+                "Active": st.column_config.CheckboxColumn("Active"),
+                "Joined": st.column_config.DateColumn("Joined", format="YYYY-MM-DD"),
+            }
+        )
+        
+        st.caption("Edited data is returned:")
+        st.json(edited)
+    
+    # -------------------------------------------------------------------------
+    # Column Configuration
+    # -------------------------------------------------------------------------
+    st.header("Column Configuration", divider="blue")
+    
+    with st.expander("📖 All Column Types", expanded=True):
+        st.markdown("""
+        | Type | Usage |
+        |------|-------|
+        | `TextColumn` | Text with validation |
+        | `NumberColumn` | Numeric with min/max/step |
+        | `CheckboxColumn` | Boolean checkbox |
+        | `SelectboxColumn` | Dropdown select |
+        | `DateColumn` | Date picker |
+        | `TimeColumn` | Time picker |
+        | `DatetimeColumn` | Date + time |
+        | `ProgressColumn` | Progress bar |
+        | `LinkColumn` | Clickable URL |
+        | `ImageColumn` | Image preview |
+        | `LineChartColumn` | Sparkline chart |
+        | `BarChartColumn` | Sparkbar chart |
+        | `ListColumn` | Array display |
+        """)
+    
+    st.code('''st.column_config.NumberColumn("Price", min_value=0, max_value=1000, format="$%.2f")
+st.column_config.ProgressColumn("Progress", min_value=0, max_value=100)
+st.column_config.LinkColumn("URL", display_text="Open")''', language="python")
+    
+    # -------------------------------------------------------------------------
+    # st.table()
+    # -------------------------------------------------------------------------
+    st.header("st.table()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `data` (DataFrame | dict | list): Data to display
+        - `key` (str | None): Unique key
+        
+        **Note:** Static table - use for small data only. For large data, use st.dataframe().
+        """)
+    
+    st.code('''small_data = {
+    "Feature": ["Fast", "Compatible", "Modern"],
+    "Status": ["✅", "✅", "✅"],
+}
+st.table(small_data)''', language="python")
+    
+    with st.container(border=True):
+        small_data = {
+            "Feature": ["Fast", "Compatible", "Modern"],
+            "Status": ["✅", "✅", "✅"],
+        }
+        st.table(small_data)
+    
+    # -------------------------------------------------------------------------
+    # st.metric()
+    # -------------------------------------------------------------------------
+    st.header("st.metric()", divider="blue")
+    
+    st.code('''cols = st.columns(5)
+
+with cols[0]:
+    st.metric("Revenue", "$12,345", delta="+5.2%")
+with cols[1]:
+    st.metric("Users", "1,234", delta="+120")
+with cols[2]:
+    st.metric("Errors", 23, delta="-8%", delta_color="inverse")
+with cols[3]:
+    st.metric("Uptime", "99.9%", delta="0%", delta_color="off")
+with cols[4]:
+    st.metric("Status", "OK", border=True)''', language="python")
+    
+    with st.container(border=True):
+        cols = st.columns(5)
+        
+        with cols[0]:
+            st.metric("Revenue", "$12,345", delta="+5.2%")
+        with cols[1]:
+            st.metric("Users", "1,234", delta="+120")
+        with cols[2]:
+            st.metric("Errors", 23, delta="-8%", delta_color="inverse")
+        with cols[3]:
+            st.metric("Uptime", "99.9%", delta="0%", delta_color="off")
+        with cols[4]:
+            st.metric("Status", "OK", border=True)
+    
+    # -------------------------------------------------------------------------
+    # st.json()
+    # -------------------------------------------------------------------------
+    st.header("st.json()", divider="blue")
+    
+    st.code('''st.json({
+    "app": "Fastlit",
+    "version": "0.1.0",
+    "config": {
+        "debug": True,
+        "port": 8501,
+        "features": {
+            "caching": True,
+            "hot_reload": True
+        }
+    },
+    "authors": ["Developer 1", "Developer 2"]
+}, expanded=2)''', language="python")
+    
+    with st.container(border=True):
+        st.json({
+            "app": "Fastlit",
+            "version": "0.1.0",
+            "config": {
+                "debug": True,
+                "port": 8501,
+                "features": {
+                    "caching": True,
+                    "hot_reload": True
+                }
+            },
+            "authors": ["Developer 1", "Developer 2"]
+        }, expanded=2)
+
+
+# =============================================================================
+# 📈 CHARTS
+# =============================================================================
+elif selected == "📈 Charts":
+    st.title("📈 Charts")
+    st.caption("Data visualization components")
+    
+    # Sample data for charts
+    chart_data = {
+        "month": ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+        "sales": [100, 120, 140, 130, 180, 200],
+        "profit": [20, 25, 30, 22, 40, 45],
+        "costs": [80, 95, 110, 108, 140, 155],
+    }
+    
+    # -------------------------------------------------------------------------
+    # st.line_chart()
+    # -------------------------------------------------------------------------
+    st.header("st.line_chart()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `data` (DataFrame | dict | list): Chart data
+        - `x` (str | None): X-axis column (default: index)
+        - `y` (str | list[str] | None): Y-axis column(s)
+        - `color` (str | list[str] | None): Line color(s)
+        - `width`, `height` (int | None): Dimensions
+        - `use_container_width` (bool): Full width
+        """)
+    
+    st.code('''chart_data = {
+    "month": ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+    "sales": [100, 120, 140, 130, 180, 200],
+    "profit": [20, 25, 30, 22, 40, 45],
+}
+st.line_chart(chart_data, x="month", y=["sales", "profit"], height=300)''', language="python")
+    
+    with st.container(border=True):
+        st.line_chart(chart_data, x="month", y=["sales", "profit"], height=300)
+    
+    # -------------------------------------------------------------------------
+    # st.bar_chart()
+    # -------------------------------------------------------------------------
+    st.header("st.bar_chart()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:** Same as st.line_chart() plus:
+        - `horizontal` (bool): Horizontal bars
+        """)
+    
+    st.code('''# Vertical bars
+st.bar_chart(chart_data, x="month", y="sales", height=250)
+
+# Horizontal bars
+st.bar_chart(chart_data, x="month", y="sales", height=250, horizontal=True)''', language="python")
+    
+    with st.container(border=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.caption("Vertical bars")
+            st.bar_chart(chart_data, x="month", y="sales", height=250)
+        
+        with col2:
+            st.caption("Horizontal bars")
+            st.bar_chart(chart_data, x="month", y="sales", height=250, horizontal=True)
+    
+    # -------------------------------------------------------------------------
+    # st.area_chart()
+    # -------------------------------------------------------------------------
+    st.header("st.area_chart()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:** Same as st.line_chart() plus:
+        - `stack` (bool): Stack areas
+        """)
+    
+    st.code('''st.area_chart(chart_data, x="month", y=["sales", "costs"], height=300, stack=True)''', language="python")
+    
+    with st.container(border=True):
+        st.area_chart(chart_data, x="month", y=["sales", "costs"], height=300, stack=True)
+    
+    # -------------------------------------------------------------------------
+    # st.scatter_chart()
+    # -------------------------------------------------------------------------
+    st.header("st.scatter_chart()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `data`: Chart data
+        - `x`, `y` (str): X and Y columns
+        - `color` (str | None): Color column for encoding
+        - `size` (str | None): Size column for point sizing
+        """)
+    
+    st.code('''scatter_data = {
+    "x": [10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
+    "y": [15, 25, 35, 20, 55, 45, 70, 85, 75, 95],
+    "size": [10, 20, 15, 30, 25, 35, 40, 45, 50, 55],
+}
+st.scatter_chart(scatter_data, x="x", y="y", height=300)''', language="python")
+    
+    with st.container(border=True):
+        scatter_data = {
+            "x": [10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
+            "y": [15, 25, 35, 20, 55, 45, 70, 85, 75, 95],
+            "size": [10, 20, 15, 30, 25, 35, 40, 45, 50, 55],
+        }
+        st.scatter_chart(scatter_data, x="x", y="y", height=300)
+    
+    # -------------------------------------------------------------------------
+    # st.map()
+    # -------------------------------------------------------------------------
+    st.header("st.map()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `data` (DataFrame | list | None): Data with lat/lon columns
+        - `latitude` (str | None): Latitude column name
+        - `longitude` (str | None): Longitude column name
+        - `color` (str | None): Marker color
+        - `size` (str | None): Size column for markers
+        - `zoom` (int | None): Initial zoom level
+        - `height` (int | None): Map height
+        - `use_container_width` (bool): Full width
+        """)
+    
+    st.code('''map_data = [
+    {"lat": 48.8566, "lon": 2.3522},   # Paris
+    {"lat": 51.5074, "lon": -0.1278},  # London
+    {"lat": 52.5200, "lon": 13.4050},  # Berlin
+    {"lat": 40.4168, "lon": -3.7038},  # Madrid
+    {"lat": 41.9028, "lon": 12.4964},  # Rome
+]
+st.map(map_data, zoom=4, height=400)''', language="python")
+    
+    with st.container(border=True):
+        map_data = [
+            {"lat": 48.8566, "lon": 2.3522},   # Paris
+            {"lat": 51.5074, "lon": -0.1278},  # London
+            {"lat": 52.5200, "lon": 13.4050},  # Berlin
+            {"lat": 40.4168, "lon": -3.7038},  # Madrid
+            {"lat": 41.9028, "lon": 12.4964},  # Rome
+        ]
+        st.map(map_data, zoom=4, height=400)
+    
+    # -------------------------------------------------------------------------
+    # Advanced Charts (Plotly, Altair, etc.)
+    # -------------------------------------------------------------------------
+    st.header("Advanced Charts", divider="blue")
+    
+    st.info("""
+    Fastlit also supports:
+    - `st.plotly_chart()` - Plotly figures with interactivity
+    - `st.altair_chart()` - Altair/Vega-Lite charts
+    - `st.vega_lite_chart()` - Vega-Lite specifications
+    - `st.pyplot()` - Matplotlib figures
+    - `st.bokeh_chart()` - Bokeh charts
+    - `st.graphviz_chart()` - Graphviz diagrams
+    - `st.pydeck_chart()` - PyDeck 3D maps
+    """)
+    
+    # Graphviz example
+    st.subheader("st.graphviz_chart()")
+    st.code('''st.graphviz_chart("""
+    digraph {
+        rankdir=LR
+        User -> Frontend -> Backend -> Database
+        Frontend -> Cache
+        Backend -> Cache
+    }
+""")''', language="python")
+    
+    with st.container(border=True):
+        st.graphviz_chart("""
+            digraph {
+                rankdir=LR
+                User -> Frontend -> Backend -> Database
+                Frontend -> Cache
+                Backend -> Cache
+            }
+        """)
+
+
+# =============================================================================
+# 🖼️ MEDIA
+# =============================================================================
+elif selected == "🖼️ Media":
+    st.title("🖼️ Media Components")
+    st.caption("Components for displaying media content")
+    
+    # -------------------------------------------------------------------------
+    # st.image()
+    # -------------------------------------------------------------------------
+    st.header("st.image()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `image` (str | bytes | PIL.Image | np.ndarray): Image source
+        - `caption` (str | None): Caption below image
+        - `width` (int | None): Width in pixels
+        - `use_container_width` (str | bool): "auto", "always", "never"
+        - `clamp` (bool): Clamp pixel values
+        - `channels` (str): "RGB" or "BGR"
+        - `output_format` (str): "auto", "PNG", "JPEG"
+        """)
+    
+    st.code('''st.image(
+    "https://via.placeholder.com/400x200/3B82F6/FFFFFF?text=Fastlit+Demo",
+    caption="Sample image with caption",
+    width=400
+)''', language="python")
+    
+    with st.container(border=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.image(
+                "https://via.placeholder.com/400x200/3B82F6/FFFFFF?text=Fastlit+Demo",
+                caption="Sample image with caption",
+                width=400
+            )
+        
+        with col2:
+            st.image(
+                "https://via.placeholder.com/400x200/10B981/FFFFFF?text=Green+Image",
+                caption="Another image"
+            )
+    
+    # -------------------------------------------------------------------------
+    # st.audio()
+    # -------------------------------------------------------------------------
+    st.header("st.audio()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `data` (str | bytes | np.ndarray): Audio source
+        - `format` (str): MIME type (default: "audio/wav")
+        - `start_time` (int): Start time in seconds
+        - `end_time` (int | None): End time in seconds
+        - `sample_rate` (int | None): For numpy arrays
+        - `loop` (bool): Loop playback
+        - `autoplay` (bool): Auto-start playback
+        """)
+    
+    st.code('''st.audio("path/to/audio.mp3")
+st.audio(audio_bytes, format="audio/mp3", autoplay=True)''', language="python")
+    
+    with st.container(border=True):
+        st.info("Provide an audio file URL or bytes to use st.audio()")
+        st.caption("Example: `st.audio('https://example.com/sample.mp3')`")
+    
+    # -------------------------------------------------------------------------
+    # st.video()
+    # -------------------------------------------------------------------------
+    st.header("st.video()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `data` (str | bytes): Video source (URL or bytes)
+        - `format` (str): MIME type (default: "video/mp4")
+        - `start_time`, `end_time` (int): Playback range
+        - `subtitles` (dict | None): Subtitle tracks {label: file}
+        - `loop` (bool): Loop playback
+        - `autoplay` (bool): Auto-start
+        - `muted` (bool): Start muted
+        """)
+    
+    st.code('''st.video("https://example.com/video.mp4", start_time=10)
+st.video(video_bytes, subtitles={"English": "en.vtt"})''', language="python")
+    
+    with st.container(border=True):
+        st.info("Provide a video file URL or bytes to use st.video()")
+        st.caption("Example: `st.video('https://example.com/sample.mp4')`")
+    
+    # -------------------------------------------------------------------------
+    # st.logo()
+    # -------------------------------------------------------------------------
+    st.header("st.logo()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `image`: Logo image source
+        - `size` (str): "small", "medium", "large"
+        - `link` (str | None): URL to link to
+        - `icon_image`: Smaller icon version
+        """)
+    
+    st.code('st.logo("logo.png", size="medium", link="https://example.com")', language="python")
+    
+    with st.container(border=True):
+        st.caption("Logo is typically placed in the sidebar:")
+        st.info("Use `st.sidebar.logo()` to add a logo to your sidebar")
+    
+    # -------------------------------------------------------------------------
+    # st.pdf()
+    # -------------------------------------------------------------------------
+    st.header("st.pdf()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `data` (str | bytes): PDF source (URL or bytes)
+        - `width` (int | None): Display width
+        - `height` (int | None): Display height (default: 600)
+        """)
+    
+    st.code('st.pdf("document.pdf", height=500)', language="python")
+    
+    with st.container(border=True):
+        st.info("Provide a PDF file URL or bytes to use st.pdf()")
+
+
+# =============================================================================
+# ⚡ STATUS & FEEDBACK
+# =============================================================================
+elif selected == "⚡ Status & Feedback":
+    st.title("⚡ Status & Feedback")
+    st.caption("Components for showing status and feedback")
+    
+    # -------------------------------------------------------------------------
+    # Alert Messages
+    # -------------------------------------------------------------------------
+    st.header("Alert Messages", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Functions:**
+        - `st.success(body, icon=None)` - Green success message
+        - `st.info(body, icon=None)` - Blue info message
+        - `st.warning(body, icon=None)` - Yellow warning message
+        - `st.error(body, icon=None)` - Red error message
+        
+        **Parameters:**
+        - `body` (str): Message text (supports Markdown)
+        - `icon` (str | None): Custom emoji icon
+        """)
+    
+    st.code('''st.success("Operation completed successfully!")
+st.info("Here's some helpful information.")
+st.warning("Warning: This action cannot be undone.")
+st.error("Error: Something went wrong.")
+
+# With custom icons:
+st.success("Saved!", icon="💾")
+st.info("Tip: Use keyboard shortcuts", icon="💡")''', language="python")
+    
+    with st.container(border=True):
+        st.success("Operation completed successfully!")
+        st.info("Here's some helpful information.")
+        st.warning("Warning: This action cannot be undone.")
+        st.error("Error: Something went wrong.")
+        
+        st.divider()
+        st.caption("With custom icons:")
+        st.success("Saved!", icon="💾")
+        st.info("Tip: Use keyboard shortcuts", icon="💡")
+    
+    # -------------------------------------------------------------------------
+    # st.exception()
+    # -------------------------------------------------------------------------
+    st.header("st.exception()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `exception` (BaseException | None): Exception to display, None for current exception
+        
+        Displays exception with full traceback.
+        """)
+    
+    st.code('''try:
+    result = 1 / 0
+except Exception as e:
+    st.exception(e)''', language="python")
+    
+    with st.container(border=True):
+        try:
+            result = 1 / 0
+        except Exception as e:
+            st.exception(e)
+    
+    # -------------------------------------------------------------------------
+    # st.progress()
+    # -------------------------------------------------------------------------
+    st.header("st.progress()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `value` (float | int): Progress 0-100 or 0.0-1.0
+        - `text` (str | None): Text above progress bar
+        """)
+    
+    st.code('''st.progress(25, text="25% - Getting started")
+st.progress(50, text="50% - Halfway there!")
+st.progress(75, text="75% - Almost done")
+st.progress(100, text="100% - Complete!")''', language="python")
+    
+    with st.container(border=True):
+        st.progress(25, text="25% - Getting started")
+        st.progress(50, text="50% - Halfway there!")
+        st.progress(75, text="75% - Almost done")
+        st.progress(100, text="100% - Complete!")
+    
+    # -------------------------------------------------------------------------
+    # st.spinner()
+    # -------------------------------------------------------------------------
+    st.header("st.spinner()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Usage:** Context manager that shows a spinner while code executes.
+        
+        ```python
+        with st.spinner("Loading..."):
+            time.sleep(2)
+        ```
+        """)
+    
+    st.code('''if st.button("Start spinner demo"):
+    with st.spinner("Processing..."):
+        time.sleep(1)
+    st.success("Done!")''', language="python")
+    
+    with st.container(border=True):
+        if st.button("Start spinner demo"):
+            with st.spinner("Processing..."):
+                time.sleep(1)
+            st.success("Done!")
+    
+    # -------------------------------------------------------------------------
+    # st.status()
+    # -------------------------------------------------------------------------
+    st.header("st.status()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Status label
+        - `expanded` (bool): Initially expanded
+        - `state` (str): "running", "complete", "error"
+        
+        **Methods:**
+        - `.update(label=None, state=None, expanded=None)`: Update status
+        """)
+    
+    st.code('''if st.button("Run status demo"):
+    with st.status("Downloading data...", expanded=True) as status:
+        st.write("Connecting to server...")
+        time.sleep(0.5)
+        st.write("Fetching data...")
+        time.sleep(0.5)
+        st.write("Processing...")
+        time.sleep(0.5)
+        status.update(label="Download complete!", state="complete")''', language="python")
+    
+    with st.container(border=True):
+        if st.button("Run status demo"):
+            with st.status("Downloading data...", expanded=True) as status:
+                st.write("Connecting to server...")
+                time.sleep(0.5)
+                st.write("Fetching data...")
+                time.sleep(0.5)
+                st.write("Processing...")
+                time.sleep(0.5)
+                status.update(label="Download complete!", state="complete")
+    
+    # -------------------------------------------------------------------------
+    # st.toast()
+    # -------------------------------------------------------------------------
+    st.header("st.toast()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `body` (str): Toast message
+        - `icon` (str | None): Icon emoji
+        
+        Shows a temporary notification in the corner.
+        """)
+    
+    st.code('''if st.button("Success toast"):
+    st.toast("Success!", icon="✅")
+
+if st.button("Info toast"):
+    st.toast("Just so you know...", icon="ℹ️")
+
+if st.button("Warning toast"):
+    st.toast("Watch out!", icon="⚠️")''', language="python")
+    
+    with st.container(border=True):
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("Success toast"):
+                st.toast("Success!", icon="✅")
+        
+        with col2:
+            if st.button("Info toast"):
+                st.toast("Just so you know...", icon="ℹ️")
+        
+        with col3:
+            if st.button("Warning toast"):
+                st.toast("Watch out!", icon="⚠️")
+    
+    # -------------------------------------------------------------------------
+    # st.balloons() & st.snow()
+    # -------------------------------------------------------------------------
+    st.header("Celebrations", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Functions:**
+        - `st.balloons()` - Show celebratory balloons
+        - `st.snow()` - Show snowfall animation
+        
+        No parameters. Single-use animation.
+        """)
+    
+    st.code('''if st.button("🎈 Show Balloons"):
+    st.balloons()
+
+if st.button("❄️ Show Snow"):
+    st.snow()''', language="python")
+    
+    with st.container(border=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🎈 Show Balloons"):
+                st.balloons()
+        
+        with col2:
+            if st.button("❄️ Show Snow"):
+                st.snow()
+
+
+# =============================================================================
+# 📐 LAYOUT
+# =============================================================================
+elif selected == "📐 Layout":
+    st.title("📐 Layout Components")
+    st.caption("Components for organizing content")
+    
+    # -------------------------------------------------------------------------
+    # st.columns()
+    # -------------------------------------------------------------------------
+    st.header("st.columns()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `spec` (int | list): Number of equal columns or list of widths
+        - `gap` (str): "small", "medium", "large"
+        - `vertical_alignment` (str): "top", "center", "bottom"
+        - `border` (bool): Show border around columns
+        
+        **Returns:** list[Column]
+        """)
+    
+    st.code('''# Equal columns
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.info("Column 1")
+with col2:
+    st.success("Column 2")
+with col3:
+    st.warning("Column 3")
+
+# Custom widths (2:1 ratio)
+left, right = st.columns([2, 1])
+with left:
+    st.info("Wide column (2)")
+with right:
+    st.success("Narrow (1)")
+
+# With gap options
+a, b, c = st.columns(3, gap="large")
+with a:
+    st.metric("A", 100)
+with b:
+    st.metric("B", 200)
+with c:
+    st.metric("C", 300)''', language="python")
+    
+    with st.container(border=True):
+        st.caption("Equal columns:")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.info("Column 1")
+        with col2:
+            st.success("Column 2")
+        with col3:
+            st.warning("Column 3")
+        
+        st.caption("Custom widths (2:1 ratio):")
+        left, right = st.columns([2, 1])
+        with left:
+            st.info("Wide column (2)")
+        with right:
+            st.success("Narrow (1)")
+        
+        st.caption("With gap options:")
+        a, b, c = st.columns(3, gap="large")
+        with a:
+            st.metric("A", 100)
+        with b:
+            st.metric("B", 200)
+        with c:
+            st.metric("C", 300)
+    
+    # -------------------------------------------------------------------------
+    # st.tabs()
+    # -------------------------------------------------------------------------
+    st.header("st.tabs()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `tab_labels` (Sequence[str]): Tab labels
+        - `default` (str | None): Default selected tab
+        
+        **Returns:** list[Tab]
+        """)
+    
+    st.code('''tab1, tab2, tab3 = st.tabs(["📊 Overview", "📋 Data", "⚙️ Settings"])
+
+with tab1:
+    st.write("This is the overview tab.")
+    st.metric("Total", 1234)
+
+with tab2:
+    st.write("This is the data tab.")
+    st.dataframe({"A": [1, 2, 3], "B": [4, 5, 6]})
+
+with tab3:
+    st.write("This is the settings tab.")
+    st.checkbox("Enable feature")''', language="python")
+    
+    with st.container(border=True):
+        tab1, tab2, tab3 = st.tabs(["📊 Overview", "📋 Data", "⚙️ Settings"])
+        
+        with tab1:
+            st.write("This is the overview tab.")
+            st.metric("Total", 1234)
+        
+        with tab2:
+            st.write("This is the data tab.")
+            st.dataframe({"A": [1, 2, 3], "B": [4, 5, 6]})
+        
+        with tab3:
+            st.write("This is the settings tab.")
+            st.checkbox("Enable feature")
+    
+    # -------------------------------------------------------------------------
+    # st.expander()
+    # -------------------------------------------------------------------------
+    st.header("st.expander()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Expander label
+        - `expanded` (bool): Initially expanded
+        - `icon` (str | None): Icon
+        
+        **Returns:** Expander context manager
+        """)
+    
+    st.code('''with st.expander("Click to see more details"):
+    st.write("This content is hidden by default.")
+    st.code("print('Hello!')", language="python")
+
+with st.expander("Already expanded", expanded=True):
+    st.write("This starts open.")''', language="python")
+    
+    with st.container(border=True):
+        with st.expander("Click to see more details"):
+            st.write("This content is hidden by default.")
+            st.code("print('Hello!')", language="python")
+        
+        with st.expander("Already expanded", expanded=True):
+            st.write("This starts open.")
+    
+    # -------------------------------------------------------------------------
+    # st.container()
+    # -------------------------------------------------------------------------
+    st.header("st.container()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `border` (bool | None): Show border
+        - `height` (int | str | None): Container height
+        
+        **Returns:** Container context manager
+        """)
+    
+    st.code('''with st.container(border=True):
+    st.write("Content in a bordered container")
+    st.button("Button inside")
+
+with st.container(border=True, height=100):
+    st.write("Fixed height container (100px)")
+    st.write("With scrolling if needed...")''', language="python")
+    
+    with st.container(border=True):
+        with st.container(border=True):
+            st.write("Content in a bordered container")
+            st.button("Button inside")
+        
+        with st.container(border=True, height=100):
+            st.write("Fixed height container (100px)")
+            st.write("With scrolling if needed...")
+    
+    # -------------------------------------------------------------------------
+    # st.empty()
+    # -------------------------------------------------------------------------
+    st.header("st.empty()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Usage:** Create a single-element placeholder that can be updated or cleared.
+        
+        **Methods:**
+        - `.write()`, `.markdown()`, etc.: Update content
+        - `.empty()`: Clear content
+        """)
+    
+    st.code('''placeholder = st.empty()
+
+if st.button("Show info"):
+    placeholder.info("This is info")
+if st.button("Show success"):
+    placeholder.success("This is success")
+if st.button("Clear"):
+    placeholder.empty()''', language="python")
+    
+    with st.container(border=True):
+        placeholder = st.empty()
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button("Show info"):
+                placeholder.info("This is info")
+        with col2:
+            if st.button("Show success"):
+                placeholder.success("This is success")
+        with col3:
+            if st.button("Clear"):
+                placeholder.empty()
+    
+    # -------------------------------------------------------------------------
+    # st.form()
+    # -------------------------------------------------------------------------
+    st.header("st.form()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `key` (str): Unique form key
+        - `clear_on_submit` (bool): Clear values after submit
+        - `enter_to_submit` (bool): Submit on Enter key
+        - `border` (bool): Show border
+        
+        Forms batch widget interactions until submitted.
+        """)
+    
+    st.code('''with st.form("demo_form", clear_on_submit=True):
+    name = st.text_input("Name", placeholder="Your name...")
+    email = st.text_input("Email", placeholder="your@email.com")
+    age = st.slider("Age", 18, 100, 25)
+    newsletter = st.checkbox("Subscribe to newsletter")
+    submitted = st.form_submit_button("Submit", type="primary")
+
+if submitted:
+    st.success(f"Form submitted! Name: {name}, Email: {email}, Age: {age}")''', language="python")
+    
+    with st.container(border=True):
+        with st.form("demo_form", clear_on_submit=True):
+            name = st.text_input("Name", placeholder="Your name...")
+            email = st.text_input("Email", placeholder="your@email.com")
+            age = st.slider("Age", 18, 100, 25)
+            newsletter = st.checkbox("Subscribe to newsletter")
+            submitted = st.form_submit_button("Submit", type="primary")
+        
+        if submitted:
+            st.success(f"Form submitted! Name: {name}, Email: {email}, Age: {age}")
+    
+    # -------------------------------------------------------------------------
+    # st.popover()
+    # -------------------------------------------------------------------------
+    st.header("st.popover()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Button label
+        - `type` (str): Button type
+        - `help` (str | None): Tooltip
+        - `disabled` (bool): Disable
+        - `use_container_width` (bool): Full width
+        """)
+    
+    st.code('''with st.popover("⚙️ Settings"):
+    st.write("Configure options:")
+    st.toggle("Dark mode")
+    st.slider("Volume", 0, 100, 50)
+    st.selectbox("Language", ["English", "French", "German"])''', language="python")
+    
+    with st.container(border=True):
+        with st.popover("⚙️ Settings"):
+            st.write("Configure options:")
+            st.toggle("Dark mode")
+            st.slider("Volume", 0, 100, 50)
+            st.selectbox("Language", ["English", "French", "German"])
+    
+    # -------------------------------------------------------------------------
+    # st.dialog()
+    # -------------------------------------------------------------------------
+    st.header("st.dialog()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Usage:** Decorator to create modal dialogs.
+        
+        ```python
+        @st.dialog("Title", width="small")
+        def my_dialog():
+            st.write("Content")
+            if st.button("Close"):
+                st.rerun()
+        ```
+        
+        **Parameters:**
+        - `title` (str): Dialog title
+        - `width` (str): "small", "medium", "large"
+        """)
+    
+    st.code('''@st.dialog("Confirm Delete")
+def confirm_dialog():
+    st.write("Are you sure?")
+    if st.button("Yes"):
+        st.session_state.deleted = True
+        st.rerun()
+
+if st.button("Delete"):
+    confirm_dialog()''', language="python")
+    
+    with st.container(border=True):
+        st.info("Dialogs are created using the @st.dialog decorator")
+    
+    # -------------------------------------------------------------------------
+    # st.navigation()
+    # -------------------------------------------------------------------------
+    st.header("st.navigation()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `pages` (Sequence[str]): Page names
+        
+        **Returns:** str (selected page name)
+        
+        Typically used in sidebar for multi-page navigation.
+        """)
+    
+    st.code('''page = st.sidebar.navigation(["Home", "Data", "Settings"])
+if page == "Home":
+    st.title("Home")''', language="python")
+    
+    with st.container(border=True):
+        st.info("See the sidebar for a live navigation example!")
+    
+    # -------------------------------------------------------------------------
+    # st.divider()
+    # -------------------------------------------------------------------------
+    st.header("st.divider()", divider="blue")
+    
+    st.code('st.divider()', language="python")
+    
+    with st.container(border=True):
+        st.write("Content above")
+        st.divider()
+        st.write("Content below")
+
+
+# =============================================================================
+# 💬 CHAT COMPONENTS
+# =============================================================================
+elif selected == "💬 Chat Components":
+    st.title("💬 Chat Components")
+    st.caption("Components for building chat interfaces")
+    
+    # -------------------------------------------------------------------------
+    # st.chat_message()
+    # -------------------------------------------------------------------------
+    st.header("st.chat_message()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `name` (str): Message role - "user", "assistant", "ai", "human", or custom
+        - `avatar` (str | None): Avatar emoji, URL, or None for default
+        
+        **Returns:** Context manager for message content
+        """)
+    
+    st.code('''with st.chat_message("user"):
+    st.write("Hello! Can you help me with Python?")
+
+with st.chat_message("assistant", avatar="🤖"):
+    st.write("Of course! What would you like to know about Python?")''', language="python")
+    
+    with st.container(border=True):
+        with st.chat_message("user"):
+            st.write("Hello! Can you help me with Python?")
+        
+        with st.chat_message("assistant", avatar="🤖"):
+            st.write("Of course! What would you like to know about Python?")
+        
+        with st.chat_message("user"):
+            st.write("How do I read a CSV file?")
+        
+        with st.chat_message("assistant", avatar="🤖"):
+            st.write("Here's how to read a CSV file:")
+            st.code('''import pandas as pd
+df = pd.read_csv("data.csv")
+print(df.head())''', language="python")
+    
+    # -------------------------------------------------------------------------
+    # st.chat_input()
+    # -------------------------------------------------------------------------
+    st.header("st.chat_input()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `placeholder` (str): Placeholder text
+        - `max_chars` (int | None): Maximum characters
+        - `disabled` (bool): Disable input
+        - `on_submit` (Callable): Callback on submit
+        
+        **Returns:** str | None (one-shot, not persisted in session_state)
+        
+        **Note:** Chat input is pinned to the bottom of the page.
+        """)
+    
+    st.code('''if prompt := st.chat_input("Ask me anything..."):
+    with st.chat_message("user"):
+        st.write(prompt)
+    with st.chat_message("assistant"):
+        st.write(f"You said: {prompt}")''', language="python")
+    
+    with st.container(border=True):
+        st.info("""
+        `st.chat_input()` is pinned to the bottom of the page.
+        
+        Try it! Type a message in the input at the bottom.
+        """)
+    
+    # Demo chat functionality
+    if "chat_messages" not in st.session_state:
+        st.session_state.chat_messages = [
+            {"role": "assistant", "content": "Hi! I'm a demo chatbot. Ask me anything!"}
+        ]
+    
+    # Display chat history
+    st.header("Live Chat Demo", divider="blue")
+    
+    for msg in st.session_state.chat_messages:
+        with st.chat_message(msg["role"]):
+            st.write(msg["content"])
+    
+    # Chat input (will be at bottom of page)
+    if prompt := st.chat_input("Type a message..."):
+        # Add user message
+        st.session_state.chat_messages.append({"role": "user", "content": prompt})
+        
+        # Generate response
+        response = f"You said: '{prompt}'. This is a demo response!"
+        st.session_state.chat_messages.append({"role": "assistant", "content": response})
+        
+        st.rerun()
+
+
+# =============================================================================
+# 🔧 STATE & CONTROL
+# =============================================================================
+elif selected == "🔧 State & Control":
+    st.title("🔧 State & Control")
+    st.caption("State management and control flow")
+    
+    # -------------------------------------------------------------------------
+    # st.session_state
+    # -------------------------------------------------------------------------
+    st.header("st.session_state", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        Session-scoped state dictionary with attribute access.
+        
+        **Usage:**
+        ```python
+        # Initialize
+        if "counter" not in st.session_state:
+            st.session_state.counter = 0
+        
+        # Read
+        value = st.session_state.counter
+        value = st.session_state["counter"]
+        
+        # Write
+        st.session_state.counter = 10
+        st.session_state["counter"] = 10
+        
+        # Delete
+        del st.session_state.counter
+        
+        # Clear all
+        st.session_state.clear()
+        
+        # Dict methods
+        st.session_state.get("key", default)
+        st.session_state.keys()
+        st.session_state.values()
+        st.session_state.items()
+        ```
+        """)
+    
+    with st.container(border=True):
+        if "demo_counter" not in st.session_state:
+            st.session_state.demo_counter = 0
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            if st.button("➖ Decrement"):
+                st.session_state.demo_counter -= 1
+        
+        with col2:
+            if st.button("➕ Increment"):
+                st.session_state.demo_counter += 1
+        
+        with col3:
+            if st.button("🔄 Reset"):
+                st.session_state.demo_counter = 0
+        
+        with col4:
+            st.metric("Counter", st.session_state.demo_counter)
+        
+        st.caption("Session state persists across reruns but not page refreshes.")
+    
+    # -------------------------------------------------------------------------
+    # st.query_params
+    # -------------------------------------------------------------------------
+    st.header("st.query_params", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        Access URL query parameters.
+        
+        **Usage:**
+        ```python
+        # Read
+        page = st.query_params.get("page", "home")
+        page = st.query_params["page"]
+        
+        # Write
+        st.query_params["page"] = "settings"
+        
+        # All values for a key
+        tags = st.query_params.get_all("tag")
+        
+        # Convert to dict
+        params = st.query_params.to_dict()
+        
+        # Clear
+        st.query_params.clear()
+        ```
+        """)
+    
+    with st.container(border=True):
+        st.write("Current query params:")
+        st.json(st.query_params.to_dict())
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Set ?demo=true"):
+                st.query_params["demo"] = "true"
+                st.rerun()
+        with col2:
+            if st.button("Clear params"):
+                st.query_params.clear()
+                st.rerun()
+    
+    # -------------------------------------------------------------------------
+    # st.secrets
+    # -------------------------------------------------------------------------
+    st.header("st.secrets", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        Access secrets from `secrets.toml` or `.streamlit/secrets.toml`.
+        
+        **File format:**
+        ```toml
+        [database]
+        host = "localhost"
+        password = "secret123"
+        
+        [api]
+        key = "sk-..."
+        ```
+        
+        **Usage:**
+        ```python
+        host = st.secrets["database"]["host"]
+        host = st.secrets.database.host
+        ```
+        """)
+    
+    with st.container(border=True):
+        st.info("Create a `secrets.toml` file to use `st.secrets`")
+    
+    # -------------------------------------------------------------------------
+    # st.context
+    # -------------------------------------------------------------------------
+    st.header("st.context", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        Access request context information.
+        
+        **Properties:**
+        - `st.context.headers` - dict: HTTP headers
+        - `st.context.cookies` - dict: Cookies
+        - `st.context.ip_address` - str: Client IP
+        - `st.context.locale` - str: Locale from Accept-Language
+        - `st.context.timezone` - str: Timezone hint
+        """)
+    
+    with st.container(border=True):
+        st.write("Request context:")
+        st.json({
+            "headers": dict(st.context.headers),
+            "cookies": dict(st.context.cookies),
+        })
+    
+    # -------------------------------------------------------------------------
+    # st.rerun()
+    # -------------------------------------------------------------------------
+    st.header("st.rerun()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        Stop execution and immediately rerun the script.
+        
+        **Usage:**
+        ```python
+        st.rerun()  # Raises RerunException
+        ```
+        
+        Useful for refreshing the UI after state changes.
+        """)
+    
+    with st.container(border=True):
+        st.caption("Click to rerun the app:")
+        if st.button("🔄 Rerun App"):
+            st.rerun()
+    
+    # -------------------------------------------------------------------------
+    # st.stop()
+    # -------------------------------------------------------------------------
+    st.header("st.stop()", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        Stop script execution. Elements below won't render.
+        
+        **Usage:**
+        ```python
+        if not authenticated:
+            st.error("Please login")
+            st.stop()
+        
+        # This won't run if not authenticated
+        st.write("Secret content")
+        ```
+        """)
+    
+    with st.container(border=True):
+        show_stop = st.checkbox("Enable st.stop() demo")
+        
+        if show_stop:
+            st.warning("Script will stop here!")
+            st.stop()
+            st.error("This will never be shown")
+        else:
+            st.success("Content continues because stop is disabled")
+    
+    # -------------------------------------------------------------------------
+    # Caching
+    # -------------------------------------------------------------------------
+    st.header("Caching", divider="blue")
+    
+    with st.expander("📖 @st.cache_data", expanded=True):
+        st.markdown("""
+        Cache function results with automatic invalidation.
+        
+        ```python
+        @st.cache_data(ttl=300, max_entries=1000)
+        def load_data(path: str) -> pd.DataFrame:
+            return pd.read_csv(path)
+        ```
+        
+        **Parameters:**
+        - `ttl` (int | None): Time-to-live in seconds
+        - `max_entries` (int): Maximum cache entries (LRU)
+        
+        **Clear cache:**
+        ```python
+        load_data.clear()           # Clear this function's cache
+        st.cache_data.clear()       # Clear all cache_data caches
+        ```
+        """)
+    
+    with st.expander("📖 @st.cache_resource", expanded=True):
+        st.markdown("""
+        Cache resources (DB connections, ML models) — singleton, no copy.
+        
+        ```python
+        @st.cache_resource
+        def get_database():
+            return create_connection()
+        
+        @st.cache_resource
+        def load_model():
+            return load_heavy_model()
+        ```
+        
+        **Clear cache:**
+        ```python
+        get_database.clear()
+        st.cache_resource.clear()
+        ```
+        """)
+    
+    with st.container(border=True):
+        @st.cache_data(ttl=60)
+        def expensive_computation(n):
+            import time
+            time.sleep(0.1)  # Simulate work
+            return sum(range(n))
+        
+        n = st.slider("Compute sum(0..n)", 1000, 100000, 10000)
+        result = expensive_computation(n)
+        st.write(f"Result: `{result:,}`")
+        st.caption("First call is slow, subsequent calls are instant (cached)!")
+
+
+# =============================================================================
+# 🎨 ADVANCED FEATURES
+# =============================================================================
+elif selected == "🎨 Advanced Features":
+    st.title("🎨 Advanced Features")
+    st.caption("Advanced functionality and patterns")
+    
+    # -------------------------------------------------------------------------
+    # Lifecycle Hooks
+    # -------------------------------------------------------------------------
+    st.header("Lifecycle Hooks", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        Register functions to run at server startup/shutdown.
+        
+        ```python
+        @st.on_startup
+        def init_resources():
+            print("Server starting...")
+            return create_db_pool()
+        
+        @st.on_shutdown
+        async def cleanup_resources():
+            print("Server shutting down...")
+            await db_pool.close()
+        ```
+        
+        These are called by the ASGI lifespan manager.
+        """)
+    
+    with st.container(border=True):
+        st.info("Lifecycle hooks are registered via `@st.on_startup` and `@st.on_shutdown`")
+    
+    # -------------------------------------------------------------------------
+    # Threading Support
+    # -------------------------------------------------------------------------
+    st.header("Threading Support", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        Run functions in background threads with session context.
+        
+        ```python
+        def background_work():
+            # st.* calls work here
+            result = expensive_computation()
+            st.session_state.result = result
+        
+        # Create thread with session context
+        t = st.run_in_thread(background_work)
+        t.start()
+        t.join()
+        
+        # Or run directly
+        st.run_with_session_context(some_function, arg1, arg2)
+        ```
+        """)
+    
+    with st.container(border=True):
+        if "thread_result" not in st.session_state:
+            st.session_state.thread_result = None
+        
+        def _background_work():
+            time.sleep(0.2)
+            st.session_state.thread_result = "✅ Thread completed!"
+        
+        if st.button("Run background thread"):
+            t = st.run_in_thread(_background_work)
+            t.start()
+            t.join()
+        
+        if st.session_state.thread_result:
+            st.success(st.session_state.thread_result)
+    
+    # -------------------------------------------------------------------------
+    # Real-time Widget Interpolation
+    # -------------------------------------------------------------------------
+    st.header("Real-time Widget Interpolation", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        Widget values update text instantly without server roundtrip!
+        
+        ```python
+        n = st.slider("Value", 0, 100, 50)
+        st.write(f"You selected: {n}")  # Updates instantly!
+        ```
+        
+        This works because widget values are wrapped in `WidgetValue` objects
+        that inject markers for client-side interpolation.
+        """)
+    
+    with st.container(border=True):
+        st.caption("Move the slider — text updates instantly!")
+        value = st.slider("Real-time value", 0, 100, 50)
+        st.markdown(f"### Value: **{value}**")
+        st.write(f"Double: {value * 2} | Half: {value // 2}")
+    
+    # -------------------------------------------------------------------------
+    # Sidebar Control
+    # -------------------------------------------------------------------------
+    st.header("Programmatic Sidebar Control", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        Control sidebar state programmatically.
+        
+        ```python
+        st.set_sidebar_state("collapsed")
+        st.set_sidebar_state("expanded")
+        ```
+        """)
+    
+    with st.container(border=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Collapse sidebar"):
+                st.set_sidebar_state("collapsed")
+        with col2:
+            if st.button("Expand sidebar"):
+                st.set_sidebar_state("expanded")
+    
+    # -------------------------------------------------------------------------
+    # Page Configuration
+    # -------------------------------------------------------------------------
+    st.header("Page Configuration", divider="blue")
+    
+    with st.expander("📖 st.set_page_config()", expanded=True):
+        st.markdown("""
+        Configure page settings. **Must be first Streamlit command!**
+        
+        ```python
+        st.set_page_config(
+            page_title="My App",        # Browser tab title
+            page_icon="🚀",              # Favicon
+            layout="wide",              # "centered", "wide", "compact"
+            initial_sidebar_state="auto",  # "auto", "expanded", "collapsed"
+            menu_items={
+                "Get Help": "https://help.example.com",
+                "Report a bug": "https://bugs.example.com",
+            }
+        )
+        ```
+        """)
+    
+    with st.container(border=True):
+        st.write("Current page config:")
+        st.json({
+            "page_title": "Fastlit Complete Demo",
+            "page_icon": "🚀",
+            "layout": "wide",
+            "initial_sidebar_state": "expanded"
+        })
+    
+    # -------------------------------------------------------------------------
+    # Callbacks
+    # -------------------------------------------------------------------------
+    st.header("Widget Callbacks", divider="blue")
+    
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        Many widgets support callbacks:
+        
+        ```python
+        def on_change():
+            st.session_state.changed = True
+        
+        st.text_input("Name", on_change=on_change)
+        
+        # With arguments
+        def on_click(value):
+            st.session_state.clicked = value
+        
+        st.button("Click", on_click=on_click, args=("hello",))
+        ```
+        """)
+    
+    with st.container(border=True):
+        if "callback_count" not in st.session_state:
+            st.session_state.callback_count = 0
+        
+        def _on_change():
+            st.session_state.callback_count += 1
+            st.toast(f"Callback fired! (#{st.session_state.callback_count})")
+        
+        st.text_input("Type something (callback on change)", on_change=_on_change, key="callback_demo")
+        st.metric("Callbacks fired", st.session_state.callback_count)
+
+
+# =============================================================================
+# FOOTER
+# =============================================================================
+st.divider()
+st.caption("Built with **Fastlit** — A Streamlit-compatible, blazing fast Python UI framework 🚀")

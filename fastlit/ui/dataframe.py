@@ -117,7 +117,11 @@ def data_editor(
         props["index"] = index
 
     if column_config:
-        props["columnConfig"] = column_config
+        # Serialize Column objects to dictionaries
+        props["columnConfig"] = {
+            k: v.to_dict() if hasattr(v, 'to_dict') else v 
+            for k, v in column_config.items()
+        }
 
     node = _emit_node("data_editor", props, key=key, is_widget=True, no_rerun=True)
 
@@ -260,7 +264,10 @@ def _serialize_dict(data: dict) -> tuple[list[dict], list[list], list | None]:
                 row.append(_to_json_safe(v) if i == 0 else None)
         rows.append(row)
 
-    return columns, rows, None
+    # Generate row indices
+    index = list(range(max_len))
+
+    return columns, rows, index
 
 
 def _serialize_list_of_dicts(data: list[dict]) -> tuple[list[dict], list[list], list | None]:
@@ -281,7 +288,10 @@ def _serialize_list_of_dicts(data: list[dict]) -> tuple[list[dict], list[list], 
         row = [_to_json_safe(row_dict.get(k)) for k in all_keys]
         rows.append(row)
 
-    return columns, rows, None
+    # Generate row indices
+    index = list(range(len(data)))
+
+    return columns, rows, index
 
 
 def _serialize_list_of_lists(data: list) -> tuple[list[dict], list[list], list | None]:
@@ -300,7 +310,10 @@ def _serialize_list_of_lists(data: list) -> tuple[list[dict], list[list], list |
     columns = [{"name": str(i), "type": "auto"} for i in range(num_cols)]
     rows = [[_to_json_safe(v) for v in row] for row in data]
 
-    return columns, rows, None
+    # Generate row indices
+    index = list(range(len(data)))
+
+    return columns, rows, index
 
 
 def _dtype_to_type(dtype: str) -> str:

@@ -1,32 +1,214 @@
 import React, { useMemo } from "react";
 import DOMPurify from "dompurify";
+import katex from "katex";
+import "katex/dist/katex.min.css";
 import type { NodeComponentProps } from "../../registry/registry";
 import { useResolvedText } from "../../context/WidgetStore";
+
+// Helper to render LaTeX using KaTeX
+const renderLatex = (latex: string, displayMode: boolean = false): string => {
+  try {
+    return katex.renderToString(latex, {
+      throwOnError: false,
+      displayMode,
+      output: "html",
+    });
+  } catch (err) {
+    console.error("KaTeX render error:", err);
+    return `<span class="text-red-500">${latex}</span>`;
+  }
+};
 
 // Simple check if text contains HTML tags
 const containsHtml = (text: string): boolean => {
   return /<[a-z][\s\S]*>/i.test(text);
 };
 
+// Emoji shortcode mapping (common emojis)
+const emojiMap: Record<string, string> = {
+  // Faces
+  smile: "😄", grin: "😁", joy: "😂", rofl: "🤣", smiley: "😃",
+  laugh: "😆", wink: "😉", blush: "😊", heart_eyes: "😍", star_struck: "🤩",
+  thinking: "🤔", neutral_face: "😐", expressionless: "😑", unamused: "😒",
+  rolling_eyes: "🙄", grimacing: "😬", relieved: "😌", pensive: "😔",
+  sleepy: "😪", drooling_face: "🤤", sleeping: "😴", mask: "😷",
+  sunglasses: "😎", nerd_face: "🤓", confused: "😕", worried: "😟",
+  frowning: "☹️", open_mouth: "😮", hushed: "😯", astonished: "😲",
+  flushed: "😳", pleading_face: "🥺", crying_face: "😢", sob: "😭",
+  scream: "😱", angry: "😠", rage: "😡", skull: "💀",
+  // Hands
+  "+1": "👍", "-1": "👎", thumbsup: "👍", thumbsdown: "👎",
+  clap: "👏", wave: "👋", ok_hand: "👌", v: "✌️",
+  raised_hands: "🙌", pray: "🙏", handshake: "🤝", point_up: "☝️",
+  point_down: "👇", point_left: "👈", point_right: "👉", muscle: "💪",
+  // Hearts
+  heart: "❤️", orange_heart: "🧡", yellow_heart: "💛", green_heart: "💚",
+  blue_heart: "💙", purple_heart: "💜", black_heart: "🖤", white_heart: "🤍",
+  broken_heart: "💔", sparkling_heart: "💖", heartbeat: "💓", heartpulse: "💗",
+  two_hearts: "💕", revolving_hearts: "💞", cupid: "💘", heart_decoration: "💟",
+  // Objects
+  fire: "🔥", star: "⭐", star2: "🌟", sparkles: "✨", zap: "⚡",
+  boom: "💥", collision: "💥", sweat_drops: "💦", dash: "💨",
+  rocket: "🚀", airplane: "✈️", car: "🚗", bike: "🚲",
+  trophy: "🏆", medal: "🏅", crown: "👑", gem: "💎",
+  bulb: "💡", flashlight: "🔦", wrench: "🔧", hammer: "🔨",
+  gear: "⚙️", link: "🔗", lock: "🔒", unlock: "🔓",
+  key: "🔑", bell: "🔔", bookmark: "🔖", tag: "🏷️",
+  money_bag: "💰", dollar: "💵", credit_card: "💳", chart: "📊",
+  // Nature
+  sun: "☀️", moon: "🌙", cloud: "☁️", rainbow: "🌈",
+  snowflake: "❄️", snowman: "⛄", umbrella: "☂️", droplet: "💧",
+  ocean: "🌊", earth_americas: "🌎", earth_africa: "🌍", earth_asia: "🌏",
+  // Animals
+  dog: "🐕", cat: "🐈", mouse: "🐁", rabbit: "🐇",
+  fox: "🦊", bear: "🐻", panda: "🐼", koala: "🐨",
+  tiger: "🐯", lion: "🦁", cow: "🐄", pig: "🐷",
+  frog: "🐸", monkey: "🐒", chicken: "🐔", penguin: "🐧",
+  bird: "🐦", eagle: "🦅", duck: "🦆", owl: "🦉",
+  butterfly: "🦋", bee: "🐝", bug: "🐛", snail: "🐌",
+  snake: "🐍", turtle: "🐢", fish: "🐟", whale: "🐳",
+  dolphin: "🐬", octopus: "🐙", crab: "🦀", shrimp: "🦐",
+  // Food
+  apple: "🍎", orange: "🍊", lemon: "🍋", banana: "🍌",
+  watermelon: "🍉", grapes: "🍇", strawberry: "🍓", peach: "🍑",
+  pizza: "🍕", hamburger: "🍔", fries: "🍟", hotdog: "🌭",
+  taco: "🌮", burrito: "🌯", sushi: "🍣", ramen: "🍜",
+  cake: "🍰", cookie: "🍪", chocolate_bar: "🍫", candy: "🍬",
+  coffee: "☕", tea: "🍵", beer: "🍺", wine_glass: "🍷",
+  cocktail: "🍸", champagne: "🍾", ice_cream: "🍨", doughnut: "🍩",
+  // Symbols
+  check: "✅", x: "❌", warning: "⚠️", no_entry: "⛔",
+  question: "❓", exclamation: "❗", info: "ℹ️", stop_sign: "🛑",
+  recycle: "♻️", white_check_mark: "✅", negative_squared_cross_mark: "❎",
+  arrow_up: "⬆️", arrow_down: "⬇️", arrow_left: "⬅️", arrow_right: "➡️",
+  // Misc
+  eyes: "👀", eye: "👁️", tongue: "👅", lips: "👄",
+  brain: "🧠", bone: "🦴", tooth: "🦷", ear: "👂",
+  nose: "👃", foot: "🦶", hand: "✋", fist: "✊",
+  calendar: "📅", clock: "🕐", hourglass: "⏳", stopwatch: "⏱️",
+  phone: "📱", laptop: "💻", desktop: "🖥️", keyboard: "⌨️",
+  mouse_cursor: "🖱️", printer: "🖨️", camera: "📷", video_camera: "📹",
+  movie_camera: "🎥", tv: "📺", radio: "📻", microphone: "🎤",
+  headphones: "🎧", musical_note: "🎵", notes: "🎶", guitar: "🎸",
+  violin: "🎻", piano: "🎹", drum: "🥁", trumpet: "🎺",
+  art: "🎨", paintbrush: "🖌️", crayon: "🖍️", pen: "🖊️",
+  pencil: "✏️", scissors: "✂️", paperclip: "📎", pushpin: "📌",
+  book: "📖", books: "📚", notebook: "📓", newspaper: "📰",
+  envelope: "✉️", email: "📧", inbox: "📥", outbox: "📤",
+  package: "📦", gift: "🎁", balloon: "🎈", confetti_ball: "🎊",
+  tada: "🎉", party_popper: "🎉", ribbon: "🎀", medal_sports: "🏅",
+  first_place_medal: "🥇", second_place_medal: "🥈", third_place_medal: "🥉",
+  soccer: "⚽", basketball: "🏀", football: "🏈", baseball: "⚾",
+  tennis: "🎾", volleyball: "🏐", rugby: "🏉", golf: "⛳",
+  "100": "💯", new: "🆕", free: "🆓", sos: "🆘",
+  vs: "🆚", ok: "🆗", cool: "🆒", top: "🔝",
+};
+
+// Color class mapping for Streamlit-style colored text
+const colorClasses: Record<string, string> = {
+  blue: "text-blue-600",
+  green: "text-green-600",
+  red: "text-red-600",
+  orange: "text-orange-600",
+  violet: "text-violet-600",
+  gray: "text-gray-600",
+  grey: "text-gray-600",
+};
+
+// Background color class mapping
+const bgColorClasses: Record<string, string> = {
+  blue: "bg-blue-100 text-blue-800 px-1 rounded",
+  green: "bg-green-100 text-green-800 px-1 rounded",
+  red: "bg-red-100 text-red-800 px-1 rounded",
+  orange: "bg-orange-100 text-orange-800 px-1 rounded",
+  violet: "bg-violet-100 text-violet-800 px-1 rounded",
+  gray: "bg-gray-100 text-gray-800 px-1 rounded",
+  grey: "bg-gray-100 text-gray-800 px-1 rounded",
+};
+
 // Basic markdown parsing for common patterns
 const parseMarkdown = (text: string): string => {
-  let html = text
+  // First, extract and render LaTeX expressions before escaping HTML
+  // This is needed because KaTeX produces HTML output
+  
+  // Store LaTeX renders to restore after processing
+  const latexPlaceholders: string[] = [];
+  
+  // Process block math first: $$...$$
+  let processed = text.replace(/\$\$([^$]+)\$\$/g, (_, latex) => {
+    const placeholder = `___LATEX_BLOCK_${latexPlaceholders.length}___`;
+    latexPlaceholders.push(renderLatex(latex.trim(), true));
+    return placeholder;
+  });
+  
+  // Process inline math: $...$  (but not escaped \$)
+  processed = processed.replace(/(?<!\\)\$([^$\n]+?)\$/g, (_, latex) => {
+    const placeholder = `___LATEX_INLINE_${latexPlaceholders.length}___`;
+    latexPlaceholders.push(renderLatex(latex.trim(), false));
+    return placeholder;
+  });
+  
+  let html = processed
     // Escape HTML entities first (if not already HTML)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    // Bold: **text** or __text__
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/__(.+?)__/g, "<strong>$1</strong>")
-    // Italic: *text* or _text_
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/_(.+?)_/g, "<em>$1</em>")
-    // Code: `code`
-    .replace(/`([^`]+)`/g, '<code class="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono">$1</code>')
-    // Links: [text](url)
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">$1</a>')
-    // Line breaks
-    .replace(/\n/g, "<br />");
+    .replace(/>/g, "&gt;");
+  
+  // Restore LaTeX renders
+  html = html.replace(/___LATEX_BLOCK_(\d+)___/g, (_, idx) => {
+    return `<div class="my-2 overflow-x-auto">${latexPlaceholders[parseInt(idx)]}</div>`;
+  });
+  html = html.replace(/___LATEX_INLINE_(\d+)___/g, (_, idx) => {
+    return latexPlaceholders[parseInt(idx)];
+  });
+  
+  // Colored background: :color-background[text]
+  html = html.replace(/:(\w+)-background\[([^\]]+)\]/g, (_, color, content) => {
+    const bgClass = bgColorClasses[color] || "bg-gray-100 px-1 rounded";
+    return `<span class="${bgClass}">${content}</span>`;
+  });
+  
+  // Colored text: :color[text]
+  html = html.replace(/:(\w+)\[([^\]]+)\]/g, (_, color, content) => {
+    const colorClass = colorClasses[color];
+    if (colorClass) {
+      return `<span class="${colorClass}">${content}</span>`;
+    }
+    // If not a known color, return as-is
+    return `:${color}[${content}]`;
+  });
+  
+  // Emoji shortcodes: :emoji_name:
+  html = html.replace(/:([a-z0-9_+-]+):/gi, (match, code) => {
+    const emoji = emojiMap[code.toLowerCase()];
+    return emoji || match;
+  });
+  
+  // Strikethrough: ~~text~~
+  html = html.replace(/~~(.+?)~~/g, "<del>$1</del>");
+  
+  // Bold: **text** or __text__
+  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/__(.+?)__/g, "<strong>$1</strong>");
+  
+  // Italic: *text* or _text_
+  html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
+  html = html.replace(/_(.+?)_/g, "<em>$1</em>");
+  
+  // Code: `code`
+  html = html.replace(/`([^`]+)`/g, '<code class="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono">$1</code>');
+  
+  // Links: [text](url)
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">$1</a>');
+  
+  // Unordered lists: - item or * item
+  html = html.replace(/^[\-\*]\s+(.+)$/gm, '<li class="ml-4">$1</li>');
+  
+  // Ordered lists: 1. item
+  html = html.replace(/^\d+\.\s+(.+)$/gm, '<li class="ml-4 list-decimal">$1</li>');
+  
+  // Line breaks
+  html = html.replace(/\n/g, "<br />");
 
   return html;
 };
