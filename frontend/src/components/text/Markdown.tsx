@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import DOMPurify from "dompurify";
 import type { NodeComponentProps } from "../../registry/registry";
 import { useResolvedText } from "../../context/WidgetStore";
 
@@ -33,12 +34,13 @@ const parseMarkdown = (text: string): string => {
 export const Markdown: React.FC<NodeComponentProps> = ({ props }) => {
   const resolved = useResolvedText(props.text, props._tpl, props._refs);
 
-  // If the content contains HTML tags, render as HTML directly
+  // If the content contains HTML tags, sanitize and render
   if (containsHtml(resolved)) {
+    const sanitized = DOMPurify.sanitize(resolved);
     return (
       <div
         className="text-gray-700 mb-2 leading-relaxed prose prose-sm max-w-none"
-        dangerouslySetInnerHTML={{ __html: resolved }}
+        dangerouslySetInnerHTML={{ __html: sanitized }}
       />
     );
   }

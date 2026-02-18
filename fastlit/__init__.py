@@ -120,6 +120,33 @@ class _SessionStateProxy:
     def get(self, key, default=None):
         return _get_session_state().get(key, default)
 
+    def keys(self):
+        return _get_session_state().keys()
+
+    def values(self):
+        return _get_session_state().values()
+
+    def items(self):
+        return _get_session_state().items()
+
+    def pop(self, key, *args):
+        return _get_session_state().pop(key, *args)
+
+    def setdefault(self, key, default=None):
+        return _get_session_state().setdefault(key, default)
+
+    def update(self, *args, **kwargs):
+        _get_session_state().update(*args, **kwargs)
+
+    def __len__(self):
+        return len(_get_session_state())
+
+    def __iter__(self):
+        return iter(_get_session_state())
+
+    def __bool__(self):
+        return bool(_get_session_state())
+
     def __repr__(self):
         try:
             return repr(_get_session_state())

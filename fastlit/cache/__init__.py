@@ -8,15 +8,18 @@ import hashlib
 import inspect
 import time
 import threading
+from collections import OrderedDict
 from typing import Any, Callable, TypeVar
 
 F = TypeVar("F", bound=Callable[..., Any])
 
 _lock = threading.Lock()
 
+_DATA_CACHE_MAX = 1000
+
 # Global stores shared across all sessions
-_data_cache: dict[str, tuple[Any, float | None]] = {}  # key -> (value, expire_at)
-_resource_cache: dict[str, Any] = {}  # key -> value
+_data_cache: OrderedDict[str, tuple[Any, float | None]] = OrderedDict()
+_resource_cache: dict[str, Any] = {}  # resources are singletons — no eviction
 
 
 def _make_cache_key(func: Callable, args: tuple, kwargs: dict) -> str:
@@ -35,6 +38,7 @@ def cache_data(
     func: F | None = None,
     *,
     ttl: float | None = None,
+    max_entries: int = _DATA_CACHE_MAX,
 ) -> Any:
     """Cache function results with optional TTL.
 
@@ -53,6 +57,7 @@ def cache_data(
                 if cached is not None:
                     value, expire_at = cached
                     if expire_at is None or now < expire_at:
+                        _data_cache.move_to_end(key)
                         return copy.deepcopy(value)
                     # Expired — remove
                     del _data_cache[key]
@@ -63,6 +68,10 @@ def cache_data(
             expire_at = (now + ttl) if ttl is not None else None
             with _lock:
                 _data_cache[key] = (result, expire_at)
+                _data_cache.move_to_end(key)
+                # Evict oldest entries if over limit
+                while len(_data_cache) > max_entries:
+                    _data_cache.popitem(last=False)
 
             return copy.deepcopy(result)
 

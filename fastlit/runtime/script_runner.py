@@ -39,6 +39,7 @@ def run_script(script_path: str, session: Session) -> None:
     else:
         source = path.read_text(encoding="utf-8")
         code = compile(source, path_str, "exec")
+        del source  # free source string immediately
         _code_cache[path_str] = (mtime, code)
         # Evict oldest entries if over limit
         while len(_code_cache) > _CODE_CACHE_MAX:
