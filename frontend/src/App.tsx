@@ -466,16 +466,12 @@ export const App: React.FC = () => {
     return { sidebarNodes: sidebar, mainNodes: main };
   }, [tree]);
 
-  // Compute main content container classes + style.
-  // When a sidebar is present, use inline marginLeft (numeric px) so the
-  // 200ms CSS transition can interpolate between 256px and 0 — CSS cannot
-  // transition to/from "auto", so Tailwind ml-64 would jump instantly.
-  const mainClass = cn(
-    "layout-main",
-    layout === "wide" ? "!max-w-none" : "",
-    layout === "compact" ? "!py-3 !px-4" : "",
-  );
-  const mainStyle: React.CSSProperties = hasSidebar
+  // offsetStyle: shifts the entire main area to the right of the sidebar.
+  // Applied to an OUTER wrapper div so that the INNER .layout-main div can
+  // still use margin-left:auto / margin-right:auto to center the content
+  // within the remaining space. Setting marginLeft on .layout-main itself
+  // would override the CSS `margin-left:auto` and break centering.
+  const offsetStyle: React.CSSProperties = hasSidebar
     ? { marginLeft: sidebarCollapsed ? 0 : 256, transition: "margin-left 200ms ease" }
     : {};
 
@@ -488,7 +484,10 @@ export const App: React.FC = () => {
           <NodeRenderer key={node.id} node={node} sendEvent={sendEvent} />
         ))}
 
-        <div className={mainClass} style={mainStyle}>
+        {/* Outer div: pushes content past the sidebar (numeric px transition) */}
+        <div style={offsetStyle}>
+        {/* Inner div: .layout-main centers via margin:auto within the remaining space */}
+        <div className="layout-main">
           {status === "connecting" && (
             <div className="mb-4 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-700">
               Connecting to Fastlit server...
@@ -535,7 +534,8 @@ export const App: React.FC = () => {
               Waiting for app to render...
             </p>
           )}
-        </div>
+        </div>{/* .layout-main */}
+        </div>{/* sidebar offset wrapper */}
       </SidebarContext.Provider>
     </WidgetStoreProvider>
   );

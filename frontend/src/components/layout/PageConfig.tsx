@@ -12,24 +12,34 @@ export const PageConfig: React.FC<NodeComponentProps> = ({ props }) => {
 
     // Update favicon if pageIcon is provided
     if (pageIcon) {
-      const link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
-      if (link) {
-        // If it's an emoji, create a data URL
-        if (pageIcon.length <= 2) {
-          const canvas = document.createElement("canvas");
-          canvas.width = 32;
-          canvas.height = 32;
-          const ctx = canvas.getContext("2d");
-          if (ctx) {
-            ctx.font = "28px serif";
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.fillText(pageIcon, 16, 18);
-            link.href = canvas.toDataURL();
-          }
-        } else {
-          // Assume it's a URL
-          link.href = pageIcon;
+      // Create <link rel="icon"> if it doesn't exist yet
+      let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement | null;
+      if (!link) {
+        link = document.createElement("link");
+        link.rel = "icon";
+        document.head.appendChild(link);
+      }
+
+      // Distinguish emoji from URL/file path
+      const isUrl =
+        pageIcon.startsWith("http") ||
+        pageIcon.startsWith("/") ||
+        pageIcon.includes(".");
+
+      if (isUrl) {
+        link.href = pageIcon;
+      } else {
+        // Render emoji to a canvas and use as favicon data URL
+        const canvas = document.createElement("canvas");
+        canvas.width = 32;
+        canvas.height = 32;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.font = "26px serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(pageIcon, 16, 17);
+          link.href = canvas.toDataURL();
         }
       }
     }

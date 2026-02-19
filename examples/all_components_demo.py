@@ -17,7 +17,7 @@ st.set_page_config(
     page_title="Fastlit Complete Demo",
     page_icon="🚀",
     layout="wide",  # "centered", "wide", "compact"
-    initial_sidebar_state="expanded",  # "auto", "expanded", "collapsed"
+    initial_sidebar_state="auto",  # "auto", "expanded", "collapsed"
 )
 
 # =============================================================================
@@ -1801,38 +1801,363 @@ st.map(map_data, zoom=4, height=400)''', language="python")
     # Advanced Charts (Plotly, Altair, etc.)
     # -------------------------------------------------------------------------
     st.header("Advanced Charts", divider="blue")
-    
-    st.info("""
-    Fastlit also supports:
-    - `st.plotly_chart()` - Plotly figures with interactivity
-    - `st.altair_chart()` - Altair/Vega-Lite charts
-    - `st.vega_lite_chart()` - Vega-Lite specifications
-    - `st.pyplot()` - Matplotlib figures
-    - `st.bokeh_chart()` - Bokeh charts
-    - `st.graphviz_chart()` - Graphviz diagrams
-    - `st.pydeck_chart()` - PyDeck 3D maps
-    """)
-    
-    # Graphviz example
+    st.caption("Integration with popular Python visualization libraries.")
+
+    # -------------------------------------------------------------------------
+    # st.plotly_chart()
+    # -------------------------------------------------------------------------
+    st.subheader("st.plotly_chart()")
+
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `figure_or_data`: Plotly Figure or dict of traces
+        - `use_container_width` (bool): Fill container width
+        - `theme` (str | None): `"streamlit"` or `None`
+        - `on_select` (callable | None): Callback with selected point indices
+        - `key` (str | None): Stable widget key
+
+        **Returns:** `list[int]` of selected indices when `on_select` is set, else `None`.
+        """)
+
+    st.code(
+        "import plotly.graph_objects as go\n\n"
+        "fig = go.Figure()\n"
+        "fig.add_trace(go.Scatter(x=[1,2,3,4,5], y=[2,4,3,5,4],\n"
+        "                         mode='lines+markers', name='Series A'))\n"
+        "fig.add_trace(go.Bar(x=[1,2,3,4,5], y=[1,3,2,4,3], name='Series B'))\n"
+        "fig.update_layout(title='Plotly Mixed Chart', height=350)\n"
+        "st.plotly_chart(fig)\n\n"
+        "# With cross-filtering (on_select):\n"
+        "def on_sel(indices):\n"
+        "    st.write('Selected:', indices)\n"
+        "st.plotly_chart(fig, on_select=on_sel)",
+        language="python",
+    )
+
+    with st.container(border=True):
+        try:
+            import plotly.graph_objects as go
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=[1, 2, 3, 4, 5],
+                y=[2, 4, 3, 5, 4],
+                mode="lines+markers",
+                name="Series A",
+                line=dict(color="#6366f1", width=2),
+                marker=dict(size=8),
+            ))
+            fig.add_trace(go.Bar(
+                x=[1, 2, 3, 4, 5],
+                y=[1, 3, 2, 4, 3],
+                name="Series B",
+                marker_color="#22d3ee",
+                opacity=0.7,
+            ))
+            fig.update_layout(
+                title="Plotly Mixed Chart (Scatter + Bar)",
+                height=350,
+                legend=dict(orientation="h"),
+            )
+            st.plotly_chart(fig)
+        except ImportError:
+            st.warning("Install plotly to see this demo: `pip install plotly`")
+
+    # -------------------------------------------------------------------------
+    # st.altair_chart()
+    # -------------------------------------------------------------------------
+    st.subheader("st.altair_chart()")
+
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `altair_chart`: An Altair Chart object
+        - `use_container_width` (bool): Fill container width
+        - `theme` (str | None): `"streamlit"` or `None`
+        - `key` (str | None): Stable widget key
+        """)
+
+    st.code(
+        "import altair as alt\n"
+        "import pandas as pd\n\n"
+        "df = pd.DataFrame({\n"
+        "    'month': ['Jan','Feb','Mar','Apr','May','Jun'],\n"
+        "    'sales': [120, 145, 132, 178, 165, 190],\n"
+        "})\n\n"
+        "chart = alt.Chart(df).mark_bar().encode(\n"
+        "    x='month',\n"
+        "    y='sales',\n"
+        "    color=alt.value('#6366f1'),\n"
+        ").properties(title='Monthly Sales', height=300)\n\n"
+        "st.altair_chart(chart)",
+        language="python",
+    )
+
+    with st.container(border=True):
+        try:
+            import altair as alt
+            import pandas as pd
+            df_alt = pd.DataFrame({
+                "month": ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+                "sales": [120, 145, 132, 178, 165, 190],
+                "profit": [40, 55, 48, 72, 60, 85],
+            })
+            chart = alt.Chart(df_alt).mark_bar().encode(
+                x=alt.X("month", sort=None),
+                y="sales",
+                color=alt.value("#6366f1"),
+                tooltip=["month", "sales", "profit"],
+            ).properties(title="Monthly Sales (Altair)", height=300)
+            st.altair_chart(chart)
+        except ImportError:
+            st.warning("Install altair to see this demo: `pip install altair`")
+
+    # -------------------------------------------------------------------------
+    # st.vega_lite_chart()
+    # -------------------------------------------------------------------------
+    st.subheader("st.vega_lite_chart()")
+
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `data`: Data (DataFrame, dict, list) — injected as `data.values` in the spec
+        - `spec` (dict): Vega-Lite specification
+        - `use_container_width` (bool): Fill container width
+        - `theme` (str | None): `"streamlit"` or `None`
+        - `key` (str | None): Stable widget key
+        """)
+
+    st.code(
+        "data = [\n"
+        "    {'x': 1, 'y': 5}, {'x': 2, 'y': 3},\n"
+        "    {'x': 3, 'y': 8}, {'x': 4, 'y': 6},\n"
+        "]\n"
+        "spec = {\n"
+        "    'mark': {'type': 'point', 'filled': True},\n"
+        "    'encoding': {\n"
+        "        'x': {'field': 'x', 'type': 'quantitative'},\n"
+        "        'y': {'field': 'y', 'type': 'quantitative'},\n"
+        "        'size': {'value': 100},\n"
+        "    },\n"
+        "    'height': 300,\n"
+        "}\n"
+        "st.vega_lite_chart(data, spec)",
+        language="python",
+    )
+
+    with st.container(border=True):
+        vl_data = [
+            {"x": i, "y": (i * 13 % 17) + 2, "cat": "A" if i % 2 == 0 else "B"}
+            for i in range(1, 13)
+        ]
+        vl_spec = {
+            "mark": {"type": "point", "filled": True, "size": 80},
+            "encoding": {
+                "x": {"field": "x", "type": "quantitative", "title": "X value"},
+                "y": {"field": "y", "type": "quantitative", "title": "Y value"},
+                "color": {"field": "cat", "type": "nominal"},
+                "tooltip": [
+                    {"field": "x", "type": "quantitative"},
+                    {"field": "y", "type": "quantitative"},
+                    {"field": "cat", "type": "nominal"},
+                ],
+            },
+            "height": 300,
+            "title": "Vega-Lite Scatter (no extra dependencies)",
+        }
+        st.vega_lite_chart(vl_data, vl_spec)
+
+    # -------------------------------------------------------------------------
+    # st.pyplot()
+    # -------------------------------------------------------------------------
+    st.subheader("st.pyplot()")
+
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `fig`: Matplotlib figure. If `None`, uses `plt.gcf()`
+        - `clear_figure` (bool): Clear the figure after rendering (default `True`)
+        - `use_container_width` (bool): Fill container width
+        - `key` (str | None): Stable widget key
+
+        Rendered server-side as PNG — no client dependency on Matplotlib.
+        """)
+
+    st.code(
+        "import matplotlib.pyplot as plt\n"
+        "import numpy as np\n\n"
+        "fig, ax = plt.subplots(figsize=(8, 4))\n"
+        "x = np.linspace(0, 2 * np.pi, 200)\n"
+        "ax.plot(x, np.sin(x), label='sin(x)', color='#6366f1')\n"
+        "ax.plot(x, np.cos(x), label='cos(x)', color='#22d3ee')\n"
+        "ax.set_title('Matplotlib: sin & cos')\n"
+        "ax.legend()\n"
+        "st.pyplot(fig)",
+        language="python",
+    )
+
+    with st.container(border=True):
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+            import numpy as np
+            fig, ax = plt.subplots(figsize=(8, 4))
+            x = np.linspace(0, 2 * np.pi, 200)
+            ax.plot(x, np.sin(x), label="sin(x)", color="#6366f1", linewidth=2)
+            ax.plot(x, np.cos(x), label="cos(x)", color="#22d3ee", linewidth=2)
+            ax.fill_between(x, np.sin(x), alpha=0.1, color="#6366f1")
+            ax.set_title("Matplotlib: sin & cos")
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            st.pyplot(fig)
+        except ImportError:
+            st.warning("Install matplotlib to see this demo: `pip install matplotlib`")
+
+    # -------------------------------------------------------------------------
+    # st.bokeh_chart()
+    # -------------------------------------------------------------------------
+    st.subheader("st.bokeh_chart()")
+
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `figure`: Bokeh figure object
+        - `use_container_width` (bool): Fill container width
+        - `key` (str | None): Stable widget key
+
+        Bokeh renders client-side via BokehJS — interactive zoom/pan included.
+        """)
+
+    st.code(
+        "from bokeh.plotting import figure\n\n"
+        "p = figure(title='Bokeh Line Chart', height=300, width=600)\n"
+        "p.line([1,2,3,4,5], [6,7,2,4,5],\n"
+        "       line_width=2, color='#6366f1', legend_label='Data')\n"
+        "p.circle([1,2,3,4,5], [6,7,2,4,5],\n"
+        "         size=8, color='#22d3ee', fill_color='white')\n"
+        "st.bokeh_chart(p)",
+        language="python",
+    )
+
+    with st.container(border=True):
+        try:
+            from bokeh.plotting import figure as bokeh_figure
+            p = bokeh_figure(title="Bokeh Line Chart", height=300, sizing_mode="stretch_width")
+            x_vals = [1, 2, 3, 4, 5, 6]
+            y_vals = [6, 7, 2, 4, 5, 8]
+            p.line(x_vals, y_vals, line_width=2, color="#6366f1", legend_label="Series A")
+            p.scatter(x_vals, y_vals, size=8, color="#22d3ee", fill_color="white", line_width=2)
+            p.legend.location = "top_left"
+            st.bokeh_chart(p)
+        except ImportError:
+            st.warning("Install bokeh to see this demo: `pip install bokeh`")
+
+    # -------------------------------------------------------------------------
+    # st.graphviz_chart()
+    # -------------------------------------------------------------------------
     st.subheader("st.graphviz_chart()")
-    st.code('''st.graphviz_chart("""
-    digraph {
-        rankdir=LR
-        User -> Frontend -> Backend -> Database
-        Frontend -> Cache
-        Backend -> Cache
-    }
-""")''', language="python")
-    
+
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `figure_or_dot`: DOT language string or a `graphviz.Graph` / `graphviz.Digraph` object
+        - `use_container_width` (bool): Fill container width
+        - `key` (str | None): Stable widget key
+
+        Rendered via `@hpcc-js/wasm` — no server-side Graphviz install needed.
+        """)
+
+    st.code(
+        'st.graphviz_chart("""\n'
+        "    digraph Pipeline {\n"
+        "        rankdir=LR\n"
+        '        node [shape=box style=filled fillcolor="#e0e7ff"]\n'
+        "        Input -> Preprocess -> Model -> Postprocess -> Output\n"
+        "        Preprocess -> Cache\n"
+        "        Cache -> Model\n"
+        "    }\n"
+        '""")',
+        language="python",
+    )
+
     with st.container(border=True):
         st.graphviz_chart("""
-            digraph {
+            digraph Pipeline {
                 rankdir=LR
-                User -> Frontend -> Backend -> Database
-                Frontend -> Cache
-                Backend -> Cache
+                node [shape=box style=filled fillcolor="#e0e7ff" fontname="Arial"]
+                edge [color="#6366f1"]
+                Input -> Preprocess -> Model -> Postprocess -> Output
+                Preprocess -> Cache [style=dashed]
+                Cache -> Model [style=dashed label="hit"]
             }
         """)
+
+    # -------------------------------------------------------------------------
+    # st.pydeck_chart()
+    # -------------------------------------------------------------------------
+    st.subheader("st.pydeck_chart()")
+
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `pydeck_obj`: A `pydeck.Deck` object
+        - `use_container_width` (bool): Fill container width
+        - `key` (str | None): Stable widget key
+
+        Renders 3D maps and geospatial visualizations via deck.gl.
+        """)
+
+    st.code(
+        "import pydeck as pdk\n\n"
+        "layer = pdk.Layer(\n"
+        "    'ScatterplotLayer',\n"
+        "    data=[{'lat': 48.8566, 'lon': 2.3522, 'name': 'Paris'},\n"
+        "          {'lat': 51.5074, 'lon': -0.1278, 'name': 'London'},\n"
+        "          {'lat': 52.5200, 'lon': 13.4050, 'name': 'Berlin'}],\n"
+        "    get_position='[lon, lat]',\n"
+        "    get_radius=50000,\n"
+        "    get_fill_color=[99, 102, 241, 180],\n"
+        "    pickable=True,\n"
+        ")\n"
+        "deck = pdk.Deck(\n"
+        "    layers=[layer],\n"
+        "    initial_view_state=pdk.ViewState(latitude=50, longitude=6,\n"
+        "                                      zoom=4, pitch=30),\n"
+        "    tooltip={'text': '{name}'},\n"
+        ")\n"
+        "st.pydeck_chart(deck)",
+        language="python",
+    )
+
+    with st.container(border=True):
+        try:
+            import pydeck as pdk
+            layer = pdk.Layer(
+                "ScatterplotLayer",
+                data=[
+                    {"lat": 48.8566, "lon": 2.3522, "name": "Paris"},
+                    {"lat": 51.5074, "lon": -0.1278, "name": "London"},
+                    {"lat": 52.5200, "lon": 13.4050, "name": "Berlin"},
+                    {"lat": 40.4168, "lon": -3.7038, "name": "Madrid"},
+                    {"lat": 41.9028, "lon": 12.4964, "name": "Rome"},
+                ],
+                get_position="[lon, lat]",
+                get_radius=50000,
+                get_fill_color=[99, 102, 241, 180],
+                pickable=True,
+            )
+            deck = pdk.Deck(
+                layers=[layer],
+                initial_view_state=pdk.ViewState(
+                    latitude=48, longitude=8, zoom=4, pitch=30
+                ),
+                tooltip={"text": "{name}"},
+                map_style="light",
+            )
+            st.pydeck_chart(deck)
+        except ImportError:
+            st.warning("Install pydeck to see this demo: `pip install pydeck`")
 
 
 # =============================================================================
@@ -1860,7 +2185,7 @@ elif selected == "🖼️ Media":
         """)
     
     st.code('''st.image(
-    "https://via.placeholder.com/400x200/3B82F6/FFFFFF?text=Fastlit+Demo",
+    "path/to/image.jpg",
     caption="Sample image with caption",
     width=400
 )''', language="python")
@@ -1870,15 +2195,16 @@ elif selected == "🖼️ Media":
         
         with col1:
             st.image(
-                "https://via.placeholder.com/400x200/3B82F6/FFFFFF?text=Fastlit+Demo",
+                "https://images.unsplash.com/photo-1769968065332-77ff2c6cf199?q=80&w=688&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
                 caption="Sample image with caption",
                 width=400
             )
         
         with col2:
             st.image(
-                "https://via.placeholder.com/400x200/10B981/FFFFFF?text=Green+Image",
-                caption="Another image"
+                "https://images.unsplash.com/photo-1770034285769-4a5a3f410346?q=80&w=880&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
+                caption="Another image",
+                width=600
             )
     
     # -------------------------------------------------------------------------
@@ -1903,7 +2229,7 @@ st.audio(audio_bytes, format="audio/mp3", autoplay=True)''', language="python")
     
     with st.container(border=True):
         st.info("Provide an audio file URL or bytes to use st.audio()")
-        st.caption("Example: `st.audio('https://example.com/sample.mp3')`")
+        st.audio("https://file-examples.com/storage/fe28eab7b0699747a9dded4/2017/11/file_example_MP3_700KB.mp3")
     
     # -------------------------------------------------------------------------
     # st.video()
@@ -1927,8 +2253,8 @@ st.video(video_bytes, subtitles={"English": "en.vtt"})''', language="python")
     
     with st.container(border=True):
         st.info("Provide a video file URL or bytes to use st.video()")
-        st.caption("Example: `st.video('https://example.com/sample.mp4')`")
-    
+        st.video("https://www.pexels.com/download/video/855936/")
+
     # -------------------------------------------------------------------------
     # st.logo()
     # -------------------------------------------------------------------------
@@ -1966,6 +2292,7 @@ st.video(video_bytes, subtitles={"English": "en.vtt"})''', language="python")
     
     with st.container(border=True):
         st.info("Provide a PDF file URL or bytes to use st.pdf()")
+        st.pdf("https://arxiv.org/pdf/2106.14881.pdf", height=500)
 
 
 # =============================================================================
@@ -2923,34 +3250,32 @@ elif selected == "🔧 State & Control":
 elif selected == "🎨 Advanced Features":
     st.title("🎨 Advanced Features")
     st.caption("Advanced functionality and patterns")
-    
+
     # -------------------------------------------------------------------------
-    # Lifecycle Hooks
+    # Page Configuration
     # -------------------------------------------------------------------------
-    st.header("Lifecycle Hooks", divider="blue")
-    
-    with st.expander("📖 Documentation", expanded=False):
+    st.header("Page Configuration", divider="blue")
+    st.caption("Test all `st.set_page_config()` options live — changes apply instantly!")
+
+    with st.expander("📖 API Reference", expanded=False):
         st.markdown("""
-        Register functions to run at server startup/shutdown.
-        
-        ```python
-        @st.on_startup
-        def init_resources():
-            print("Server starting...")
-            return create_db_pool()
-        
-        @st.on_shutdown
-        async def cleanup_resources():
-            print("Server shutting down...")
-            await db_pool.close()
-        ```
-        
-        These are called by the ASGI lifespan manager.
+        **Must be the first Streamlit command in your script.**""")
+        st.markdown("""
+        | Layout | Description |
+        |--------|-------------|
+        | `"centered"` | Max-width 896px, centered — good for text-heavy apps |
+        | `"wide"` | Full viewport width — good for dashboards |
+        | `"compact"` | Full width + minimal padding — maximum data density |
         """)
-    
-    with st.container(border=True):
-        st.info("Lifecycle hooks are registered via `@st.on_startup` and `@st.on_shutdown`")
-    
+    st.code('''st.set_page_config(
+            page_title="My App",             # Browser tab title
+            page_icon="🚀",                  # Favicon: emoji or URL
+            layout="centered",               # "centered" | "wide" | "compact"
+            initial_sidebar_state="auto",    # "auto" | "expanded" | "collapsed"
+            menu_items={...},                # Custom menu items (optional)
+        )
+        ''', language="python")
+
     # -------------------------------------------------------------------------
     # Threading Support
     # -------------------------------------------------------------------------
@@ -2959,12 +3284,12 @@ elif selected == "🎨 Advanced Features":
     with st.expander("📖 Documentation", expanded=False):
         st.markdown("""
         Run functions in background threads with session context.
-        
-        ```python
-        def background_work():
-            # st.* calls work here
-            result = expensive_computation()
-            st.session_state.result = result
+        """)
+
+        st.code('''def background_work():
+        # st.* calls work here
+        result = expensive_computation()
+        st.session_state.result = result
         
         # Create thread with session context
         t = st.run_in_thread(background_work)
@@ -2973,8 +3298,8 @@ elif selected == "🎨 Advanced Features":
         
         # Or run directly
         st.run_with_session_context(some_function, arg1, arg2)
-        ```
-        """)
+        ''', language="python")
+        
     
     with st.container(border=True):
         if "thread_result" not in st.session_state:
@@ -2991,30 +3316,6 @@ elif selected == "🎨 Advanced Features":
         
         if st.session_state.thread_result:
             st.success(st.session_state.thread_result)
-    
-    # -------------------------------------------------------------------------
-    # Real-time Widget Interpolation
-    # -------------------------------------------------------------------------
-    st.header("Real-time Widget Interpolation", divider="blue")
-    
-    with st.expander("📖 Documentation", expanded=False):
-        st.markdown("""
-        Widget values update text instantly without server roundtrip!
-        
-        ```python
-        n = st.slider("Value", 0, 100, 50)
-        st.write(f"You selected: {n}")  # Updates instantly!
-        ```
-        
-        This works because widget values are wrapped in `WidgetValue` objects
-        that inject markers for client-side interpolation.
-        """)
-    
-    with st.container(border=True):
-        st.caption("Move the slider — text updates instantly!")
-        value = st.slider("Real-time value", 0, 100, 50)
-        st.markdown(f"### Value: **{value}**")
-        st.write(f"Double: {value * 2} | Half: {value // 2}")
     
     # -------------------------------------------------------------------------
     # Sidebar Control
@@ -3039,73 +3340,6 @@ elif selected == "🎨 Advanced Features":
         with col2:
             if st.button("Expand sidebar"):
                 st.set_sidebar_state("expanded")
-    
-    # -------------------------------------------------------------------------
-    # Page Configuration
-    # -------------------------------------------------------------------------
-    st.header("Page Configuration", divider="blue")
-    
-    with st.expander("📖 st.set_page_config()", expanded=True):
-        st.markdown("""
-        Configure page settings. **Must be first Streamlit command!**
-        
-        ```python
-        st.set_page_config(
-            page_title="My App",        # Browser tab title
-            page_icon="🚀",              # Favicon
-            layout="wide",              # "centered", "wide", "compact"
-            initial_sidebar_state="auto",  # "auto", "expanded", "collapsed"
-            menu_items={
-                "Get Help": "https://help.example.com",
-                "Report a bug": "https://bugs.example.com",
-            }
-        )
-        ```
-        """)
-    
-    with st.container(border=True):
-        st.write("Current page config:")
-        st.json({
-            "page_title": "Fastlit Complete Demo",
-            "page_icon": "🚀",
-            "layout": "wide",
-            "initial_sidebar_state": "expanded"
-        })
-    
-    # -------------------------------------------------------------------------
-    # Callbacks
-    # -------------------------------------------------------------------------
-    st.header("Widget Callbacks", divider="blue")
-    
-    with st.expander("📖 Documentation", expanded=False):
-        st.markdown("""
-        Many widgets support callbacks:
-        
-        ```python
-        def on_change():
-            st.session_state.changed = True
-        
-        st.text_input("Name", on_change=on_change)
-        
-        # With arguments
-        def on_click(value):
-            st.session_state.clicked = value
-        
-        st.button("Click", on_click=on_click, args=("hello",))
-        ```
-        """)
-    
-    with st.container(border=True):
-        if "callback_count" not in st.session_state:
-            st.session_state.callback_count = 0
-        
-        def _on_change():
-            st.session_state.callback_count += 1
-            st.toast(f"Callback fired! (#{st.session_state.callback_count})")
-        
-        st.text_input("Type something (callback on change)", on_change=_on_change, key="callback_demo")
-        st.metric("Callbacks fired", st.session_state.callback_count)
-
 
 # =============================================================================
 # FOOTER

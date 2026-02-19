@@ -694,6 +694,9 @@ def pyplot(
     """
     import base64
     import io
+    import logging as _logging
+    _logging.getLogger("matplotlib").setLevel(_logging.WARNING)
+    _logging.getLogger("matplotlib.font_manager").setLevel(_logging.WARNING)
 
     try:
         import matplotlib.pyplot as plt
@@ -739,14 +742,15 @@ def bokeh_chart(
         key: Optional key.
     """
     try:
-        from bokeh.embed import json_item
+        from bokeh.embed import file_html
+        from bokeh.resources import CDN
 
-        spec = json_item(figure)
+        html = file_html(figure, CDN)
 
         _emit_node(
             "bokeh_chart",
             {
-                "spec": spec,
+                "html": html,
                 "useContainerWidth": use_container_width,
             },
             key=key,
@@ -806,18 +810,22 @@ def pydeck_chart(
         return
 
     try:
-        spec = pydeck_obj.to_json() if hasattr(pydeck_obj, "to_json") else {}
+        # Generate self-contained HTML (includes deck.gl bundle)
+        if hasattr(pydeck_obj, "to_html"):
+            html = pydeck_obj.to_html(as_string=True)
+        else:
+            raise AttributeError("pydeck object has no to_html()")
 
         _emit_node(
             "pydeck_chart",
             {
-                "spec": spec,
+                "html": html,
                 "useContainerWidth": use_container_width,
             },
             key=key,
         )
-    except Exception:
+    except Exception as exc:
         _emit_node(
             "text",
-            {"text": "Error: Could not render PyDeck chart"},
+            {"text": f"Error: Could not render PyDeck chart — {exc}"},
         )

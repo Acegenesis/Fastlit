@@ -61,7 +61,7 @@
 /* ---- Layout modes ---- */
 /* centered (default): max-w-4xl, standard padding */
 /* wide: no max-width, fills viewport */
-/* compact: tighter padding */
+/* compact: no max-width, minimal padding, tight inter-element spacing */
 
 .layout-main {
   max-width: 56rem; /* 4xl = 896px */
@@ -75,11 +75,18 @@ body.layout-wide .layout-main {
 }
 
 body.layout-compact .layout-main {
-  padding: 0.75rem 1rem;
+  max-width: none;
+  padding: 0.375rem 0.75rem;
 }
 
+/* Collapse bottom margins so children don't add double spacing */
+body.layout-compact .layout-main > * {
+  margin-bottom: 0 !important;
+}
+
+/* Tight uniform gap between siblings */
 body.layout-compact .layout-main > * + * {
-  margin-top: 0.5rem;
+  margin-top: 0.25rem !important;
 }
 
 /* Sidebar collapse transition */

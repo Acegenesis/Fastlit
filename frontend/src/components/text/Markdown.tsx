@@ -4,6 +4,7 @@ import katex from "katex";
 import "katex/dist/katex.min.css";
 import type { NodeComponentProps } from "../../registry/registry";
 import { useResolvedText } from "../../context/WidgetStore";
+import { highlightCode } from "../../utils/highlight";
 
 // Helper to render LaTeX using KaTeX
 const renderLatex = (latex: string, displayMode: boolean = false): string => {
@@ -128,14 +129,34 @@ const bgColorClasses: Record<string, string> = {
 
 // Basic markdown parsing for common patterns
 const parseMarkdown = (text: string): string => {
-  // First, extract and render LaTeX expressions before escaping HTML
-  // This is needed because KaTeX produces HTML output
-  
+  // Placeholders for raw HTML blocks extracted before any escaping
+  const rawPlaceholders: string[] = [];
+
+  // 0. Extract fenced code blocks FIRST (before HTML escaping)
+  //    ```lang\ncode\n``` → dark themed pre block with syntax highlighting
+  let processed0 = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+    const placeholder = `___RAW_${rawPlaceholders.length}___`;
+    const trimmed = code.replace(/\n$/, ""); // strip trailing newline
+    const highlighted = highlightCode(trimmed, lang || null);
+    const header = lang
+      ? `<div class="flex items-center px-4 py-1.5 bg-gray-800 border-b border-gray-700">` +
+        `<span class="text-xs text-gray-400 font-mono">${lang}</span></div>`
+      : "";
+    rawPlaceholders.push(
+      `<div class="mb-3 rounded-lg overflow-hidden bg-gray-900">` +
+        header +
+        `<pre class="p-4 text-sm font-mono text-gray-100 overflow-x-auto whitespace-pre">${highlighted}</pre>` +
+      `</div>`
+    );
+    return placeholder;
+  });
+
   // Store LaTeX renders to restore after processing
   const latexPlaceholders: string[] = [];
-  
+  let processed = processed0;
+
   // Process block math first: $$...$$
-  let processed = text.replace(/\$\$([^$]+)\$\$/g, (_, latex) => {
+  processed = processed.replace(/\$\$([^$]+)\$\$/g, (_, latex) => {
     const placeholder = `___LATEX_BLOCK_${latexPlaceholders.length}___`;
     latexPlaceholders.push(renderLatex(latex.trim(), true));
     return placeholder;
@@ -206,9 +227,52 @@ const parseMarkdown = (text: string): string => {
   
   // Ordered lists: 1. item
   html = html.replace(/^\d+\.\s+(.+)$/gm, '<li class="ml-4 list-decimal">$1</li>');
-  
-  // Line breaks
+
+  // Tables: must happen before \n → <br /> conversion
+  // Matches: header row | separator row | data rows (with optional leading whitespace)
+  html = html.replace(
+    /([ \t]*\|[^\n]+\n[ \t]*\|[\s\-:|]+\n(?:[ \t]*\|[^\n]+\n?)*)/g,
+    (match) => {
+      const lines = match.split("\n").filter((l) => l.trim());
+      if (lines.length < 2) return match;
+
+      const parseCells = (line: string): string[] => {
+        const trimmed = line.trim();
+        const inner = trimmed.startsWith("|") ? trimmed.slice(1) : trimmed;
+        const without = inner.endsWith("|") ? inner.slice(0, -1) : inner;
+        return without.split("|").map((c) => c.trim());
+      };
+
+      const headers = parseCells(lines[0]);
+      // lines[1] is the separator — skip it
+      const bodyLines = lines.slice(2);
+
+      let tableHtml =
+        '<table class="border-collapse w-full my-3 text-sm">' +
+        "<thead><tr>";
+      for (const h of headers) {
+        tableHtml += `<th class="border border-gray-300 bg-gray-50 px-3 py-1.5 text-left font-semibold text-gray-700">${h}</th>`;
+      }
+      tableHtml += "</tr></thead><tbody>";
+      for (const row of bodyLines) {
+        if (!row.trim()) continue;
+        const cells = parseCells(row);
+        tableHtml += '<tr class="even:bg-gray-50">';
+        for (const c of cells) {
+          tableHtml += `<td class="border border-gray-300 px-3 py-1.5 text-gray-700">${c}</td>`;
+        }
+        tableHtml += "</tr>";
+      }
+      tableHtml += "</tbody></table>";
+      return tableHtml;
+    }
+  );
+
+  // Line breaks (after table parsing so table newlines aren't converted)
   html = html.replace(/\n/g, "<br />");
+
+  // Restore fenced code blocks (after all other processing)
+  html = html.replace(/___RAW_(\d+)___/g, (_, idx) => rawPlaceholders[parseInt(idx)]);
 
   return html;
 };

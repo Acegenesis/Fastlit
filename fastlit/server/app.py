@@ -132,6 +132,12 @@ def create_app(script_path: str | None = None, static_dir: str | None = None) ->
     When called by uvicorn factory=True (hot reload), script_path is read
     from the FASTLIT_SCRIPT_PATH environment variable set by the CLI.
     """
+    # Suppress noisy third-party loggers — run here so it applies to the
+    # uvicorn worker process (not just the parent CLI process).
+    import logging as _logging
+    for _noisy in ("matplotlib", "matplotlib.font_manager", "PIL", "pydeck", "bokeh"):
+        _logging.getLogger(_noisy).setLevel(_logging.WARNING)
+
     if script_path is None:
         script_path = os.environ.get("FASTLIT_SCRIPT_PATH", "")
 

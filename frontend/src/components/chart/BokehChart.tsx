@@ -1,34 +1,25 @@
-import React, { useEffect, useRef } from "react";
+import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
 
 export const BokehChart: React.FC<NodeComponentProps> = ({ props }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const { data, height = 400 } = props;
+  const { html, height = 450 } = props;
 
-  useEffect(() => {
-    if (!containerRef.current || !data) return;
-
-    // Attempt to render using Bokeh if it's loaded globally
-    const Bokeh = (window as any).Bokeh;
-    if (Bokeh && data?.doc) {
-      containerRef.current.innerHTML = "";
-      try {
-        Bokeh.embed.embed_item(data, containerRef.current);
-        return;
-      } catch {
-        // Fall through to JSON display
-      }
-    }
-
-    // Fallback: show JSON representation
-    containerRef.current.innerHTML = `<pre style="overflow:auto;max-height:${height}px;font-size:12px;background:#f6f8fa;padding:1em;border-radius:6px;">${JSON.stringify(data, null, 2)}</pre>`;
-  }, [data, height]);
+  if (!html) {
+    return (
+      <div className="mb-4 p-4 text-sm text-gray-500 bg-gray-50 rounded-lg border">
+        No Bokeh chart data received.
+      </div>
+    );
+  }
 
   return (
-    <div
-      className="mb-4 rounded-lg border overflow-hidden"
-      style={{ minHeight: height }}
-      ref={containerRef}
-    />
+    <div className="mb-4 w-full rounded-lg overflow-hidden border border-gray-200">
+      <iframe
+        srcDoc={html}
+        style={{ width: "100%", height, border: "none", display: "block" }}
+        sandbox="allow-scripts allow-same-origin"
+        title="Bokeh chart"
+      />
+    </div>
   );
 };

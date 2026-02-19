@@ -30,6 +30,11 @@ def run(script: str, port: int, host: str, dev: bool):
     if script_dir not in sys.path:
         sys.path.insert(0, script_dir)
 
+    # Suppress noisy third-party loggers before uvicorn starts
+    import logging
+    for _noisy in ("matplotlib", "matplotlib.font_manager", "PIL", "pydeck"):
+        logging.getLogger(_noisy).setLevel(logging.WARNING)
+
     click.echo(f"  Fastlit running at: http://{host}:{port}")
     click.echo(f"  Script: {script_path}")
     if dev:

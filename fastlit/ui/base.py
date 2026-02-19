@@ -9,6 +9,27 @@ from typing import Any
 from fastlit.runtime.context import get_current_session
 from fastlit.runtime.tree import UINode
 
+
+def _unwrap_props(props: dict) -> dict:
+    """Recursively unwrap WidgetValue wrappers in props to plain Python values.
+
+    WidgetValues are transparent proxies used for client-side interpolation
+    in f-strings. When passed to props (which get JSON-serialized), they must
+    be resolved to their underlying value so json.dumps doesn't choke.
+    """
+    from fastlit.ui.widget_value import WidgetValue
+
+    def _unwrap(v: Any) -> Any:
+        if isinstance(v, WidgetValue):
+            return v._val
+        if isinstance(v, dict):
+            return {k: _unwrap(val) for k, val in v.items()}
+        if isinstance(v, list):
+            return [_unwrap(item) for item in v]
+        return v
+
+    return {k: _unwrap(v) for k, v in props.items()}
+
 # Cache at module level (computed once, never changes)
 _fastlit_dir: str = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
 
@@ -35,6 +56,9 @@ def _emit_node(
     """
     session = get_current_session()
     node_id = _make_id(node_type, key)
+
+    # Unwrap WidgetValue wrappers so props are always JSON-serializable
+    props = _unwrap_props(props)
 
     # Add noRerun flag to props for value widgets (React-first architecture)
     if no_rerun:
