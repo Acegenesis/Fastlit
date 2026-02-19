@@ -54,6 +54,7 @@ from fastlit.ui.layout import (
     set_sidebar_state,
 )
 from fastlit.ui.chat import chat_message, chat_input
+from fastlit.ui.fragment import fragment
 from fastlit.ui.dataframe import dataframe, data_editor, table
 from fastlit.ui import column_config
 from fastlit.ui.charts import (

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import datetime
 from typing import Any, Callable, Sequence
 
@@ -29,6 +30,16 @@ def _format_options(options: Sequence, format_func: Callable | None) -> list[str
     if format_func is None:
         return [str(o) for o in options]
     return [str(format_func(o)) for o in options]
+
+
+def _max_upload_bytes() -> int:
+    """Maximum accepted upload size (bytes) for a single file."""
+    try:
+        mb = int(os.environ.get("FASTLIT_MAX_UPLOAD_MB", "10"))
+    except ValueError:
+        mb = 10
+    mb = max(1, mb)
+    return mb * 1024 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -1291,6 +1302,7 @@ def file_uploader(
     disabled: bool = False,
     label_visibility: str = "visible",
     width: str | int = "stretch",
+    max_file_size_mb: int | None = None,
 ) -> Any:
     """Display a file uploader widget.
 
@@ -1306,6 +1318,8 @@ def file_uploader(
         disabled: If True, disable the widget.
         label_visibility: "visible" (default), "hidden", or "collapsed".
         width: Widget width - "stretch" (default) or pixel value.
+        max_file_size_mb: Maximum accepted file size (MB) per file.
+            If None, uses FASTLIT_MAX_UPLOAD_MB (default: 10).
 
     Returns:
         Uploaded file(s) or None.
@@ -1318,12 +1332,19 @@ def file_uploader(
     else:
         allowed_types = list(type)
 
+    max_size_bytes = (
+        max(1, int(max_file_size_mb)) * 1024 * 1024
+        if max_file_size_mb is not None
+        else _max_upload_bytes()
+    )
+
     node = _emit_node(
         "file_uploader",
         {
             "label": label,
             "allowedTypes": allowed_types,
             "acceptMultiple": accept_multiple_files,
+            "maxSizeBytes": max_size_bytes,
             "help": help,
             "disabled": disabled,
             "labelVisibility": label_visibility,
@@ -1342,25 +1363,70 @@ def file_uploader(
     # Convert stored data to UploadedFile objects
     if accept_multiple_files:
         if isinstance(stored, list):
-            return [_make_uploaded_file(f) for f in stored]
+            uploaded: list[UploadedFile] = []
+            errors: list[str] = []
+            for item in stored:
+                file_obj, err = _make_uploaded_file(item, max_size_bytes)
+                if file_obj is not None:
+                    uploaded.append(file_obj)
+                elif err:
+                    errors.append(err)
+            if errors:
+                _emit_upload_warning(
+                    "Some files were skipped: "
+                    + "; ".join(errors[:3])
+                    + ("; ..." if len(errors) > 3 else "")
+                )
+            return uploaded
         return []
     else:
         if stored:
-            return _make_uploaded_file(stored)
+            file_obj, err = _make_uploaded_file(stored, max_size_bytes)
+            if err:
+                _emit_upload_warning(err)
+            return file_obj
         return None
 
 
-def _make_uploaded_file(data: dict) -> "UploadedFile":
-    """Create an UploadedFile object from stored data."""
+def _emit_upload_warning(message: str) -> None:
+    """Render a non-blocking warning in the app."""
+    from fastlit.ui.status import warning as _warning
+    _warning(message)
+
+
+def _make_uploaded_file(
+    data: dict,
+    max_size_bytes: int,
+) -> "tuple[UploadedFile | None, str | None]":
+    """Create an UploadedFile object from stored data or return an error."""
     import base64
+
+    if not isinstance(data, dict):
+        return None, "Invalid uploaded file payload."
 
     name = data.get("name", "file")
     content_type = data.get("type", "application/octet-stream")
     b64_content = data.get("content", "")
+    reported_size = data.get("size")
+    if isinstance(reported_size, int) and reported_size > max_size_bytes:
+        return None, (
+            f"Uploaded file '{name}' exceeds max size "
+            f"({reported_size} bytes > {max_size_bytes} bytes)."
+        )
+    if len(b64_content) > ((max_size_bytes + 2) // 3) * 4:
+        return None, f"Uploaded file '{name}' exceeds max size before decoding."
 
-    content = base64.b64decode(b64_content) if b64_content else b""
+    try:
+        content = base64.b64decode(b64_content, validate=True) if b64_content else b""
+    except Exception:
+        return None, f"Uploaded file '{name}' is not valid base64."
+    if len(content) > max_size_bytes:
+        return None, (
+            f"Uploaded file '{name}' exceeds max size "
+            f"({len(content)} bytes > {max_size_bytes} bytes)."
+        )
 
-    return UploadedFile(name, content, content_type)
+    return UploadedFile(name, content, content_type), None
 
 
 class UploadedFile:

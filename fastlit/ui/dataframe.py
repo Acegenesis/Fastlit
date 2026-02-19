@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from fastlit.ui.base import _emit_node
@@ -13,6 +14,7 @@ def dataframe(
     height: int | None = None,
     use_container_width: bool = True,
     hide_index: bool = False,
+    max_rows: int | None = None,
     key: str | None = None,
 ) -> None:
     """Display a DataFrame with virtualized scrolling.
@@ -22,6 +24,8 @@ def dataframe(
         height: Fixed height in pixels. If None, auto-sizes up to 400px.
         use_container_width: If True, stretches to container width.
         hide_index: If True, hides the row index column.
+        max_rows: Maximum number of rows to serialize for display.
+            If None, uses FASTLIT_MAX_DF_ROWS (default: 50_000).
         key: Optional key for stable identity.
 
     Example:
@@ -29,20 +33,58 @@ def dataframe(
         >>> df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
         >>> st.dataframe(df)
     """
-    # Convert data to serializable format
-    columns, rows, index = _serialize_dataframe(data, hide_index)
+    resolved_max_rows = (
+        _default_max_dataframe_rows()
+        if max_rows is None
+        else max(1, int(max_rows))
+    )
+    columns, rows, index, total_rows, truncated = _serialize_dataframe_preview(
+        data, hide_index, resolved_max_rows
+    )
+    source_id = _maybe_register_server_source(
+        data=data,
+        columns=columns,
+        rows=rows,
+        index=index,
+        hide_index=hide_index,
+        total_rows=total_rows,
+        preview_rows=len(rows),
+    )
 
     props = {
         "columns": columns,
         "rows": rows,
         "height": height,
         "useContainerWidth": use_container_width,
+        "totalRows": total_rows,
+        "truncated": truncated,
     }
 
     if not hide_index and index is not None:
         props["index"] = index
+    if source_id is not None:
+        props["sourceId"] = source_id
+        props["windowSize"] = _default_dataframe_window_size()
 
     _emit_node("dataframe", props, key=key)
+
+
+def _default_max_dataframe_rows() -> int:
+    """Default preview row cap for dataframe rendering."""
+    try:
+        value = int(os.environ.get("FASTLIT_MAX_DF_ROWS", "50000"))
+    except ValueError:
+        value = 50000
+    return max(1, value)
+
+
+def _default_dataframe_window_size() -> int:
+    """Window size used by frontend server-side dataframe pagination."""
+    try:
+        value = int(os.environ.get("FASTLIT_DF_WINDOW_SIZE", "300"))
+    except ValueError:
+        value = 300
+    return max(50, min(value, 5000))
 
 
 def data_editor(
@@ -81,6 +123,9 @@ def data_editor(
 
     # Convert data to serializable format
     columns, rows, index = _serialize_dataframe(data, hide_index or False)
+    total_rows = len(rows)
+    max_rows_cap = _default_max_dataframe_rows()
+    rows, index, truncated = _truncate_rows(rows, index, max_rows_cap)
 
     # Apply column order if specified
     if column_order:
@@ -111,6 +156,8 @@ def data_editor(
         "numRows": num_rows,
         "disabledColumns": disabled_cols,
         "rerunOnChange": on_change is not None,
+        "totalRows": total_rows,
+        "truncated": truncated,
     }
 
     if not (hide_index or False) and index is not None:
@@ -174,11 +221,15 @@ def table(
         key: Optional key for stable identity.
     """
     columns, rows, index = _serialize_dataframe(data, hide_index=True)
+    total_rows = len(rows)
+    rows, _, truncated = _truncate_rows(rows, None, _default_max_dataframe_rows())
 
     props = {
         "columns": columns,
         "rows": rows,
         "static": True,
+        "totalRows": total_rows,
+        "truncated": truncated,
     }
 
     _emit_node("table", props, key=key)
@@ -201,7 +252,10 @@ def _serialize_dataframe(
         import pandas as pd
 
         if isinstance(data, pd.DataFrame):
-            return _serialize_pandas(data, hide_index)
+            columns, rows, index, _, _ = _serialize_pandas(
+                data, hide_index, max_rows=None
+            )
+            return columns, rows, index
     except ImportError:
         pass
 
@@ -221,30 +275,136 @@ def _serialize_dataframe(
     return [{"name": "value", "type": "string"}], [[str(data)]], None
 
 
+def _serialize_dataframe_preview(
+    data: Any,
+    hide_index: bool,
+    max_rows: int,
+) -> tuple[list[dict], list[list], list | None, int, bool]:
+    """Serialize data for display with an upper row bound."""
+    try:
+        import pandas as pd
+
+        if isinstance(data, pd.DataFrame):
+            return _serialize_pandas(data, hide_index, max_rows=max_rows)
+    except ImportError:
+        pass
+
+    columns, rows, index = _serialize_dataframe(data, hide_index)
+    total_rows = len(rows)
+    if total_rows > max_rows:
+        rows = rows[:max_rows]
+        if index is not None:
+            index = index[:max_rows]
+        return columns, rows, index, total_rows, True
+    return columns, rows, index, total_rows, False
+
+
+def _maybe_register_server_source(
+    *,
+    data: Any,
+    columns: list[dict[str, Any]],
+    rows: list[list[Any]],
+    index: list | None,
+    hide_index: bool,
+    total_rows: int,
+    preview_rows: int,
+) -> str | None:
+    """Register a server-side source for large tables to support window fetches."""
+    if total_rows <= preview_rows:
+        return None
+    if os.environ.get("FASTLIT_ENABLE_DF_SERVER_PAGING", "1") in {"0", "false", "False"}:
+        return None
+
+    try:
+        from fastlit.server.dataframe_store import register_source
+    except Exception:
+        return None
+
+    # Pandas path: keep raw dataframe server-side and slice lazily.
+    try:
+        import pandas as pd
+
+        if isinstance(data, pd.DataFrame):
+            def slice_fn(start: int, end: int):
+                view = data.iloc[start:end]
+                out_rows = [[_to_json_safe(v) for v in row] for row in view.itertuples(index=False, name=None)]
+                out_index = None if hide_index else [_to_json_safe(v) for v in view.index.tolist()]
+                return out_rows, out_index
+
+            return register_source(
+                columns=columns,
+                rows=None,
+                index=None,
+                slice_fn=slice_fn,
+                total_rows=total_rows,
+            )
+    except ImportError:
+        pass
+
+    # Generic path: rows already materialized as a list.
+    full_rows = rows
+    full_index = index if not hide_index else None
+    if total_rows > len(rows):
+        try:
+            _cols, full_rows, generic_index = _serialize_dataframe(data, hide_index)
+            full_index = generic_index if not hide_index else None
+        except Exception:
+            # Fallback to preview rows only if full serialization fails.
+            full_rows = rows
+            full_index = index if not hide_index else None
+
+    return register_source(
+        columns=columns,
+        rows=full_rows,
+        index=full_index,
+        total_rows=total_rows,
+    )
+
+
+def _truncate_rows(
+    rows: list[list[Any]],
+    index: list | None,
+    max_rows: int,
+) -> tuple[list[list[Any]], list | None, bool]:
+    """Truncate rows/index to max_rows and report whether truncation occurred."""
+    if len(rows) <= max_rows:
+        return rows, index, False
+    new_rows = rows[:max_rows]
+    new_index = index[:max_rows] if index is not None else None
+    return new_rows, new_index, True
+
+
 def _serialize_pandas(
     df: Any,  # pandas.DataFrame
     hide_index: bool,
-) -> tuple[list[dict], list[list], list | None]:
+    *,
+    max_rows: int | None = None,
+) -> tuple[list[dict], list[list], list | None, int, bool]:
     """Serialize a pandas DataFrame."""
+    total_rows = len(df)
+    truncated = False
+    view = df
+    if max_rows is not None and total_rows > max_rows:
+        view = df.iloc[:max_rows]
+        truncated = True
+
     columns = []
-    for col in df.columns:
-        dtype = str(df[col].dtype)
+    for col in view.columns:
+        dtype = str(view[col].dtype)
         col_type = _dtype_to_type(dtype)
         columns.append({"name": str(col), "type": col_type})
 
-    # Convert to list of lists for efficient JSON serialization
-    rows = df.values.tolist()
-
-    # Handle non-serializable types (e.g., Timestamp)
-    for i, row in enumerate(rows):
-        rows[i] = [_to_json_safe(v) for v in row]
+    # Serialize row-by-row without materializing the full dataframe first.
+    rows: list[list[Any]] = []
+    for row in view.itertuples(index=False, name=None):
+        rows.append([_to_json_safe(v) for v in row])
 
     # Index
     index = None
     if not hide_index:
-        index = [_to_json_safe(v) for v in df.index.tolist()]
+        index = [_to_json_safe(v) for v in view.index.tolist()]
 
-    return columns, rows, index
+    return columns, rows, index, total_rows, truncated
 
 
 def _serialize_dict(data: dict) -> tuple[list[dict], list[list], list | None]:

@@ -13,7 +13,38 @@ def diff_trees(old: UINode, new: UINode) -> list[PatchOp]:
     """
     ops: list[PatchOp] = []
     _diff_node(old, new, ops)
-    return ops
+    return _batch_patch_ops(ops)
+
+
+def _batch_patch_ops(ops: list[PatchOp]) -> list[PatchOp]:
+    """Merge adjacent compatible operations to reduce patch payload."""
+    if not ops:
+        return ops
+
+    batched: list[PatchOp] = []
+    pending_props: dict[str, dict] = {}
+
+    def flush_pending_props() -> None:
+        if not pending_props:
+            return
+        for node_id, merged in pending_props.items():
+            batched.append(PatchOp(op="updateProps", id=node_id, props=merged))
+        pending_props.clear()
+
+    for op in ops:
+        if op.op == "updateProps" and op.props:
+            existing = pending_props.get(op.id)
+            if existing is None:
+                pending_props[op.id] = dict(op.props)
+            else:
+                existing.update(op.props)
+            continue
+
+        flush_pending_props()
+        batched.append(op)
+
+    flush_pending_props()
+    return batched
 
 
 def _diff_node(old: UINode, new: UINode, ops: list[PatchOp]) -> None:
@@ -21,6 +52,10 @@ def _diff_node(old: UINode, new: UINode, ops: list[PatchOp]) -> None:
     # If the type changed, replace entirely
     if old.type != new.type:
         ops.append(PatchOp(op="replace", id=new.id, node=new.to_dict()))
+        return
+
+    # Subtree hash fast-path: skip unchanged branches entirely.
+    if old.subtree_hash() == new.subtree_hash():
         return
 
     # Fast path: skip prop comparison if same object reference
@@ -44,11 +79,26 @@ def _diff_children(
     old_parent: UINode, new_parent: UINode, ops: list[PatchOp]
 ) -> None:
     """Diff child lists using ID-based matching (single-pass)."""
-    old_by_id = {child.id: child for child in old_parent.children}
+    old_children = old_parent.children
+    new_children = new_parent.children
+
+    # Common fast-path: same child IDs in same order.
+    if len(old_children) == len(new_children):
+        same_order = True
+        for i, new_child in enumerate(new_children):
+            if old_children[i].id != new_child.id:
+                same_order = False
+                break
+        if same_order:
+            for i, new_child in enumerate(new_children):
+                _diff_node(old_children[i], new_child, ops)
+            return
+
+    old_by_id = {child.id: child for child in old_children}
     new_ids: set[str] = set()
 
     # Single pass over new children: additions + updates
-    for i, child in enumerate(new_parent.children):
+    for i, child in enumerate(new_children):
         new_ids.add(child.id)
         old_child = old_by_id.get(child.id)
         if old_child is None:
@@ -67,6 +117,6 @@ def _diff_children(
             _diff_node(old_child, child, ops)
 
     # Removals: old children not present in new
-    for child in old_parent.children:
+    for child in old_children:
         if child.id not in new_ids:
             ops.append(PatchOp(op="remove", id=child.id))

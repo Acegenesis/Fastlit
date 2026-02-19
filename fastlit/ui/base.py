@@ -66,6 +66,11 @@ def _emit_node(
 
     node = UINode(type=node_type, id=node_id, props=props)
     session.current_tree.append(node)
+
+    # Track widget → fragment ownership for partial reruns.
+    if is_widget and getattr(session, "_current_fragment_id", None):
+        session._widget_to_fragment[node_id] = session._current_fragment_id
+
     return node
 
 

@@ -6,14 +6,14 @@
  *   sendEvent() to server → async, never blocks UI
  *   Server patches → update tree structure only, never override store
  *
- * Per-widget subscriptions: only the widget that changed re-renders.
- * Global subscriptions: text components re-render when any ref'd widget changes.
+ * Per-widget subscriptions: only widgets/texts bound to changed IDs re-render.
  */
 
 import React, {
   createContext,
   useContext,
   useCallback,
+  useMemo,
   useSyncExternalStore,
 } from "react";
 
@@ -22,7 +22,6 @@ type Listener = () => void;
 export class WidgetStoreImpl {
   private values = new Map<string, any>();
   private widgetSubs = new Map<string, Set<Listener>>();
-  private globalSubs = new Set<Listener>();
 
   get(id: string): any {
     return this.values.get(id);
@@ -37,7 +36,6 @@ export class WidgetStoreImpl {
     if (Object.is(this.values.get(id), value)) return;
     this.values.set(id, value);
     this.widgetSubs.get(id)?.forEach((l) => l());
-    this.globalSubs.forEach((l) => l());
   }
 
   /** Set a default value silently (no listeners). Used during first render. */
@@ -57,9 +55,14 @@ export class WidgetStoreImpl {
     return () => set!.delete(listener);
   }
 
-  subscribeGlobal(listener: Listener): () => void {
-    this.globalSubs.add(listener);
-    return () => this.globalSubs.delete(listener);
+  subscribeMany(ids: Iterable<string>, listener: Listener): () => void {
+    const unsubs: Array<() => void> = [];
+    for (const id of ids) {
+      unsubs.push(this.subscribeWidget(id, listener));
+    }
+    return () => {
+      for (const unsub of unsubs) unsub();
+    };
   }
 }
 
@@ -117,8 +120,7 @@ export function useWidgetValue(
 
 /**
  * Hook for text components: resolve a template using live widget values.
- * Global subscription — re-renders when any widget changes, but
- * useSyncExternalStore skips re-render if the resolved string is identical.
+ * Subscribes only to referenced widget IDs.
  */
 export function useResolvedText(
   text: string,
@@ -126,10 +128,17 @@ export function useResolvedText(
   refs?: Record<string, string>,
 ): string {
   const store = useContext(StoreContext);
+  const refWidgetIds = useMemo(
+    () => (refs ? Array.from(new Set(Object.values(refs))) : []),
+    [refs]
+  );
 
   const subscribe = useCallback(
-    (cb: () => void) => store?.subscribeGlobal(cb) ?? (() => {}),
-    [store],
+    (cb: () => void) => {
+      if (!store || refWidgetIds.length === 0) return () => {};
+      return store.subscribeMany(refWidgetIds, cb);
+    },
+    [store, refWidgetIds]
   );
 
   const getSnapshot = useCallback(() => {

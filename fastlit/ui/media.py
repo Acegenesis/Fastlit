@@ -8,10 +8,16 @@ from __future__ import annotations
 
 import base64
 import mimetypes
+import os
 from pathlib import Path
 from typing import Any, Literal
 
 from fastlit.ui.base import _emit_node
+
+
+_MAX_INLINE_MEDIA_BYTES = max(
+    1024, int(os.environ.get("FASTLIT_MAX_INLINE_MEDIA_BYTES", str(4 * 1024 * 1024)))
+)
 
 
 def image(
@@ -74,6 +80,7 @@ def _resolve_image_source(
 
     # Bytes
     if isinstance(image, bytes):
+        _ensure_inline_size("image bytes", len(image))
         mime = "image/png"
         if image[:8] == b"\x89PNG\r\n\x1a\n":
             mime = "image/png"
@@ -148,6 +155,7 @@ def _file_to_data_url(path: str) -> str:
 
     with open(p, "rb") as f:
         data = f.read()
+    _ensure_inline_size(str(p), len(data))
 
     b64 = base64.b64encode(data).decode("utf-8")
     return f"data:{mime};base64,{b64}"
@@ -207,6 +215,7 @@ def _resolve_audio_source(
 
     # Bytes
     if isinstance(data, bytes):
+        _ensure_inline_size("audio bytes", len(data))
         b64 = base64.b64encode(data).decode("utf-8")
         return f"data:{format};base64,{b64}"
 
@@ -310,6 +319,7 @@ def _resolve_video_source(data: Any, format: str = "video/mp4") -> str:
 
     # Bytes
     if isinstance(data, bytes):
+        _ensure_inline_size("video bytes", len(data))
         b64 = base64.b64encode(data).decode("utf-8")
         return f"data:{format};base64,{b64}"
 
@@ -391,6 +401,7 @@ def _resolve_pdf_source(data: Any) -> str:
 
     # Bytes
     if isinstance(data, bytes):
+        _ensure_inline_size("pdf bytes", len(data))
         b64 = base64.b64encode(data).decode("utf-8")
         return f"data:application/pdf;base64,{b64}"
 
@@ -399,3 +410,14 @@ def _resolve_pdf_source(data: Any) -> str:
         return _file_to_data_url(str(data))
 
     return str(data)
+
+
+def _ensure_inline_size(label: str, size_bytes: int) -> None:
+    """Fail fast when inline media payload would be too large for WS transport."""
+    if size_bytes > _MAX_INLINE_MEDIA_BYTES:
+        max_mb = _MAX_INLINE_MEDIA_BYTES / (1024 * 1024)
+        got_mb = size_bytes / (1024 * 1024)
+        raise ValueError(
+            f"{label} is too large for inline transport ({got_mb:.2f} MB > "
+            f"{max_mb:.2f} MB). Use a URL or smaller media payload."
+        )

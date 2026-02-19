@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import copy
+import copy as _copy
 import functools
 import hashlib
 import inspect
@@ -39,11 +39,13 @@ def cache_data(
     *,
     ttl: float | None = None,
     max_entries: int = _DATA_CACHE_MAX,
+    copy: bool = True,
 ) -> Any:
     """Cache function results with optional TTL.
 
     Supports both ``@cache_data`` and ``@cache_data(ttl=60)`` syntax.
-    Returns a deep copy of cached values to prevent mutation.
+    Returns a deep copy of cached values by default to prevent mutation.
+    Set ``copy=False`` for immutable return values to avoid deepcopy cost.
     """
 
     def decorator(fn: F) -> F:
@@ -58,7 +60,7 @@ def cache_data(
                     value, expire_at = cached
                     if expire_at is None or now < expire_at:
                         _data_cache.move_to_end(key)
-                        return copy.deepcopy(value)
+                        return _copy.deepcopy(value) if copy else value
                     # Expired — remove
                     del _data_cache[key]
 
@@ -73,7 +75,7 @@ def cache_data(
                 while len(_data_cache) > max_entries:
                     _data_cache.popitem(last=False)
 
-            return copy.deepcopy(result)
+            return _copy.deepcopy(result) if copy else result
 
         wrapper.clear = lambda: _data_cache.clear()  # type: ignore[attr-defined]
         return wrapper  # type: ignore[return-value]

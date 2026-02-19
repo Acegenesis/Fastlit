@@ -1,4 +1,4 @@
-import React, { useRef, useMemo } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { NodeComponentProps } from "../../registry/registry";
 
@@ -14,6 +14,10 @@ interface DataFrameProps {
   height?: number;
   useContainerWidth?: boolean;
   static?: boolean;
+  totalRows?: number;
+  truncated?: boolean;
+  sourceId?: string;
+  windowSize?: number;
 }
 
 const ROW_HEIGHT = 36;
@@ -28,9 +32,31 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ props }) => {
     index,
     height,
     useContainerWidth = true,
+    totalRows,
+    truncated = false,
+    sourceId,
+    windowSize = 300,
   } = props as DataFrameProps;
 
   const parentRef = useRef<HTMLDivElement>(null);
+  const [serverOffset, setServerOffset] = useState(0);
+  const [serverRows, setServerRows] = useState<any[][]>(rows);
+  const [serverIndex, setServerIndex] = useState<any[] | undefined>(index);
+  const [loadingWindow, setLoadingWindow] = useState(false);
+  const fetchAbortRef = useRef<AbortController | null>(null);
+  const isServerPaged = !!sourceId && (totalRows ?? rows.length) > rows.length;
+
+  useEffect(() => {
+    if (!isServerPaged) {
+      setServerOffset(0);
+      setServerRows(rows);
+      setServerIndex(index);
+      return;
+    }
+    setServerOffset(0);
+    setServerRows(rows);
+    setServerIndex(index);
+  }, [isServerPaged, rows, index, sourceId]);
 
   // Calculate column widths based on content
   const columnWidths = useMemo(() => {
@@ -52,7 +78,7 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ props }) => {
       let maxLen = col.name.length;
 
       // Sample first 100 rows for width calculation
-      const sampleRows = rows.slice(0, 100);
+      const sampleRows = (isServerPaged ? serverRows : rows).slice(0, 100);
       for (const row of sampleRows) {
         const cellValue = row[colIdx];
         const cellStr = formatCell(cellValue, col.type);
@@ -65,23 +91,67 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ props }) => {
     }
 
     return widths;
-  }, [columns, rows, index]);
+  }, [columns, rows, index, isServerPaged, serverRows]);
 
   // Total width
   const totalWidth = columnWidths.reduce((sum, w) => sum + w, 0);
 
   // Container height
-  const containerHeight = height ?? Math.min(DEFAULT_HEIGHT, HEADER_HEIGHT + rows.length * ROW_HEIGHT + 2);
+  const effectiveRowCount = isServerPaged
+    ? (typeof totalRows === "number" ? totalRows : rows.length)
+    : rows.length;
+  const containerHeight = height ?? Math.min(DEFAULT_HEIGHT, HEADER_HEIGHT + effectiveRowCount * ROW_HEIGHT + 2);
 
   // Virtualizer for rows
   const rowVirtualizer = useVirtualizer({
-    count: rows.length,
+    count: effectiveRowCount,
     getScrollElement: () => parentRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 5,
   });
 
-  const hasIndex = index && index.length > 0;
+  const hasIndex = (isServerPaged ? serverIndex : index) && (isServerPaged ? serverIndex : index)!.length > 0;
+
+  useEffect(() => {
+    if (!isServerPaged || !sourceId) return;
+    const virtualItems = rowVirtualizer.getVirtualItems();
+    if (virtualItems.length === 0) return;
+
+    const first = virtualItems[0]!.index;
+    const last = virtualItems[virtualItems.length - 1]!.index;
+    const needStart = Math.max(0, first - Math.floor(windowSize * 0.5));
+    const needEnd = Math.min(effectiveRowCount, last + Math.floor(windowSize * 1.5));
+    const haveStart = serverOffset;
+    const haveEnd = serverOffset + serverRows.length;
+
+    if (needStart >= haveStart && needEnd <= haveEnd) {
+      return;
+    }
+
+    const fetchOffset = needStart;
+    const fetchLimit = Math.max(windowSize, needEnd - needStart);
+    fetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    fetchAbortRef.current = controller;
+    setLoadingWindow(true);
+    fetch(
+      `/_fastlit/dataframe/${encodeURIComponent(sourceId)}?offset=${fetchOffset}&limit=${fetchLimit}`,
+      { signal: controller.signal }
+    )
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((payload) => {
+        setServerOffset(payload.offset ?? fetchOffset);
+        setServerRows(Array.isArray(payload.rows) ? payload.rows : []);
+        setServerIndex(Array.isArray(payload.index) ? payload.index : undefined);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingWindow(false);
+      });
+  }, [isServerPaged, sourceId, rowVirtualizer, serverOffset, serverRows.length, effectiveRowCount, windowSize]);
 
   if (columns.length === 0) {
     return (
@@ -140,8 +210,12 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ props }) => {
           }}
         >
           {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-            const rowData = rows[virtualRow.index];
-            const rowIndex = index?.[virtualRow.index];
+            const rowData = isServerPaged
+              ? serverRows[virtualRow.index - serverOffset]
+              : rows[virtualRow.index];
+            const rowIndex = isServerPaged
+              ? serverIndex?.[virtualRow.index - serverOffset]
+              : index?.[virtualRow.index];
 
             return (
               <div
@@ -170,9 +244,9 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ props }) => {
                       width: columnWidths[hasIndex ? colIdx + 1 : colIdx],
                       minWidth: columnWidths[hasIndex ? colIdx + 1 : colIdx],
                     }}
-                    title={String(rowData[colIdx] ?? "")}
+                    title={String(rowData?.[colIdx] ?? "")}
                   >
-                    <CellValue value={rowData[colIdx]} type={col.type} />
+                    <CellValue value={rowData?.[colIdx]} type={col.type} />
                   </div>
                 ))}
               </div>
@@ -183,7 +257,13 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ props }) => {
 
       {/* Footer with row count */}
       <div className="px-3 py-1.5 bg-gray-50 border-t border-gray-200 text-xs text-gray-500">
-        {rows.length.toLocaleString()} rows × {columns.length} columns
+        {(typeof totalRows === "number" ? totalRows : rows.length).toLocaleString()} rows x {columns.length} columns
+        {isServerPaged && loadingWindow && <span className="ml-2 text-blue-600">(loading window...)</span>}
+        {truncated && (
+          <span className="ml-2 text-amber-700">
+            (showing first {rows.length.toLocaleString()} rows)
+          </span>
+        )}
       </div>
     </div>
   );

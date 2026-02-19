@@ -30,13 +30,32 @@ export interface RenderPatchMessage {
   ops: PatchOp[];
 }
 
+export interface RenderPatchCompactMessage {
+  type: "render_patch_compact";
+  rev: number;
+  // [op, id, parentId, index, props, node]
+  ops: [PatchOp["op"], string, string | undefined, number | undefined, Record<string, any> | undefined, any | undefined][];
+}
+
+export interface RenderPatchCompressedMessage {
+  type: "render_patch_z";
+  rev: number;
+  encoding: "zlib+base64";
+  ops: string;
+}
+
 export interface ErrorMessage {
   type: "error";
   message: string;
   traceback?: string;
 }
 
-export type ServerMessage = RenderFullMessage | RenderPatchMessage | ErrorMessage;
+export type ServerMessage =
+  | RenderFullMessage
+  | RenderPatchMessage
+  | RenderPatchCompactMessage
+  | RenderPatchCompressedMessage
+  | ErrorMessage;
 
 // --- Client to Server ---
 

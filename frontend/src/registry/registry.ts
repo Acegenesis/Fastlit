@@ -1,20 +1,8 @@
 /**
  * Component registry: maps node type strings to React components.
- *
- * Naming convention:
- *   - Folders: lowercase, matching Streamlit API categories
- *       text/     — Write and magic, Text elements
- *       input/    — Input widgets
- *       layout/   — Layouts and containers
- *       data/     — Data elements (future)
- *       chart/    — Chart elements (future)
- *       media/    — Media elements (future)
- *       chat/     — Chat elements (future)
- *       status/   — Status elements (future)
- *   - Files: PascalCase.tsx, matching the exported component name
- *   - No "Component" suffix — use clean names (Expander, not ExpanderComponent)
  */
 
+import React, { Suspense } from "react";
 import type { ComponentType } from "react";
 
 // ---- Text elements ----
@@ -46,12 +34,9 @@ import { LinkButton } from "../components/input/LinkButton";
 import { DownloadButton } from "../components/input/DownloadButton";
 import { PageLink } from "../components/input/PageLink";
 import { SelectSlider } from "../components/input/SelectSlider";
-import { FileUploader } from "../components/input/FileUploader";
 import { Feedback } from "../components/input/Feedback";
 import { Pills } from "../components/input/Pills";
 import { SegmentedControl } from "../components/input/SegmentedControl";
-import { CameraInput } from "../components/input/CameraInput";
-import { AudioInput } from "../components/input/AudioInput";
 
 // ---- Chat elements ----
 import { ChatMessage } from "../components/chat/ChatMessage";
@@ -59,11 +44,9 @@ import { ChatInput } from "../components/chat/ChatInput";
 
 // ---- Data elements ----
 import { DataFrame, Table } from "../components/data/DataFrame";
-import { DataEditor } from "../components/data/DataEditor";
 import { Metric } from "../components/data/Metric";
-import { Json } from "../components/data/Json";
 
-// ---- Chart elements (lazy loaded for performance) ----
+// ---- Chart elements (already lazy) ----
 import {
   LineChart,
   BarChart,
@@ -80,20 +63,11 @@ import {
 
 // ---- Media elements ----
 import { Image } from "../components/media/Image";
-import { Audio } from "../components/media/Audio";
-import { Video } from "../components/media/Video";
-import { Logo } from "../components/media/Logo";
-import { Pdf } from "../components/media/Pdf";
 
 // ---- Status elements ----
 import { Alert } from "../components/status/Alert";
-import { Exception } from "../components/status/Exception";
 import { Progress } from "../components/status/Progress";
 import { Spinner } from "../components/status/Spinner";
-import { Status } from "../components/status/Status";
-import { Toast } from "../components/status/Toast";
-import { Balloons } from "../components/status/Balloons";
-import { Snow } from "../components/status/Snow";
 
 // ---- Layouts and containers ----
 import { Sidebar } from "../components/layout/Sidebar";
@@ -106,14 +80,10 @@ import { Container } from "../components/layout/Container";
 import { Empty } from "../components/layout/Empty";
 import { Form } from "../components/layout/Form";
 import { FormSubmitButton } from "../components/layout/FormSubmitButton";
-import { Dialog } from "../components/layout/Dialog";
-import { Popover } from "../components/layout/Popover";
 import { Divider } from "../components/layout/Divider";
 import { Navigation } from "../components/layout/Navigation";
 import { PageConfig } from "../components/layout/PageConfig";
-
-// Control nodes that render nothing (processed by App.tsx as side-effects)
-const NullComponent: ComponentType<NodeComponentProps> = () => null as any;
+import { Fragment } from "../components/layout/Fragment";
 
 export interface SendEventOptions {
   noRerun?: boolean;
@@ -125,6 +95,91 @@ export interface NodeComponentProps {
   children?: React.ReactNode;
   sendEvent: (id: string, value: any, options?: SendEventOptions) => void;
 }
+
+function lazyNode(
+  loader: () => Promise<{ default: ComponentType<NodeComponentProps> }>
+): ComponentType<NodeComponentProps> {
+  const LazyComp = React.lazy(loader);
+  const Wrapped: React.FC<NodeComponentProps> = (props) =>
+    React.createElement(
+      Suspense,
+      { fallback: null },
+      React.createElement(LazyComp, props)
+    );
+  return Wrapped;
+}
+
+const loadDataEditor = () =>
+  import("../components/data/DataEditor").then((m) => ({ default: m.DataEditor }));
+const loadJson = () =>
+  import("../components/data/Json").then((m) => ({ default: m.Json }));
+const loadFileUploader = () =>
+  import("../components/input/FileUploader").then((m) => ({ default: m.FileUploader }));
+const loadCameraInput = () =>
+  import("../components/input/CameraInput").then((m) => ({ default: m.CameraInput }));
+const loadAudioInput = () =>
+  import("../components/input/AudioInput").then((m) => ({ default: m.AudioInput }));
+const loadAudio = () =>
+  import("../components/media/Audio").then((m) => ({ default: m.Audio }));
+const loadVideo = () =>
+  import("../components/media/Video").then((m) => ({ default: m.Video }));
+const loadLogo = () =>
+  import("../components/media/Logo").then((m) => ({ default: m.Logo }));
+const loadPdf = () =>
+  import("../components/media/Pdf").then((m) => ({ default: m.Pdf }));
+const loadDialog = () =>
+  import("../components/layout/Dialog").then((m) => ({ default: m.Dialog }));
+const loadPopover = () =>
+  import("../components/layout/Popover").then((m) => ({ default: m.Popover }));
+const loadException = () =>
+  import("../components/status/Exception").then((m) => ({ default: m.Exception }));
+const loadStatus = () =>
+  import("../components/status/Status").then((m) => ({ default: m.Status }));
+const loadToast = () =>
+  import("../components/status/Toast").then((m) => ({ default: m.Toast }));
+const loadBalloons = () =>
+  import("../components/status/Balloons").then((m) => ({ default: m.Balloons }));
+const loadSnow = () =>
+  import("../components/status/Snow").then((m) => ({ default: m.Snow }));
+
+const DataEditor = lazyNode(loadDataEditor);
+const Json = lazyNode(loadJson);
+const FileUploader = lazyNode(loadFileUploader);
+const CameraInput = lazyNode(loadCameraInput);
+const AudioInput = lazyNode(loadAudioInput);
+const Audio = lazyNode(loadAudio);
+const Video = lazyNode(loadVideo);
+const Logo = lazyNode(loadLogo);
+const Pdf = lazyNode(loadPdf);
+const Dialog = lazyNode(loadDialog);
+const Popover = lazyNode(loadPopover);
+const Exception = lazyNode(loadException);
+const Status = lazyNode(loadStatus);
+const Toast = lazyNode(loadToast);
+const Balloons = lazyNode(loadBalloons);
+const Snow = lazyNode(loadSnow);
+
+const chunkPrefetchers: Record<string, () => Promise<unknown>> = {
+  data_editor: loadDataEditor,
+  json: loadJson,
+  file_uploader: loadFileUploader,
+  camera_input: loadCameraInput,
+  audio_input: loadAudioInput,
+  audio: loadAudio,
+  video: loadVideo,
+  logo: loadLogo,
+  pdf: loadPdf,
+  dialog: loadDialog,
+  popover: loadPopover,
+  exception: loadException,
+  status: loadStatus,
+  toast: loadToast,
+  balloons: loadBalloons,
+  snow: loadSnow,
+};
+
+// Control nodes that render nothing (processed by App.tsx as side-effects)
+const NullComponent: ComponentType<NodeComponentProps> = () => null as any;
 
 const registry: Record<string, ComponentType<NodeComponentProps>> = {
   // Text elements
@@ -212,6 +267,7 @@ const registry: Record<string, ComponentType<NodeComponentProps>> = {
   navigation: Navigation,
   page_config: PageConfig,
   sidebar_state: NullComponent,
+  fragment: Fragment,
 
   // Status elements
   alert: Alert,
@@ -235,4 +291,26 @@ export function registerComponent(
   component: ComponentType<NodeComponentProps>
 ): void {
   registry[type] = component;
+}
+
+export async function prefetchLikelyChunks(nodeTypes: Iterable<string>): Promise<void> {
+  const unique = new Set(nodeTypes);
+  const tasks: Promise<unknown>[] = [];
+  for (const t of unique) {
+    const loader = chunkPrefetchers[t];
+    if (loader) tasks.push(loader());
+  }
+  if (tasks.length > 0) {
+    await Promise.allSettled(tasks);
+  }
+}
+
+export function prefetchDefaultChunks(): Promise<void> {
+  return Promise.allSettled([
+    loadFileUploader(),
+    loadDataEditor(),
+    loadPdf(),
+    loadDialog(),
+    loadStatus(),
+  ]).then(() => undefined);
 }

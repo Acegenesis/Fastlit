@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -15,6 +17,7 @@ class UINode:
     props: dict[str, Any] = field(default_factory=dict)
     children: list[UINode] = field(default_factory=list)
     _dict_cache: dict[str, Any] | None = field(default=None, repr=False, compare=False)
+    _subtree_hash: int | None = field(default=None, repr=False, compare=False)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-compatible dict (cached per node instance)."""
@@ -29,6 +32,42 @@ class UINode:
             result["children"] = [child.to_dict() for child in self.children]
         self._dict_cache = result
         return result
+
+    def subtree_hash(self) -> int:
+        """Return a stable hash for this node + descendants (cached)."""
+        if self._subtree_hash is not None:
+            return self._subtree_hash
+
+        hasher = hashlib.blake2b(digest_size=16)
+        hasher.update(self.type.encode("utf-8", "replace"))
+        hasher.update(b"\x1f")
+        hasher.update(self.id.encode("utf-8", "replace"))
+        hasher.update(b"\x1f")
+
+        props_bytes = json.dumps(
+            self.props,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            default=str,
+        ).encode("utf-8")
+        hasher.update(props_bytes)
+        hasher.update(b"\x1e")
+
+        for child in self.children:
+            hasher.update(child.id.encode("utf-8", "replace"))
+            hasher.update(b"\x1f")
+            child_hash = child.subtree_hash()
+            hasher.update(child_hash.to_bytes(16, "big", signed=False))
+            hasher.update(b"\x1e")
+
+        self._subtree_hash = int.from_bytes(hasher.digest(), "big", signed=False)
+        return self._subtree_hash
+
+    def invalidate_caches(self) -> None:
+        """Invalidate per-node caches after a structural update."""
+        self._dict_cache = None
+        self._subtree_hash = None
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> UINode:
@@ -71,6 +110,14 @@ class UITree:
     def to_dict(self) -> dict[str, Any]:
         """Serialize the full tree."""
         return self.root.to_dict()
+
+    def invalidate_caches(self) -> None:
+        """Invalidate cached serialization/hash for all nodes in the tree."""
+        stack = [self.root]
+        while stack:
+            node = stack.pop()
+            node.invalidate_caches()
+            stack.extend(node.children)
 
     def build_index(self) -> dict[str, UINode]:
         """Build a flat id -> node index for fast lookup."""

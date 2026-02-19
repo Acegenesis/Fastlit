@@ -25,6 +25,31 @@ const containsHtml = (text: string): boolean => {
   return /<[a-z][\s\S]*>/i.test(text);
 };
 
+const escapeHtmlAttr = (value: string): string =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+const sanitizeUrl = (url: string): string | null => {
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("/") || trimmed.startsWith("#") || trimmed.startsWith("?")) {
+    return trimmed;
+  }
+  try {
+    const parsed = new URL(trimmed, window.location.origin);
+    const protocol = parsed.protocol.toLowerCase();
+    if (protocol === "http:" || protocol === "https:" || protocol === "mailto:" || protocol === "tel:") {
+      return parsed.href;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+};
+
 // Emoji shortcode mapping (common emojis)
 const emojiMap: Record<string, string> = {
   // Faces
@@ -220,7 +245,13 @@ const parseMarkdown = (text: string): string => {
   html = html.replace(/`([^`]+)`/g, '<code class="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono">$1</code>');
   
   // Links: [text](url)
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">$1</a>');
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
+    const safeUrl = sanitizeUrl(String(url));
+    if (!safeUrl) {
+      return label;
+    }
+    return `<a href="${escapeHtmlAttr(safeUrl)}" class="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">${label}</a>`;
+  });
   
   // Unordered lists: - item or * item
   html = html.replace(/^[\-\*]\s+(.+)$/gm, '<li class="ml-4">$1</li>');
@@ -292,7 +323,7 @@ export const Markdown: React.FC<NodeComponentProps> = ({ props }) => {
   }
 
   // Otherwise, parse simple markdown (memoized to avoid regex on every render)
-  const html = useMemo(() => parseMarkdown(resolved), [resolved]);
+  const html = useMemo(() => DOMPurify.sanitize(parseMarkdown(resolved)), [resolved]);
 
   return (
     <div

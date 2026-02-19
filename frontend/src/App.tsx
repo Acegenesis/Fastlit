@@ -8,7 +8,9 @@ import React, {
 } from "react";
 import { FastlitWS } from "./runtime/ws";
 import { applyPatch } from "./runtime/patcher";
+import { applyPatchAsync } from "./runtime/patchWorkerClient";
 import { NodeRenderer } from "./registry/NodeRenderer";
+import { prefetchDefaultChunks, prefetchLikelyChunks } from "./registry/registry";
 import { WidgetStoreProvider, WidgetStoreImpl } from "./context/WidgetStore";
 import { SidebarContext } from "./context/SidebarContext";
 import { Toaster } from "@/components/ui/sonner";
@@ -89,6 +91,11 @@ export const App: React.FC = () => {
   const debounceTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const pendingValuesRef = useRef<Map<string, any>>(new Map());
   const DEBOUNCE_MS = 150;
+
+  const idleHandleRef = useRef<number | null>(null);
+  const prefetchedNodeTypesRef = useRef<Set<string>>(new Set());
+  const prefetchedDefaultsRef = useRef(false);
+  const patchJobSeqRef = useRef(0);
 
   // Listen for page-config events from PageConfig component (A1, A4)
   useEffect(() => {
@@ -343,27 +350,35 @@ export const App: React.FC = () => {
         return;
       }
 
-      startTransition(() => {
-        setTree((prev) => {
-          if (!prev) return prev;
-          const patched = applyPatch(prev, msg.ops);
-
-          // Check for sidebar_state in patched tree
-          if (patched?.children) {
-            handleSidebarStateNode(patched.children);
-          }
-
-          // Update cache
-          const currentSlug = currentPageRef.current;
-          if (currentSlug && patched?.children) {
-            const mainContent = patched.children.filter((c) => c.type !== "sidebar");
-            setCacheEntry(pageCacheRef.current, currentSlug, mainContent);
-          }
-
-          return patched;
-        });
-        setError(null);
-        setIsNavigating(false);
+      setTree((prev) => {
+        if (!prev) return prev;
+        const seq = ++patchJobSeqRef.current;
+        applyPatchAsync(prev, msg.ops)
+          .then((patched) => {
+            if (seq !== patchJobSeqRef.current) return;
+            startTransition(() => {
+              setTree(patched);
+              if (patched?.children) {
+                handleSidebarStateNode(patched.children);
+              }
+              const currentSlug = currentPageRef.current;
+              if (currentSlug && patched?.children) {
+                const mainContent = patched.children.filter((c) => c.type !== "sidebar");
+                setCacheEntry(pageCacheRef.current, currentSlug, mainContent);
+              }
+              setError(null);
+              setIsNavigating(false);
+            });
+          })
+          .catch(() => {
+            const fallback = applyPatch(prev, msg.ops);
+            startTransition(() => {
+              setTree(fallback);
+              setError(null);
+              setIsNavigating(false);
+            });
+          });
+        return prev;
       });
     });
 
@@ -474,6 +489,49 @@ export const App: React.FC = () => {
   const offsetStyle: React.CSSProperties = hasSidebar
     ? { marginLeft: sidebarCollapsed ? 0 : 256, transition: "margin-left 200ms ease" }
     : {};
+
+  // Prefetch likely chunks when browser is idle.
+  useEffect(() => {
+    const scheduleIdle = (fn: () => void) => {
+      const w = window as Window & {
+        requestIdleCallback?: (cb: IdleRequestCallback, opts?: IdleRequestOptions) => number;
+      };
+      if (w.requestIdleCallback) {
+        idleHandleRef.current = w.requestIdleCallback(() => fn(), { timeout: 1200 });
+      } else {
+        idleHandleRef.current = window.setTimeout(fn, 500);
+      }
+    };
+    scheduleIdle(() => {
+      if (!prefetchedDefaultsRef.current) {
+        prefetchedDefaultsRef.current = true;
+        prefetchDefaultChunks().catch(() => undefined);
+      }
+      if (tree) {
+        const nodeTypes: string[] = [];
+        const stack = [tree];
+        while (stack.length > 0) {
+          const n = stack.pop()!;
+          if (!prefetchedNodeTypesRef.current.has(n.type)) {
+            nodeTypes.push(n.type);
+            prefetchedNodeTypesRef.current.add(n.type);
+          }
+          if (n.children) stack.push(...n.children);
+        }
+        if (nodeTypes.length > 0) {
+          prefetchLikelyChunks(nodeTypes).catch(() => undefined);
+        }
+      }
+    });
+    return () => {
+      if (idleHandleRef.current !== null) {
+        const w = window as Window & { cancelIdleCallback?: (id: number) => void };
+        if (w.cancelIdleCallback) w.cancelIdleCallback(idleHandleRef.current);
+        else clearTimeout(idleHandleRef.current);
+      }
+      idleHandleRef.current = null;
+    };
+  }, [tree]);
 
   return (
     <WidgetStoreProvider store={storeRef.current}>

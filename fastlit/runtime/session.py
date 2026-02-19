@@ -5,11 +5,11 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastlit.runtime.context import set_current_session, clear_current_session
+from fastlit.runtime.context import clear_current_session, set_current_session
 from fastlit.runtime.diff import diff_trees
 from fastlit.runtime.protocol import PatchOp, RenderFull, RenderPatch
 from fastlit.runtime.script_runner import run_script
-from fastlit.runtime.tree import UITree
+from fastlit.runtime.tree import UINode, UITree
 
 
 class SessionState(dict):
@@ -37,6 +37,9 @@ class SessionState(dict):
 class Session:
     """A single user session, tied to one WebSocket connection."""
 
+    _MAX_RERUNS = 5  # safety limit to prevent infinite rerun loops
+    _FULL_RERUN_SENTINEL = object()
+
     def __init__(self, script_path: str) -> None:
         self.session_id: str = uuid.uuid4().hex
         self.script_path: str = script_path
@@ -48,64 +51,63 @@ class Session:
         self.rev: int = 0
         # Per-run, per-location counter for generating stable IDs when
         # the same line is hit multiple times (e.g. in a loop).
-        # Key = "filename:lineno", value = count of hits so far.
         self._id_counters: dict[str, int] = {}
-
-    _MAX_RERUNS = 5  # safety limit to prevent infinite rerun loops
+        # Fragment support.
+        self._fragment_registry: dict[str, tuple] = {}
+        self._fragment_subtrees: dict[str, UINode] = {}
+        self._widget_to_fragment: dict[str, str] = {}
+        self._current_fragment_id: str | None = None
 
     def run(self) -> RenderFull | RenderPatch:
         """Execute the script and return either a full render or a patch."""
-        for attempt in range(self._MAX_RERUNS):
+        for _attempt in range(self._MAX_RERUNS):
             self._id_counters = {}
+            self._fragment_registry.clear()
+            self._widget_to_fragment.clear()
+            self._current_fragment_id = None
+
             new_tree = UITree()
             self.current_tree = new_tree
-
             script_error: Exception | None = None
+
             set_current_session(self)
             try:
                 run_script(self.script_path, self)
             except RerunException:
-                # Script requested a rerun — discard partial tree and restart
                 clear_current_session()
                 continue
             except SwitchPageException as spe:
-                # st.switch_page() — find the nav widget, update index, rerun
                 clear_current_session()
                 self._handle_switch_page(spe.page_name)
                 continue
             except _StopException:
-                # st.stop() — keep the tree built so far
                 pass
-            except Exception as exc:
-                # Script error — sync _previous_tree with partial tree so
-                # the next rerun diffs against a consistent state, then re-raise.
+            except Exception as exc:  # noqa: BLE001
                 script_error = exc
             finally:
                 clear_current_session()
 
-            # Produce result (even on error, sync tree state first)
             self.rev += 1
-
             if self._previous_tree is None:
                 self._previous_tree = new_tree
                 if script_error:
                     raise script_error
                 return RenderFull(rev=self.rev, tree=new_tree.to_dict())
-            else:
-                ops = diff_trees(self._previous_tree.root, new_tree.root)
-                self._previous_tree = new_tree
-                if script_error:
-                    raise script_error
-                if ops:
-                    return RenderPatch(rev=self.rev, ops=ops)
-                else:
-                    return RenderPatch(rev=self.rev, ops=[])
 
-        # Exhausted reruns — return whatever we have
+            # Reuse unchanged node objects across runs to reduce retained allocations.
+            self._adopt_shared_subtrees(self._previous_tree.root, new_tree.root)
+            ops = diff_trees(self._previous_tree.root, new_tree.root)
+            self._previous_tree = new_tree
+            if script_error:
+                raise script_error
+            return RenderPatch(rev=self.rev, ops=ops or [])
+
+        # Exhausted reruns.
         self.rev += 1
         if self._previous_tree is None:
             self._previous_tree = new_tree
             return RenderFull(rev=self.rev, tree=new_tree.to_dict())
+        self._adopt_shared_subtrees(self._previous_tree.root, new_tree.root)
         ops = diff_trees(self._previous_tree.root, new_tree.root)
         self._previous_tree = new_tree
         return RenderPatch(rev=self.rev, ops=ops or [])
@@ -115,19 +117,120 @@ class Session:
         self.widget_store[widget_id] = value
         return self.run()
 
+    def run_fragment(self, fragment_id: str) -> RenderPatch | None:
+        """Re-execute a single fragment and return a targeted patch."""
+        result = self._run_fragment_internal(fragment_id)
+        if result is None:
+            return None
+        if result is self._FULL_RERUN_SENTINEL:
+            return self.run()
+
+        self.rev += 1
+        return RenderPatch(rev=self.rev, ops=result)
+
+    def run_fragments(
+        self, fragment_ids: list[str]
+    ) -> RenderFull | RenderPatch | None:
+        """Re-execute multiple fragments and return one patch message."""
+        unique_ids: list[str] = []
+        seen: set[str] = set()
+        for fragment_id in fragment_ids:
+            if fragment_id in seen:
+                continue
+            seen.add(fragment_id)
+            unique_ids.append(fragment_id)
+
+        all_ops: list[PatchOp] = []
+        for fragment_id in unique_ids:
+            result = self._run_fragment_internal(fragment_id)
+            if result is None:
+                return None
+            if result is self._FULL_RERUN_SENTINEL:
+                return self.run()
+            all_ops.extend(result)
+
+        self.rev += 1
+        return RenderPatch(rev=self.rev, ops=all_ops)
+
+    def _run_fragment_internal(
+        self, fragment_id: str
+    ) -> list[PatchOp] | object | None:
+        if fragment_id not in self._fragment_registry:
+            return None
+
+        fn, args, kwargs = self._fragment_registry[fragment_id]
+        old_subtree = self._fragment_subtrees.get(fragment_id)
+        if old_subtree is None:
+            return None
+
+        container = UINode(type="fragment", id=fragment_id, props={})
+        temp_tree = UITree()
+        temp_tree.append(container)
+        temp_tree.push_container(container)
+
+        saved_tree = self.current_tree
+        saved_frag_id = self._current_fragment_id
+        saved_counters = self._id_counters
+
+        self.current_tree = temp_tree
+        self._current_fragment_id = fragment_id
+        self._id_counters = {}
+        set_current_session(self)
+
+        do_full_rerun = False
+        try:
+            fn(*args, **kwargs)
+        except RerunException:
+            do_full_rerun = True
+        except _StopException:
+            pass
+        finally:
+            self.current_tree = saved_tree
+            self._current_fragment_id = saved_frag_id
+            self._id_counters = saved_counters
+            clear_current_session()
+            temp_tree.pop_container()
+
+        if do_full_rerun:
+            return self._FULL_RERUN_SENTINEL
+
+        ops = diff_trees(old_subtree, container)
+        self._fragment_subtrees[fragment_id] = container
+        self._sync_fragment_in_tree(fragment_id, container)
+        return ops
+
+    def _sync_fragment_in_tree(self, fragment_id: str, new_container: UINode) -> None:
+        """Sync previous tree so future diffs reflect this partial rerun."""
+        if self._previous_tree is None:
+            return
+
+        node = self._find_node_by_id(self._previous_tree.root, fragment_id)
+        if node is not None:
+            node.children = new_container.children
+            node.invalidate_caches()
+            self._previous_tree.invalidate_caches()
+
+    @staticmethod
+    def _find_node_by_id(root: UINode, target_id: str) -> UINode | None:
+        """Breadth-first search for a node by ID in the tree."""
+        stack = [root]
+        while stack:
+            n = stack.pop()
+            if n.id == target_id:
+                return n
+            stack.extend(n.children)
+        return None
+
     def _handle_switch_page(self, page_name: str) -> None:
         """Update widget store so the navigation widget selects the given page."""
-        # Search the previous tree for a navigation widget
         if self._previous_tree is None:
             return
         nav_node = self._find_nav_node(self._previous_tree.root)
         if nav_node is None:
             return
 
-        # Match page_name to the pages list (case-insensitive slug match)
         pages = nav_node.props.get("pages", nav_node.props.get("options", []))
         target_slug = page_name.lower().replace(" ", "-").strip("/")
-
         for idx, page in enumerate(pages):
             slug = page.lower().replace(" ", "-").replace("/", "").strip()
             if slug == target_slug or page.lower() == page_name.lower():
@@ -135,34 +238,60 @@ class Session:
                 return
 
     @staticmethod
-    def _find_nav_node(node: "UINode") -> "UINode | None":
+    def _find_nav_node(node: UINode) -> UINode | None:
         """Find the navigation widget in the tree."""
-        from fastlit.runtime.tree import UINode
         stack = [node]
         while stack:
             n = stack.pop()
             if n.type in ("navigation", "radio"):
                 if "pages" in n.props or "options" in n.props:
                     return n
-            for child in n.children:
-                stack.append(child)
+            stack.extend(n.children)
         return None
 
     def next_id_for_location(self, location: str) -> int:
-        """Return and increment the per-location counter for the given file:line key."""
+        """Return and increment the per-location counter for file:line key."""
         val = self._id_counters.get(location, 0)
         self._id_counters[location] = val + 1
         return val
 
+    def _adopt_shared_subtrees(self, old: UINode, new: UINode) -> UINode:
+        """Mutate `new` tree to reuse unchanged node objects from `old` tree."""
+        if (
+            old.id == new.id
+            and old.type == new.type
+            and old.subtree_hash() == new.subtree_hash()
+        ):
+            return old
+
+        if not old.children or not new.children:
+            return new
+
+        old_by_id = {child.id: child for child in old.children}
+        replaced_any = False
+        new_children: list[UINode] = []
+        for child in new.children:
+            old_child = old_by_id.get(child.id)
+            if old_child is None:
+                new_children.append(child)
+                continue
+            adopted = self._adopt_shared_subtrees(old_child, child)
+            if adopted is not child:
+                replaced_any = True
+            new_children.append(adopted)
+
+        if replaced_any:
+            new.children = new_children
+            new.invalidate_caches()
+        return new
+
 
 class RerunException(Exception):
     """Raised by st.rerun() to interrupt script execution."""
-    pass
 
 
 class StopException(Exception):
     """Raised by st.stop() to halt script execution."""
-    pass
 
 
 class SwitchPageException(Exception):

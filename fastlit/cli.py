@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import os
 import sys
+from copy import deepcopy
 
 import click
 
 
 @click.group()
 def main():
-    """Fastlit — Streamlit-compatible, blazing fast."""
+    """Fastlit - Streamlit-compatible, blazing fast."""
     pass
 
 
@@ -19,9 +20,64 @@ def main():
 @click.option("--port", default=8501, help="Server port")
 @click.option("--host", default="127.0.0.1", help="Server host")
 @click.option("--dev", is_flag=True, help="Enable dev mode (hot reload)")
-def run(script: str, port: int, host: str, dev: bool):
+@click.option(
+    "--workers",
+    default=1,
+    type=int,
+    help="Number of worker processes (prod only)",
+)
+@click.option(
+    "--limit-concurrency",
+    default=None,
+    type=int,
+    help="Maximum number of concurrent connections/tasks",
+)
+@click.option(
+    "--backlog",
+    default=2048,
+    type=int,
+    help="Maximum number of pending TCP connections",
+)
+@click.option(
+    "--timeout-keep-alive",
+    default=5,
+    type=int,
+    help="Keep-alive timeout in seconds",
+)
+@click.option(
+    "--max-sessions",
+    default=0,
+    type=int,
+    help="Maximum active websocket sessions (0 = unlimited)",
+)
+@click.option(
+    "--max-concurrent-runs",
+    default=4,
+    type=int,
+    help="Maximum concurrent script reruns per worker",
+)
+@click.option(
+    "--run-timeout-seconds",
+    default=60.0,
+    type=float,
+    help="Timeout for a single script run (seconds)",
+)
+def run(
+    script: str,
+    port: int,
+    host: str,
+    dev: bool,
+    workers: int,
+    limit_concurrency: int | None,
+    backlog: int,
+    timeout_keep_alive: int,
+    max_sessions: int,
+    max_concurrent_runs: int,
+    run_timeout_seconds: float,
+):
     """Run a Fastlit app."""
     import uvicorn
+    from uvicorn.config import LOGGING_CONFIG
 
     script_path = os.path.abspath(script)
 
@@ -32,6 +88,7 @@ def run(script: str, port: int, host: str, dev: bool):
 
     # Suppress noisy third-party loggers before uvicorn starts
     import logging
+
     for _noisy in ("matplotlib", "matplotlib.font_manager", "PIL", "pydeck"):
         logging.getLogger(_noisy).setLevel(logging.WARNING)
 
@@ -39,31 +96,58 @@ def run(script: str, port: int, host: str, dev: bool):
     click.echo(f"  Script: {script_path}")
     if dev:
         click.echo("  Mode: development (hot reload)")
+    else:
+        click.echo(f"  Workers: {max(1, workers)}")
+    click.echo(f"  Max sessions: {max(0, max_sessions)}")
+    click.echo(f"  Max concurrent runs/worker: {max(1, max_concurrent_runs)}")
+    click.echo(f"  Run timeout (s): {max(1.0, run_timeout_seconds):.1f}")
     click.echo()
 
-    # Expose script path via env so create_app can read it when reload forks a new process
+    # Expose script path via env so create_app can read it across workers.
     os.environ["FASTLIT_SCRIPT_PATH"] = script_path
+    os.environ["FASTLIT_MAX_SESSIONS"] = str(max(0, max_sessions))
+    os.environ["FASTLIT_MAX_CONCURRENT_RUNS"] = str(max(1, max_concurrent_runs))
+    os.environ["FASTLIT_RUN_TIMEOUT_SECONDS"] = str(max(1.0, run_timeout_seconds))
+
+    # Force uvicorn logs to stdout to avoid PowerShell "NativeCommandError"
+    # styling for regular INFO logs coming from stderr.
+    log_config = deepcopy(LOGGING_CONFIG)
+    for handler_name in ("default", "access"):
+        handler = log_config.get("handlers", {}).get(handler_name)
+        if isinstance(handler, dict):
+            handler["stream"] = "ext://sys.stdout"
 
     if dev:
-        # Uvicorn requires a "module:callable" string (or factory=True) for reload to work.
-        # Passing an app *object* silently ignores reload=True — that was the bug.
+        if workers != 1:
+            click.echo("  Note: --workers is ignored in --dev mode (forced to 1).")
+
         uvicorn.run(
             "fastlit.server.app:create_app",
             factory=True,
             host=host,
             port=port,
             log_level="info",
+            log_config=log_config,
             reload=True,
             reload_dirs=[script_dir, os.path.dirname(os.path.abspath(__file__))],
+            workers=1,
+            limit_concurrency=limit_concurrency,
+            backlog=backlog,
+            timeout_keep_alive=timeout_keep_alive,
         )
     else:
-        from fastlit.server.app import create_app
-        app = create_app(script_path)
+        # Use import string + factory so uvicorn can spawn multiple workers.
         uvicorn.run(
-            app,
+            "fastlit.server.app:create_app",
+            factory=True,
             host=host,
             port=port,
             log_level="info",
+            log_config=log_config,
+            workers=max(1, workers),
+            limit_concurrency=limit_concurrency,
+            backlog=backlog,
+            timeout_keep_alive=timeout_keep_alive,
         )
 
 

@@ -25,7 +25,12 @@ export const FileUploader: React.FC<NodeComponentProps> = ({
 
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const maxSizeBytes =
+    typeof props.maxSizeBytes === "number" && props.maxSizeBytes > 0
+      ? props.maxSizeBytes
+      : 10 * 1024 * 1024;
 
   const showLabel = labelVisibility !== "hidden" && labelVisibility !== "collapsed";
 
@@ -36,6 +41,7 @@ export const FileUploader: React.FC<NodeComponentProps> = ({
 
   const processFiles = async (fileList: FileList) => {
     const newFiles: UploadedFile[] = [];
+    setErrorMessage(null);
 
     for (let i = 0; i < fileList.length; i++) {
       const file = fileList[i];
@@ -48,6 +54,13 @@ export const FileUploader: React.FC<NodeComponentProps> = ({
           return ext === cleanType || file.type.includes(cleanType);
         });
         if (!allowed) continue;
+      }
+
+      if (file.size > maxSizeBytes) {
+        setErrorMessage(
+          `File "${file.name}" exceeds the limit (${formatSize(file.size)} > ${formatSize(maxSizeBytes)}).`
+        );
+        continue;
       }
 
       // Read file as base64
@@ -71,6 +84,8 @@ export const FileUploader: React.FC<NodeComponentProps> = ({
 
       if (!acceptMultiple) break;
     }
+
+    if (newFiles.length === 0) return;
 
     const updatedFiles = acceptMultiple ? [...files, ...newFiles] : newFiles;
     setFiles(updatedFiles);
@@ -173,7 +188,14 @@ export const FileUploader: React.FC<NodeComponentProps> = ({
             {allowedTypes.join(", ").toUpperCase()}
           </p>
         )}
+        <p className="mt-1 text-xs text-gray-500">
+          Max file size: {formatSize(maxSizeBytes)}
+        </p>
       </div>
+
+      {errorMessage && (
+        <p className="mt-2 text-xs text-red-600">{errorMessage}</p>
+      )}
 
       {/* File list */}
       {files.length > 0 && (

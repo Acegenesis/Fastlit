@@ -8,6 +8,7 @@ import type {
   WidgetEvent,
   RenderFullMessage,
   RenderPatchMessage,
+  PatchOp,
   ErrorMessage,
 } from "./types";
 
@@ -18,6 +19,47 @@ type OnStatusChange = (status: "connected" | "disconnected" | "connecting") => v
 
 const BASE_DELAY = 2000;
 const MAX_DELAY = 30000;
+const internedNodes = new Map<string, any>();
+
+function decodeCompactOps(
+  compact: [PatchOp["op"], string, string | undefined, number | undefined, Record<string, any> | undefined, any | undefined][]
+): PatchOp[] {
+  return compact.map(([op, id, parentId, index, props, node]) => ({
+    // compact node interning:
+    // - {"$def": [token, fullNode]} defines token + payload
+    // - {"$ref": token} references previously defined node
+    // - otherwise node is a plain full payload
+    op,
+    id,
+    parentId,
+    index,
+    props,
+    node:
+      node && typeof node === "object" && "$def" in node
+        ? (() => {
+            const [token, fullNode] = (node as { $def: [string, any] }).$def;
+            internedNodes.set(token, fullNode);
+            return fullNode;
+          })()
+        : node && typeof node === "object" && "$ref" in node
+          ? internedNodes.get((node as { $ref: string }).$ref)
+          : node,
+  }));
+}
+
+async function inflateZlibBase64(base64Data: string): Promise<string> {
+  const binary = atob(base64Data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+  if (typeof DecompressionStream === "undefined") {
+    throw new Error("DecompressionStream is not available in this browser");
+  }
+
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate"));
+  const decompressed = await new Response(stream).arrayBuffer();
+  return new TextDecoder().decode(decompressed);
+}
 
 export class FastlitWS {
   private ws: WebSocket | null = null;
@@ -41,10 +83,11 @@ export class FastlitWS {
 
     this.ws.onopen = () => {
       this.reconnectAttempts = 0; // reset backoff on successful connection
+      internedNodes.clear();
       this.onStatusChangeCb?.("connected");
     };
 
-    this.ws.onmessage = (event) => {
+    this.ws.onmessage = async (event) => {
       try {
         const msg: ServerMessage = JSON.parse(event.data);
         switch (msg.type) {
@@ -54,6 +97,29 @@ export class FastlitWS {
           case "render_patch":
             this.onRenderPatchCb?.(msg);
             break;
+          case "render_patch_compact":
+            this.onRenderPatchCb?.({
+              type: "render_patch",
+              rev: msg.rev,
+              ops: decodeCompactOps(msg.ops),
+            });
+            break;
+          case "render_patch_z": {
+            const text = await inflateZlibBase64(msg.ops);
+            const decoded = JSON.parse(text) as ServerMessage;
+            if (decoded.type === "render_patch_compact") {
+              this.onRenderPatchCb?.({
+                type: "render_patch",
+                rev: decoded.rev,
+                ops: decodeCompactOps(decoded.ops),
+              });
+            } else if (decoded.type === "render_patch") {
+              this.onRenderPatchCb?.(decoded);
+            } else {
+              console.warn("Unexpected compressed patch payload type:", decoded.type);
+            }
+            break;
+          }
           case "error":
             this.onErrorCb?.(msg);
             break;

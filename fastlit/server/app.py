@@ -7,12 +7,16 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from starlette.applications import Starlette
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
-from starlette.responses import FileResponse, HTMLResponse
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse
 from starlette.routing import Route, WebSocketRoute, Mount
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket
 
+from fastlit.server import metrics
+from fastlit.server.dataframe_store import get_slice as get_dataframe_slice
 from fastlit.server.websocket_handler import handle_websocket
 
 # Will be set by CLI before the app starts
@@ -24,6 +28,17 @@ _startup_handlers: list = []
 _shutdown_handlers: list = []
 _server_started: bool = False
 _registered_startup_keys: set = set()  # deduplicate by qualname across reruns
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Attach baseline security headers to HTTP responses."""
+
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        return response
 
 
 def register_startup(fn) -> None:
@@ -101,6 +116,26 @@ async def ws_endpoint(websocket: WebSocket):
     await handle_websocket(websocket, _script_path)
 
 
+async def metrics_endpoint(request):
+    """Expose in-memory runtime metrics as JSON."""
+    return JSONResponse(metrics.snapshot())
+
+
+async def dataframe_slice_endpoint(request):
+    """Serve server-side dataframe row windows."""
+    source_id = request.path_params.get("source_id", "")
+    try:
+        offset = int(request.query_params.get("offset", "0"))
+        limit = int(request.query_params.get("limit", "200"))
+    except ValueError:
+        return JSONResponse({"error": "invalid offset/limit"}, status_code=400)
+
+    data = get_dataframe_slice(source_id, offset, limit)
+    if data is None:
+        return JSONResponse({"error": "unknown dataframe source"}, status_code=404)
+    return JSONResponse(data)
+
+
 @asynccontextmanager
 async def _lifespan(app: Starlette) -> AsyncIterator[None]:
     """ASGI lifespan: run startup/shutdown hooks (B3)."""
@@ -150,9 +185,11 @@ def create_app(script_path: str | None = None, static_dir: str | None = None) ->
     set_static_dir(static_dir)
 
     # Build routes list
-    routes = [
-        WebSocketRoute("/ws", ws_endpoint),
-    ]
+    routes = [WebSocketRoute("/ws", ws_endpoint)]
+
+    if os.environ.get("FASTLIT_ENABLE_METRICS", "1") not in {"0", "false", "False"}:
+        routes.append(Route("/_fastlit/metrics", metrics_endpoint))
+    routes.append(Route("/_fastlit/dataframe/{source_id}", dataframe_slice_endpoint))
 
     # Mount static files if the directory exists
     assets_dir = os.path.join(static_dir, "assets")
@@ -166,5 +203,12 @@ def create_app(script_path: str | None = None, static_dir: str | None = None) ->
 
     app = Starlette(routes=routes, lifespan=_lifespan)
     app.add_middleware(GZipMiddleware, minimum_size=500)
+    app.add_middleware(SecurityHeadersMiddleware)
+
+    trusted_hosts = os.environ.get("FASTLIT_TRUSTED_HOSTS", "").strip()
+    if trusted_hosts:
+        allowed_hosts = [h.strip() for h in trusted_hosts.split(",") if h.strip()]
+        if allowed_hosts:
+            app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
 
     return app
