@@ -28,7 +28,11 @@ Fastlit keeps the same simplicity but with a runtime that:
 | **Streamlit API** | Same `st.*` syntax — drop-in replacement for most apps |
 | **Diff/Patch UI** | Only changed elements are sent via WebSocket |
 | **Virtualized DataFrames** | Smooth scrolling for millions of rows |
+| **Server-side DataFrame Paging** | Large tables stream row windows from backend |
 | **Multi-level Cache** | `@cache_data` (TTL+LRU) and `@cache_resource` (singleton) |
+| **Rerun Guardrails** | Max sessions, bounded concurrent runs, run timeout |
+| **WS Backpressure** | Bounded per-session queue + event coalescing |
+| **Runtime Metrics** | Built-in `/_fastlit/metrics` endpoint |
 | **Hot Reload** | Backend + frontend HMR in dev mode |
 | **Modern UI** | Tailwind CSS + Radix UI + shadcn components |
 | **Instant Widgets** | Slider/input updates without server roundtrip |
@@ -72,6 +76,12 @@ Development mode with hot reload:
 
 ```bash
 fastlit run app.py --dev
+```
+
+Production profile (example):
+
+```bash
+fastlit run app.py --host 0.0.0.0 --port 8501 --workers 4 --limit-concurrency 200 --backlog 2048 --max-sessions 300 --max-concurrent-runs 8 --run-timeout-seconds 45
 ```
 
 Open http://localhost:8501 in your browser.
@@ -808,6 +818,7 @@ files = st.file_uploader(
     label,
     type=None,                 # str | list: Allowed extensions (e.g., ["csv", "txt"])
     accept_multiple_files=False,
+    max_file_size_mb=None,     # int | None: Per-file max size in MB (default from FASTLIT_MAX_UPLOAD_MB)
     key=None,
     help=None,
     on_change=None,
@@ -827,6 +838,10 @@ files = st.file_uploader(
 - `size`: Size in bytes
 - `read()`: Read content
 - `getvalue()`: Get all bytes
+
+**Upload limits:**
+- Default max file size comes from `FASTLIT_MAX_UPLOAD_MB` (default: 10 MB)
+- You can override per widget with `max_file_size_mb=...`
 
 **Example:**
 ```python
@@ -1215,9 +1230,12 @@ st.dataframe(
     height=None,               # int: Height in pixels (auto-sizes up to 400px)
     use_container_width=True,  # bool: Stretch to container
     hide_index=False,          # bool: Hide row index
+    max_rows=None,             # int | None: Max preview rows serialized in initial payload
     key=None,
 )
 ```
+
+For large pandas DataFrames, Fastlit can serve row windows from the backend via `/_fastlit/dataframe/{source_id}` to reduce initial payload size.
 
 **Example:**
 ```python
@@ -1881,7 +1899,7 @@ st.context.timezone   # str: Timezone hint
 Cache function results with automatic invalidation.
 
 ```python
-@st.cache_data(ttl=None, max_entries=1000)
+@st.cache_data(ttl=None, max_entries=1000, copy=True)
 def load_data(path: str) -> pd.DataFrame:
     return pd.read_csv(path)
 ```
@@ -1889,10 +1907,11 @@ def load_data(path: str) -> pd.DataFrame:
 **Parameters:**
 - `ttl`: Time-to-live in seconds (None = no expiry)
 - `max_entries`: Maximum cache entries (LRU eviction)
+- `copy`: Return deepcopy of cached value (default `True`). Set `copy=False` for immutable results to reduce overhead.
 
 **Key generation:** Hash of function source + arguments
 
-**Behavior:** Returns deep copy of cached values (mutation-safe)
+**Behavior:** Returns deep copy by default (mutation-safe). Use `copy=False` only when callers will not mutate the cached object.
 
 **Clear cache:**
 ```python
@@ -2053,8 +2072,11 @@ This works because widget values are wrapped in `WidgetValue` objects that injec
 - **Stable IDs**: Widgets keep identity across reruns (file:line:counter)
 - **Debouncing**: Slider/input events debounced 150ms before sending
 - **Event Coalescing**: Multiple rapid events merged server-side
+- **Backpressure**: Bounded per-session event queue with drop-oldest policy
 - **Page Caching**: Visited pages cached client-side for instant navigation
 - **Virtualization**: DataFrames only render visible rows
+- **Server Paging**: Large DataFrames fetch windows on demand
+- **Patch Compaction**: Large render patches use compact op encoding (optional zlib)
 - **Code Caching**: Compiled Python code cached by mtime
 
 ---
@@ -2068,12 +2090,21 @@ fastlit run app.py
 # Development mode (hot reload)
 fastlit run app.py --dev
 
-# Specify port and host
+# Basic network options
 fastlit run app.py --port 8080 --host 0.0.0.0
 
-# All options
-fastlit run app.py --dev --server.port 8080 --server.host 0.0.0.0
+# Production-oriented example
+fastlit run app.py --host 0.0.0.0 --port 8501 --workers 4 --limit-concurrency 200 --backlog 2048 --max-sessions 300 --max-concurrent-runs 8 --run-timeout-seconds 45
 ```
+
+Supported run options include:
+- `--port`, `--host`, `--dev`
+- `--workers`, `--limit-concurrency`, `--backlog`, `--timeout-keep-alive`
+- `--max-sessions`, `--max-concurrent-runs`, `--run-timeout-seconds`
+
+Runtime metrics endpoint:
+- `GET /_fastlit/metrics`
+- Disable via `FASTLIT_ENABLE_METRICS=0`
 
 ---
 

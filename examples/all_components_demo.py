@@ -4,6 +4,7 @@ Fastlit Complete Components Demo
 A comprehensive test of ALL Fastlit components with all parameters.
 
 Run with: fastlit run examples/all_components_demo.py --dev
+Prod profile: fastlit run examples/all_components_demo.py --host 0.0.0.0 --port 8501 --workers 4 --limit-concurrency 200 --backlog 2048 --max-sessions 300 --max-concurrent-runs 8 --run-timeout-seconds 45
 """
 
 import fastlit as st
@@ -90,9 +91,10 @@ if selected == "🏠 Home":
         st.subheader("⚡ Fast")
         st.markdown("""
         - Diff/patch UI updates
-        - No full page reloads
-        - Virtualized DataFrames
-        - WebSocket communication
+        - Partial reruns with fragments
+        - Server-side DataFrame windows
+        - WebSocket backpressure + coalescing
+        - Compact patch payloads
         """)
     
     with features[1]:
@@ -3194,7 +3196,7 @@ elif selected == "🔧 State & Control":
         Cache function results with automatic invalidation.
         
         ```python
-        @st.cache_data(ttl=300, max_entries=1000)
+        @st.cache_data(ttl=300, max_entries=1000, copy=False)
         def load_data(path: str) -> pd.DataFrame:
             return pd.read_csv(path)
         ```
@@ -3202,6 +3204,7 @@ elif selected == "🔧 State & Control":
         **Parameters:**
         - `ttl` (int | None): Time-to-live in seconds
         - `max_entries` (int): Maximum cache entries (LRU)
+        - `copy` (bool): Return deepcopy by default. Use `copy=False` for immutable results.
         
         **Clear cache:**
         ```python
@@ -3237,10 +3240,16 @@ elif selected == "🔧 State & Control":
             import time
             time.sleep(0.1)  # Simulate work
             return sum(range(n))
+
+        @st.cache_data(ttl=60, copy=False)
+        def immutable_cached_tuple(n):
+            # Safe with copy=False because tuple values are immutable.
+            return tuple(range(min(n, 10)))
         
         n = st.slider("Compute sum(0..n)", 1000, 100000, 10000)
         result = expensive_computation(n)
         st.write(f"Result: `{result:,}`")
+        st.caption(f"Immutable cache sample (copy=False): {immutable_cached_tuple(8)}")
         st.caption("First call is slow, subsequent calls are instant (cached)!")
 
 
@@ -3340,6 +3349,35 @@ elif selected == "🎨 Advanced Features":
         with col2:
             if st.button("Expand sidebar"):
                 st.set_sidebar_state("expanded")
+
+    # -------------------------------------------------------------------------
+    # Scalability & Observability
+    # -------------------------------------------------------------------------
+    st.header("Scalability & Observability", divider="blue")
+
+    with st.container(border=True):
+        st.markdown("""
+        This project now includes runtime guardrails and observability endpoints.
+
+        **Production command**
+        ```bash
+        fastlit run examples/all_components_demo.py --host 0.0.0.0 --port 8501 --workers 4 --limit-concurrency 200 --backlog 2048 --max-sessions 300 --max-concurrent-runs 8 --run-timeout-seconds 45
+        ```
+
+        **Metrics endpoint**
+        - `GET /_fastlit/metrics`
+        - Includes sessions, run latency stats (avg/p50/p95/p99), payload stats, dropped events.
+
+        **DataFrame server paging**
+        - Large dataframes use windowed fetch via `/_fastlit/dataframe/{source_id}`.
+
+        **Useful env vars**
+        - `FASTLIT_WS_EVENT_QUEUE_SIZE`
+        - `FASTLIT_WS_COALESCE_WINDOW_MS`
+        - `FASTLIT_MAX_SESSION_STATE_BYTES`
+        - `FASTLIT_MAX_WIDGET_STORE_BYTES`
+        - `FASTLIT_MAX_UPLOAD_MB`
+        """)
 
 # =============================================================================
 # FOOTER
