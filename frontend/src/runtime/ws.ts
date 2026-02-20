@@ -19,7 +19,25 @@ type OnStatusChange = (status: "connected" | "disconnected" | "connecting") => v
 
 const BASE_DELAY = 2000;
 const MAX_DELAY = 30000;
+const MAX_INTERNED_NODES = 500;
 const internedNodes = new Map<string, any>();
+
+function setInternedNode(token: string, node: any): void {
+  if (internedNodes.has(token)) internedNodes.delete(token);
+  internedNodes.set(token, node);
+  if (internedNodes.size <= MAX_INTERNED_NODES) return;
+  const oldest = internedNodes.keys().next().value;
+  if (oldest !== undefined) internedNodes.delete(oldest);
+}
+
+function getInternedNode(token: string): any {
+  const node = internedNodes.get(token);
+  if (node === undefined) return undefined;
+  // Refresh recency (LRU behavior).
+  internedNodes.delete(token);
+  internedNodes.set(token, node);
+  return node;
+}
 
 function decodeCompactOps(
   compact: [PatchOp["op"], string, string | undefined, number | undefined, Record<string, any> | undefined, any | undefined][]
@@ -38,11 +56,11 @@ function decodeCompactOps(
       node && typeof node === "object" && "$def" in node
         ? (() => {
             const [token, fullNode] = (node as { $def: [string, any] }).$def;
-            internedNodes.set(token, fullNode);
+            setInternedNode(token, fullNode);
             return fullNode;
           })()
         : node && typeof node === "object" && "$ref" in node
-          ? internedNodes.get((node as { $ref: string }).$ref)
+          ? getInternedNode((node as { $ref: string }).$ref)
           : node,
   }));
 }

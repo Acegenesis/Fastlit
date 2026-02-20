@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
 
@@ -10,6 +11,8 @@ from fastlit.runtime.diff import diff_trees
 from fastlit.runtime.protocol import PatchOp, RenderFull, RenderPatch
 from fastlit.runtime.script_runner import run_script
 from fastlit.runtime.tree import UINode, UITree
+
+logger = logging.getLogger("fastlit.session")
 
 
 class SessionState(dict):
@@ -48,6 +51,7 @@ class Session:
         self.query_params: dict[str, str] = {}
         self.current_tree: UITree | None = None
         self._previous_tree: UITree | None = None
+        self._previous_tree_index: dict[str, UINode] | None = None
         self.rev: int = 0
         # Per-run, per-location counter for generating stable IDs when
         # the same line is hit multiple times (e.g. in a loop).
@@ -57,6 +61,12 @@ class Session:
         self._fragment_subtrees: dict[str, UINode] = {}
         self._widget_to_fragment: dict[str, str] = {}
         self._current_fragment_id: str | None = None
+        # Deferred streaming: write_stream() registers (node_id, iterator) here;
+        # the WS handler consumes them after sending each patch.
+        self._deferred_streams: list[tuple[str, Any]] = []
+        # Per-fragment auto-refresh intervals (seconds).  NOT cleared each run
+        # so the WS handler can sync asyncio timers across full runs.
+        self._fragment_run_every: dict[str, float] = {}
 
     def run(self) -> RenderFull | RenderPatch:
         """Execute the script and return either a full render or a patch."""
@@ -90,6 +100,7 @@ class Session:
             self.rev += 1
             if self._previous_tree is None:
                 self._previous_tree = new_tree
+                self._previous_tree_index = new_tree.build_index()
                 if script_error:
                     raise script_error
                 return RenderFull(rev=self.rev, tree=new_tree.to_dict())
@@ -98,6 +109,7 @@ class Session:
             self._adopt_shared_subtrees(self._previous_tree.root, new_tree.root)
             ops = diff_trees(self._previous_tree.root, new_tree.root)
             self._previous_tree = new_tree
+            self._previous_tree_index = new_tree.build_index()
             if script_error:
                 raise script_error
             return RenderPatch(rev=self.rev, ops=ops or [])
@@ -106,10 +118,12 @@ class Session:
         self.rev += 1
         if self._previous_tree is None:
             self._previous_tree = new_tree
+            self._previous_tree_index = new_tree.build_index()
             return RenderFull(rev=self.rev, tree=new_tree.to_dict())
         self._adopt_shared_subtrees(self._previous_tree.root, new_tree.root)
         ops = diff_trees(self._previous_tree.root, new_tree.root)
         self._previous_tree = new_tree
+        self._previous_tree_index = new_tree.build_index()
         return RenderPatch(rev=self.rev, ops=ops or [])
 
     def handle_widget_event(self, widget_id: str, value: Any) -> RenderFull | RenderPatch:
@@ -184,6 +198,9 @@ class Session:
             do_full_rerun = True
         except _StopException:
             pass
+        except Exception:  # noqa: BLE001
+            logger.exception("Unhandled exception while running fragment '%s'", fragment_id)
+            raise
         finally:
             self.current_tree = saved_tree
             self._current_fragment_id = saved_frag_id
@@ -204,28 +221,24 @@ class Session:
         if self._previous_tree is None:
             return
 
-        node = self._find_node_by_id(self._previous_tree.root, fragment_id)
+        if self._previous_tree_index is None:
+            self._previous_tree_index = self._previous_tree.build_index()
+
+        node = self._previous_tree_index.get(fragment_id)
         if node is not None:
             node.children = new_container.children
             node.invalidate_caches()
             self._previous_tree.invalidate_caches()
-
-    @staticmethod
-    def _find_node_by_id(root: UINode, target_id: str) -> UINode | None:
-        """Breadth-first search for a node by ID in the tree."""
-        stack = [root]
-        while stack:
-            n = stack.pop()
-            if n.id == target_id:
-                return n
-            stack.extend(n.children)
-        return None
+            self._previous_tree_index = self._previous_tree.build_index()
 
     def _handle_switch_page(self, page_name: str) -> None:
         """Update widget store so the navigation widget selects the given page."""
         if self._previous_tree is None:
             return
-        nav_node = self._find_nav_node(self._previous_tree.root)
+        if self._previous_tree_index is None:
+            self._previous_tree_index = self._previous_tree.build_index()
+
+        nav_node = self._find_nav_node_in_index(self._previous_tree_index)
         if nav_node is None:
             return
 
@@ -238,15 +251,12 @@ class Session:
                 return
 
     @staticmethod
-    def _find_nav_node(node: UINode) -> UINode | None:
-        """Find the navigation widget in the tree."""
-        stack = [node]
-        while stack:
-            n = stack.pop()
-            if n.type in ("navigation", "radio"):
-                if "pages" in n.props or "options" in n.props:
-                    return n
-            stack.extend(n.children)
+    def _find_nav_node_in_index(index: dict[str, UINode]) -> UINode | None:
+        """Find the navigation widget from an id->node index."""
+        for node in index.values():
+            if node.type in ("navigation", "radio"):
+                if "pages" in node.props or "options" in node.props:
+                    return node
         return None
 
     def next_id_for_location(self, location: str) -> int:

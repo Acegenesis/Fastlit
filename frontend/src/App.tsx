@@ -83,9 +83,10 @@ export const App: React.FC = () => {
 
   const [isPending, startTransition] = useTransition();
 
-  // After cached navigation, skip the next patch response (backend syncs _previous_tree
-  // but the patch is based on old→new diff which is wrong for the frontend's cached tree)
-  const skipNextPatchRef = useRef(false);
+  // Cached navigation can require skipping exactly one backend patch.
+  // We bind the skip to revision progression instead of a global boolean.
+  const pendingSkipPatchAfterRevRef = useRef<number | null>(null);
+  const lastServerRevRef = useRef(0);
 
   // Debounce for value widgets
   const debounceTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -173,8 +174,8 @@ export const App: React.FC = () => {
           return { ...prev, children: [...sidebar, ...cachedContent] };
         });
         // Send normal event so backend reruns and syncs _previous_tree.
-        // Skip the resulting patch (it's based on old→new diff, wrong for our cached tree).
-        skipNextPatchRef.current = true;
+        // Skip exactly the next newer patch revision for this cached navigation.
+        pendingSkipPatchAfterRevRef.current = lastServerRevRef.current;
         wsRef.current?.send({
           type: "widget_event",
           id: nav.id,
@@ -247,6 +248,14 @@ export const App: React.FC = () => {
     ws.onStatusChange(setStatus);
 
     ws.onRenderFull((msg) => {
+      lastServerRevRef.current = Math.max(lastServerRevRef.current, msg.rev);
+      if (
+        pendingSkipPatchAfterRevRef.current !== null &&
+        msg.rev > pendingSkipPatchAfterRevRef.current
+      ) {
+        // Backend state moved forward via full render; no patch skip needed anymore.
+        pendingSkipPatchAfterRevRef.current = null;
+      }
       // Check for sidebar_state nodes
       if (msg.tree?.children) {
         handleSidebarStateNode(msg.tree.children);
@@ -340,12 +349,14 @@ export const App: React.FC = () => {
     });
 
     ws.onRenderPatch((msg) => {
+      lastServerRevRef.current = Math.max(lastServerRevRef.current, msg.rev);
       // After cached navigation, the backend reruns to sync _previous_tree.
       // The patch it sends is based on (old page → new page) diff, but the
       // frontend already shows the new page from cache. Applying this patch
-      // would corrupt the tree (duplication). Skip it — both sides are now synced.
-      if (skipNextPatchRef.current) {
-        skipNextPatchRef.current = false;
+      // would corrupt the tree (duplication). Skip only the expected next rev.
+      const skipAfterRev = pendingSkipPatchAfterRevRef.current;
+      if (skipAfterRev !== null && msg.rev > skipAfterRev) {
+        pendingSkipPatchAfterRevRef.current = null;
         setIsNavigating(false);
         return;
       }
@@ -442,7 +453,7 @@ export const App: React.FC = () => {
           return { ...prev, children: [...sidebar, ...cachedContent] };
         });
         // Send normal event so backend syncs _previous_tree; skip the patch response
-        skipNextPatchRef.current = true;
+        pendingSkipPatchAfterRevRef.current = lastServerRevRef.current;
         wsRef.current?.send({
           type: "widget_event",
           id: nav.id,

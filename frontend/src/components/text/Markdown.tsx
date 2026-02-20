@@ -310,15 +310,24 @@ const parseMarkdown = (text: string): string => {
 
 export const Markdown: React.FC<NodeComponentProps> = ({ props }) => {
   const resolved = useResolvedText(props.text, props._tpl, props._refs);
+  const isStreaming = Boolean(props.isStreaming);
+
+  // Blinking cursor appended during active streaming.
+  const cursor = isStreaming ? (
+    <span
+      className="inline-block w-0.5 h-4 bg-current align-middle ml-0.5 animate-pulse"
+      aria-hidden="true"
+    />
+  ) : null;
 
   // If the content contains HTML tags, sanitize and render
   if (containsHtml(resolved)) {
     const sanitized = DOMPurify.sanitize(resolved);
     return (
-      <div
-        className="text-gray-700 mb-2 leading-relaxed prose prose-sm max-w-none"
-        dangerouslySetInnerHTML={{ __html: sanitized }}
-      />
+      <div className="text-gray-700 mb-2 leading-relaxed prose prose-sm max-w-none">
+        <span dangerouslySetInnerHTML={{ __html: sanitized }} />
+        {cursor}
+      </div>
     );
   }
 
@@ -326,9 +335,9 @@ export const Markdown: React.FC<NodeComponentProps> = ({ props }) => {
   const html = useMemo(() => DOMPurify.sanitize(parseMarkdown(resolved)), [resolved]);
 
   return (
-    <div
-      className="text-gray-700 mb-2 leading-relaxed"
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <div className="text-gray-700 mb-2 leading-relaxed">
+      <span dangerouslySetInnerHTML={{ __html: html }} />
+      {cursor}
+    </div>
   );
 };

@@ -467,25 +467,38 @@ def help(obj: Any) -> None:
 
 
 def write_stream(stream: Any) -> str:
-    """Consume a generator/stream and display the concatenated result.
+    """Stream a generator to the UI, displaying chunks as they arrive.
 
-    Compatible with Streamlit's st.write_stream() API. Iterates through
-    the stream, collects all chunks, and displays the final text as markdown.
+    Compatible with Streamlit's st.write_stream() API.  The function emits
+    an empty placeholder node immediately, then registers the generator for
+    deferred consumption: the WebSocket handler iterates the stream *after*
+    the initial patch is sent so each chunk appears in real time.
+
+    This is ideal for LLM streaming (OpenAI, Anthropic, etc.) where each
+    ``next()`` call may take hundreds of milliseconds.
 
     Args:
-        stream: A generator, iterator, or any iterable that yields text chunks.
+        stream: A sync generator, iterator, or iterable that yields text
+            chunks.  Async generators are not supported (wrap with
+            ``asyncio.run_coroutine_threadsafe`` or consume manually).
 
     Returns:
-        The full concatenated text.
+        Empty string immediately (the full text is not available until
+        streaming completes).  Use ``st.session_state`` to store the result
+        if you need it in subsequent reruns.
     """
-    chunks: list[str] = []
-    for chunk in stream:
-        chunks.append(str(chunk))
+    from fastlit.runtime.context import get_current_session
 
-    full_text = "".join(chunks)
-    props = _process_text(full_text)
-    _emit_node("markdown", props)
-    return full_text
+    session = get_current_session()
+
+    # Emit a placeholder node — _emit_node returns the UINode with its stable id.
+    node = _emit_node("markdown", {"text": "", "isStreaming": True})
+
+    # Register the generator for post-patch streaming by the WS handler.
+    session._deferred_streams.append((node.id, iter(stream)))
+
+    # Return empty string — streaming happens asynchronously after this run.
+    return ""
 
 
 def badge(

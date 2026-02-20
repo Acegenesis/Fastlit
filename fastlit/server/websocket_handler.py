@@ -267,6 +267,130 @@ async def _run_in_worker(fn):
         )
 
 
+async def _stream_generator_to_client(
+    websocket: WebSocket,
+    session: Session,
+    node_id: str,
+    gen: object,
+    node_cache: dict[str, dict],
+) -> None:
+    """Iterate a sync generator and forward each chunk as an updateProps patch.
+
+    Each ``next()`` call is dispatched to the shared thread-pool executor so
+    the event loop stays responsive while waiting for slow producers (e.g. LLM
+    APIs).  Chunks accumulate into *accumulated* so the frontend always shows
+    the full text so far, not just the latest fragment.
+    """
+    accumulated = ""
+    loop = asyncio.get_running_loop()
+
+    def _get_next() -> str | None:
+        return next(gen, None)  # type: ignore[call-overload]
+
+    while True:
+        chunk = await loop.run_in_executor(_RUN_EXECUTOR, _get_next)
+        if chunk is None:
+            break
+        accumulated += str(chunk)
+        await _send_payload(
+            websocket,
+            {
+                "type": "render_patch",
+                "rev": session.rev,  # not incremented — streaming is not a rerun
+                "ops": [
+                    {
+                        "op": "updateProps",
+                        "id": node_id,
+                        "props": {"text": accumulated, "isStreaming": True},
+                    }
+                ],
+            },
+            node_cache=node_cache,
+        )
+
+    # Final update: mark streaming done (removes blinking cursor on frontend).
+    if accumulated:
+        await _send_payload(
+            websocket,
+            {
+                "type": "render_patch",
+                "rev": session.rev,
+                "ops": [
+                    {
+                        "op": "updateProps",
+                        "id": node_id,
+                        "props": {"text": accumulated, "isStreaming": False},
+                    }
+                ],
+            },
+            node_cache=node_cache,
+        )
+
+
+async def _run_fragment_timer(
+    fragment_id: str,
+    interval_s: float,
+    session: Session,
+    websocket: WebSocket,
+    node_cache: dict[str, dict],
+) -> None:
+    """Periodic loop: re-execute a fragment at *interval_s* second intervals.
+
+    Runs via ``_run_in_worker`` so it respects the shared concurrency semaphore
+    and serializes correctly with widget-triggered reruns.
+    """
+    while True:
+        await asyncio.sleep(interval_s)
+        try:
+            result = await _run_in_worker(
+                lambda: session.run_fragment(fragment_id)
+            )
+            if result is not None:
+                await _send_payload(websocket, result.to_dict(), node_cache=node_cache)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Error in fragment timer for '%s'", fragment_id)
+
+
+def _sync_fragment_timers(
+    session: Session,
+    fragment_timers: dict[str, asyncio.Task],
+    websocket: WebSocket,
+    node_cache: dict[str, dict],
+) -> None:
+    """Reconcile asyncio timer tasks with ``session._fragment_run_every``.
+
+    Must be called only after a **full** ``session.run()`` (not after fragment
+    reruns) because ``_fragment_registry`` is only rebuilt during full runs.
+
+    Steps:
+    1. Prune ``_fragment_run_every`` entries for fragments that no longer exist
+       in the script (conditional branches etc.).
+    2. Start new timer tasks for newly registered fragments.
+    3. Cancel timer tasks for fragments that were removed.
+    """
+    # 1. Remove stale run_every entries (fragment no longer called this run).
+    stale = set(session._fragment_run_every) - set(session._fragment_registry)
+    for frag_id in stale:
+        del session._fragment_run_every[frag_id]
+
+    current_ids = set(session._fragment_run_every)
+
+    # 2. Start missing timer tasks.
+    for frag_id, interval_s in session._fragment_run_every.items():
+        if frag_id not in fragment_timers or fragment_timers[frag_id].done():
+            fragment_timers[frag_id] = asyncio.create_task(
+                _run_fragment_timer(frag_id, interval_s, session, websocket, node_cache)
+            )
+
+    # 3. Cancel tasks for fragments that lost their run_every.
+    for frag_id in list(fragment_timers):
+        if frag_id not in current_ids:
+            fragment_timers[frag_id].cancel()
+            del fragment_timers[frag_id]
+
+
 async def _ws_reader(
     websocket: WebSocket, queue: asyncio.Queue[WidgetEvent | None]
 ) -> None:
@@ -355,6 +479,7 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
     events_queue: asyncio.Queue[WidgetEvent | None] = asyncio.Queue(
         maxsize=_WS_EVENT_QUEUE_SIZE
     )
+    fragment_timers: dict[str, asyncio.Task] = {}
 
     try:
         await websocket.accept()
@@ -384,6 +509,19 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
 
         await _send_payload(websocket, result.to_dict(), node_cache=node_cache)
         logger.debug("Sent initial render (rev=%d)", session.rev)
+
+        # Execute any write_stream() generators registered during the run.
+        if session._deferred_streams:
+            deferred = session._deferred_streams[:]
+            session._deferred_streams.clear()
+            for _node_id, _gen in deferred:
+                await _stream_generator_to_client(
+                    websocket, session, _node_id, _gen, node_cache
+                )
+
+        # Sync fragment auto-refresh timers (full run only).
+        _sync_fragment_timers(session, fragment_timers, websocket, node_cache)
+
         if _MAX_TREE_NODES > 0 and hasattr(result, "tree"):
             node_count = _count_nodes(getattr(result, "tree", None))
             if node_count > _MAX_TREE_NODES:
@@ -415,30 +553,35 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
                 batch_limit=_WS_BATCH_LIMIT,
             )
 
-            should_rerun = False
+            sentinel = object()
+            previous_values: list[tuple[str, object]] = []
             rerun_event_ids: list[str] = []
             for event in batch:
-                sentinel = object()
                 prev_val = session.widget_store.get(event.id, sentinel)
+                previous_values.append((event.id, prev_val))
                 session.widget_store[event.id] = event.value
-                ok, reason = _session_limits_ok(session)
-                if not ok:
-                    if prev_val is sentinel:
-                        session.widget_store.pop(event.id, None)
-                    else:
-                        session.widget_store[event.id] = prev_val
-                    await _send_payload(
-                        websocket,
-                        {
-                            "type": "error",
-                            "message": reason or "Session limits exceeded",
-                        },
-                        node_cache=node_cache,
-                    )
-                    continue
                 if not event.no_rerun:
-                    should_rerun = True
                     rerun_event_ids.append(event.id)
+
+            ok, reason = _session_limits_ok(session)
+            if not ok:
+                # Roll back the full batch atomically if session limits are exceeded.
+                for event_id, prev_val in previous_values:
+                    if prev_val is sentinel:
+                        session.widget_store.pop(event_id, None)
+                    else:
+                        session.widget_store[event_id] = prev_val
+                await _send_payload(
+                    websocket,
+                    {
+                        "type": "error",
+                        "message": reason or "Session limits exceeded",
+                    },
+                    node_cache=node_cache,
+                )
+                continue
+
+            should_rerun = len(rerun_event_ids) > 0
 
             if not should_rerun:
                 continue
@@ -458,20 +601,25 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
 
             try:
                 t2 = time.perf_counter()
+                did_full_run = False
                 if has_non_fragment_event:
                     result = await _run_in_worker(session.run)
+                    did_full_run = True
                 elif len(fragment_ids) == 1:
                     result = await _run_in_worker(
                         lambda: session.run_fragment(fragment_ids[0])
                     )
                     if result is None:
                         result = await _run_in_worker(session.run)
+                        did_full_run = True
                 elif len(fragment_ids) > 1:
                     result = await _run_in_worker(lambda: session.run_fragments(fragment_ids))
                     if result is None:
                         result = await _run_in_worker(session.run)
+                        did_full_run = True
                 else:
                     result = await _run_in_worker(session.run)
+                    did_full_run = True
 
                 t3 = time.perf_counter()
                 metrics.record_run((t3 - t2) * 1000)
@@ -501,6 +649,22 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
                     session.rev,
                     len(batch),
                 )
+
+                # Execute any write_stream() generators registered during the run.
+                if session._deferred_streams:
+                    deferred = session._deferred_streams[:]
+                    session._deferred_streams.clear()
+                    for _node_id, _gen in deferred:
+                        await _stream_generator_to_client(
+                            websocket, session, _node_id, _gen, node_cache
+                        )
+
+                # Sync fragment auto-refresh timers (full runs only — fragment
+                # runs don't rebuild _fragment_registry).
+                if did_full_run:
+                    _sync_fragment_timers(
+                        session, fragment_timers, websocket, node_cache
+                    )
             except asyncio.TimeoutError:
                 logger.warning(
                     "Session %s rerun timed out after %.1fs",
@@ -536,6 +700,13 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
                 await reader_task
             except Exception:  # noqa: BLE001
                 pass
+
+        # Cancel all fragment auto-refresh timers tied to this connection.
+        if fragment_timers:
+            for _task in fragment_timers.values():
+                _task.cancel()
+            await asyncio.gather(*fragment_timers.values(), return_exceptions=True)
+            fragment_timers.clear()
 
         if admitted:
             async with _SESSIONS_LOCK:
