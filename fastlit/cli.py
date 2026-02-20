@@ -34,7 +34,7 @@ def main():
 )
 @click.option(
     "--backlog",
-    default=2048,
+    default=512,
     type=int,
     help="Maximum number of pending TCP connections",
 )
@@ -94,6 +94,14 @@ def run(
 
     click.echo(f"  Fastlit running at: http://{host}:{port}")
     click.echo(f"  Script: {script_path}")
+    # Windows can fail with WinError 10022 when backlog is too high on some stacks.
+    effective_backlog = max(1, backlog)
+    if os.name == "nt" and effective_backlog > 128:
+        click.echo(
+            "  Note: on Windows, large --backlog values may fail; using 128.",
+        )
+        effective_backlog = 128
+
     if dev:
         click.echo("  Mode: development (hot reload)")
     else:
@@ -132,7 +140,7 @@ def run(
             reload_dirs=[script_dir, os.path.dirname(os.path.abspath(__file__))],
             workers=1,
             limit_concurrency=limit_concurrency,
-            backlog=backlog,
+            backlog=effective_backlog,
             timeout_keep_alive=timeout_keep_alive,
         )
     else:
@@ -146,7 +154,7 @@ def run(
             log_config=log_config,
             workers=max(1, workers),
             limit_concurrency=limit_concurrency,
-            backlog=backlog,
+            backlog=effective_backlog,
             timeout_keep_alive=timeout_keep_alive,
         )
 

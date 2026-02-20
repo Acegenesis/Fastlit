@@ -91,6 +91,7 @@ Open http://localhost:8501 in your browser.
 ## Table of Contents
 
 - [Text Elements](#text-elements)
+- [Auto-generated API Reference](#auto-generated-api-reference)
 - [Input Widgets](#input-widgets)
 - [Layout Components](#layout-components)
 - [Data Display](#data-display)
@@ -107,6 +108,20 @@ Open http://localhost:8501 in your browser.
 - [CLI Reference](#cli-reference)
 - [Configuration](#configuration)
 - [Deployment](#deployment)
+
+---
+
+## Auto-generated API Reference
+
+For exact signatures and parameter defaults of every `st.*` function, use:
+
+- `docs/API_REFERENCE.md`
+
+This file is generated from real Python signatures (source of truth):
+
+```bash
+python scripts/generate_api_reference.py
+```
 
 ---
 

@@ -57,6 +57,7 @@ st.sidebar.link_button("📖 Documentation", "https://github.com/fastlit/fastlit
 st.sidebar.caption("Fastlit v0.2.0")
 
 
+
 # =============================================================================
 # 🏠 HOME
 # =============================================================================
@@ -3068,6 +3069,23 @@ elif selected == "🔧 State & Control":
         ```
         """)
     
+
+    st.code('''# Read
+page = st.query_params.get("page", "home")
+page = st.query_params["page"]
+
+# Write
+st.query_params["page"] = "settings"
+
+# All values for a key
+tags = st.query_params.get_all("tag")
+
+# Convert to dict
+params = st.query_params.to_dict()
+
+# Clear
+st.query_params.clear()''', language="python")
+
     with st.container(border=True):
         st.write("Current query params:")
         st.json(st.query_params.to_dict())
@@ -3108,6 +3126,19 @@ elif selected == "🔧 State & Control":
         ```
         """)
     
+
+    st.code('''# secrets.toml
+[database]
+host = "localhost"
+password = "secret123"
+
+[api]
+key = "sk-..."
+
+# app.py
+host = st.secrets["database"]["host"]
+host = st.secrets.database.host''', language="python")
+
     with st.container(border=True):
         st.info("Create a `secrets.toml` file to use `st.secrets`")
     
@@ -3177,6 +3208,14 @@ elif selected == "🔧 State & Control":
         ```
         """)
     
+
+    st.code('''if not authenticated:
+    st.error("Please login")
+    st.stop()
+
+# This runs only when authenticated
+st.write("Secret content")''', language="python")
+
     with st.container(border=True):
         show_stop = st.checkbox("Enable st.stop() demo")
         
@@ -3187,6 +3226,7 @@ elif selected == "🔧 State & Control":
         else:
             st.success("Content continues because stop is disabled")
     
+
     # -------------------------------------------------------------------------
     # Caching
     # -------------------------------------------------------------------------
@@ -3727,6 +3767,7 @@ _hybrid_fragment()''', language="python")
 # =============================================================================
 st.divider()
 st.caption("Built with **Fastlit** A Streamlit-compatible, blazing fast Python UI framework 🚀")
+
 
 
 
