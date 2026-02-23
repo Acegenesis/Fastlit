@@ -69,6 +69,7 @@ def cache_data(
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             key = _make_cache_key(fn, args, kwargs)
             now = time.monotonic()
+            cached_value = _MISSING
 
             with _lock:
                 cached = _data_cache.get(key)
@@ -76,9 +77,13 @@ def cache_data(
                     value, expire_at = cached
                     if expire_at is None or now < expire_at:
                         _data_cache.move_to_end(key)
-                        return _copy.deepcopy(value) if copy else value
+                        cached_value = value
                     # Expired.
-                    del _data_cache[key]
+                    else:
+                        del _data_cache[key]
+
+            if cached_value is not _MISSING:
+                return _copy.deepcopy(cached_value) if copy else cached_value
 
             # Compute outside lock.
             result = fn(*args, **kwargs)
@@ -115,22 +120,26 @@ def cache_resource(
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             key = _make_cache_key(fn, args, kwargs)
+            key_lock: threading.Lock | None = None
 
             with _lock:
                 cached = _resource_cache.get(key, _MISSING)
-                if cached is not _MISSING:
-                    return cached
-                key_lock = _resource_key_locks.get(key)
-                if key_lock is None:
-                    key_lock = threading.Lock()
-                    _resource_key_locks[key] = key_lock
+                if cached is _MISSING:
+                    key_lock = _resource_key_locks.get(key)
+                    if key_lock is None:
+                        key_lock = threading.Lock()
+                        _resource_key_locks[key] = key_lock
+
+            if cached is not _MISSING:
+                return cached
+            assert key_lock is not None
 
             # Serialize creation per key so only one thread initializes.
             with key_lock:
                 with _lock:
                     cached = _resource_cache.get(key, _MISSING)
-                    if cached is not _MISSING:
-                        return cached
+                if cached is not _MISSING:
+                    return cached
 
                 created = fn(*args, **kwargs)
 
@@ -155,4 +164,3 @@ def cache_resource(
     if func is not None:
         return decorator(func)
     return decorator
-

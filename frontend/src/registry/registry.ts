@@ -67,7 +67,6 @@ import { Image } from "../components/media/Image";
 // ---- Status elements ----
 import { Alert } from "../components/status/Alert";
 import { Progress } from "../components/status/Progress";
-import { Spinner } from "../components/status/Spinner";
 
 // ---- Layouts and containers ----
 import { Sidebar } from "../components/layout/Sidebar";
@@ -278,7 +277,6 @@ const registry: Record<string, ComponentType<NodeComponentProps>> = {
   alert: Alert,
   exception: Exception,
   progress: Progress,
-  spinner: Spinner,
   status: Status,
   toast: Toast,
   balloons: Balloons,

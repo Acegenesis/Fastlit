@@ -35,15 +35,25 @@ class _ContainerProxy:
     def __init__(self, node: UINode) -> None:
         self._node = node
 
+    @staticmethod
+    def _is_attached(root: UINode, target: UINode) -> bool:
+        stack = [root]
+        while stack:
+            node = stack.pop()
+            if node is target:
+                return True
+            stack.extend(node.children)
+        return False
+
     def __enter__(self):
         session = get_current_session()
         tree = session.current_tree
         if self._clear_on_enter:
             self._node.children.clear()
         if self._append_on_enter:
-            # Avoid appending the same container node multiple times when
-            # methods are called via proxy (e.g. container.write(...)).
-            already_attached = any(child is self._node for child in tree.current_container.children)
+            # Avoid appending the same container node multiple times, even if
+            # the current container changed since first attachment.
+            already_attached = self._is_attached(tree.root, self._node)
             if not already_attached and tree.current_container is not self._node:
                 tree.append(self._node)
         tree.push_container(self._node)

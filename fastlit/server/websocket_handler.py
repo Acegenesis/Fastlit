@@ -804,7 +804,8 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
             fragment_timers.clear()
 
         if admitted:
-            _, sessions_lock = _get_sync_primitives()
+            # Reuse the same lock instance used at admission time; do not
+            # recreate loop-local primitives during teardown.
             async with sessions_lock:
                 _ACTIVE_SESSIONS.discard(session.session_id)
             metrics.on_session_closed()

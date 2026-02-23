@@ -180,8 +180,10 @@ def data_editor(
         # Call on_change callback when data changed (A3: was silently ignored before)
         if on_change is not None:
             prev_key = f"_de_prev_{node.id}"
-            prev = session.widget_store.get(prev_key)
-            if prev != stored:
+            if prev_key not in session.widget_store:
+                # Seed baseline without firing callback on first render.
+                session.widget_store[prev_key] = stored
+            elif session.widget_store.get(prev_key) != stored:
                 session.widget_store[prev_key] = stored
                 on_change()
         # Return edited data in original format

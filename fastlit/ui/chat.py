@@ -21,10 +21,21 @@ class ChatMessage:
     def __init__(self, node: UINode) -> None:
         self._node = node
 
+    @staticmethod
+    def _is_attached(root: UINode, target: UINode) -> bool:
+        stack = [root]
+        while stack:
+            node = stack.pop()
+            if node is target:
+                return True
+            stack.extend(node.children)
+        return False
+
     def __enter__(self):
         session = get_current_session()
         tree = session.current_tree
-        tree.append(self._node)
+        if not self._is_attached(tree.root, self._node):
+            tree.append(self._node)
         tree.push_container(self._node)
         return self
 

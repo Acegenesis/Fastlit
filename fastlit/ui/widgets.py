@@ -1656,7 +1656,7 @@ def segmented_control(
     is_multi = selection_mode == "multi"
 
     if default is None:
-        default_idx = [] if is_multi else 0
+        default_idx = [] if is_multi else None
     elif is_multi:
         default_idx = [raw_options.index(d) for d in default if d in raw_options]
     else:
@@ -1687,7 +1687,7 @@ def segmented_control(
     else:
         if isinstance(stored, int) and 0 <= stored < len(raw_options):
             return WidgetValue(raw_options[stored], node.id)
-        return WidgetValue(raw_options[0], node.id)
+        return WidgetValue(None, node.id)
 
 
 # ---------------------------------------------------------------------------
