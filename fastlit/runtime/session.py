@@ -71,11 +71,69 @@ class Session:
         # Runtime events emitted from script thread (e.g. spinner enter/exit).
         self._runtime_events: list[dict[str, Any]] = []
         self._runtime_events_lock = threading.Lock()
+        # Multi-page metadata registered by st.navigation([...]).
+        self._page_nav_id: str | None = None
+        self._page_labels: list[str] = []
+        self._page_url_paths: list[str] = []
+        self._page_scripts: dict[int, str] = {}
+
+    def register_navigation_pages(
+        self,
+        *,
+        nav_id: str,
+        labels: list[str],
+        url_paths: list[str],
+        page_scripts: dict[int, str],
+    ) -> None:
+        """Persist navigation metadata for switch_page and page-script routing."""
+        self._page_nav_id = nav_id
+        self._page_labels = list(labels)
+        self._page_url_paths = list(url_paths)
+        self._page_scripts = dict(page_scripts)
+
+    @staticmethod
+    def _normalize_page_token(value: str) -> str:
+        token = str(value).strip().strip("/").lower()
+        token = token.replace("_", "-").replace(" ", "-")
+        return token
+
+    def _switch_to_page_index(self, idx: int, nav_id: str | None) -> None:
+        """Apply selected page index and switch script when required."""
+        if nav_id:
+            self.widget_store[nav_id] = idx
+
+        new_script = self._page_scripts.get(idx)
+        if not new_script or new_script == self.script_path:
+            return
+
+        self.script_path = new_script
+        # Reset UI tree/widget snapshots when changing script file.
+        self._previous_tree = None
+        self._previous_tree_index = None
+        self._fragment_subtrees.clear()
+        self._fragment_registry.clear()
+        self._widget_to_fragment.clear()
+
+        nav_value = idx if nav_id else None
+        self.widget_store.clear()
+        if nav_id is not None and nav_value is not None:
+            self.widget_store[nav_id] = nav_value
+
+    def _sync_script_path_from_navigation(self) -> None:
+        """Before running a script, route to the selected Page script if needed."""
+        nav_id = self._page_nav_id
+        if not nav_id or not self._page_scripts:
+            return
+        selected = self.widget_store.get(nav_id)
+        if not isinstance(selected, int):
+            return
+        self._switch_to_page_index(selected, nav_id)
 
     def run(self) -> RenderFull | RenderPatch:
         """Execute the script and return either a full render or a patch."""
         new_tree: UITree | None = None
         for _attempt in range(max(1, self._MAX_RERUNS)):
+            self._sync_script_path_from_navigation()
             self._deferred_streams.clear()
             self.clear_runtime_events()
             self._id_counters = {}
@@ -240,9 +298,20 @@ class Session:
 
         do_full_rerun = False
         try:
-            fn(*args, **kwargs)
-        except RerunException:
-            do_full_rerun = True
+            for _frag_attempt in range(max(1, self._MAX_RERUNS)):
+                try:
+                    fn(*args, **kwargs)
+                    break
+                except RerunException as rerun_exc:
+                    if rerun_exc.scope == "fragment":
+                        container.children.clear()
+                        self._id_counters = {}
+                        continue
+                    do_full_rerun = True
+                    break
+            else:
+                # Too many fragment-local reruns: degrade to full rerun.
+                do_full_rerun = True
         except _StopException:
             pass
         except Exception:  # noqa: BLE001
@@ -280,6 +349,19 @@ class Session:
 
     def _handle_switch_page(self, page_name: str) -> None:
         """Update widget store so the navigation widget selects the given page."""
+        target = self._normalize_page_token(page_name)
+
+        # Preferred source: explicit metadata registered by st.navigation([...]).
+        if self._page_labels:
+            for idx, label in enumerate(self._page_labels):
+                candidates = {self._normalize_page_token(label)}
+                if idx < len(self._page_url_paths):
+                    candidates.add(self._normalize_page_token(self._page_url_paths[idx]))
+                if target in candidates:
+                    self._switch_to_page_index(idx, self._page_nav_id)
+                    return
+
+        # Fallback: infer from previous tree props.
         if self._previous_tree is None:
             return
         if self._previous_tree_index is None:
@@ -290,11 +372,13 @@ class Session:
             return
 
         pages = nav_node.props.get("pages", nav_node.props.get("options", []))
-        target_slug = page_name.lower().replace(" ", "-").strip("/")
+        url_paths = nav_node.props.get("urlPaths", [])
         for idx, page in enumerate(pages):
-            slug = page.lower().replace(" ", "-").replace("/", "").strip()
-            if slug == target_slug or page.lower() == page_name.lower():
-                self.widget_store[nav_node.id] = idx
+            candidates = {self._normalize_page_token(page)}
+            if isinstance(url_paths, list) and idx < len(url_paths):
+                candidates.add(self._normalize_page_token(url_paths[idx]))
+            if target in candidates:
+                self._switch_to_page_index(idx, nav_node.id)
                 return
 
     @staticmethod
@@ -345,6 +429,10 @@ class Session:
 
 class RerunException(Exception):
     """Raised by st.rerun() to interrupt script execution."""
+
+    def __init__(self, scope: str = "full"):
+        self.scope = scope
+        super().__init__()
 
 
 class StopException(Exception):

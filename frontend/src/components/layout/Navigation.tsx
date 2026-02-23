@@ -7,8 +7,10 @@ export const Navigation: React.FC<NodeComponentProps> = ({
   props,
   sendEvent,
 }) => {
-  const { pages, disabled } = props;
+  const { pages, icons, urlPaths, disabled } = props;
   const opts = pages as string[];
+  const iconList = (icons ?? []) as Array<string | null | undefined>;
+  const pathList = (urlPaths ?? []) as Array<string | undefined>;
   const [value, setValue] = useWidgetValue(
     nodeId,
     opts[props.index ?? 0] ?? "",
@@ -30,13 +32,17 @@ export const Navigation: React.FC<NodeComponentProps> = ({
             key={i}
             onClick={() => handleClick(i)}
             disabled={!!disabled}
+            data-url-path={pathList[i] ?? ""}
             className={`text-left py-2 px-3 text-sm rounded-md transition-colors ${
               isActive
                 ? "bg-blue-50 text-blue-700 font-medium border-l-2 border-blue-600"
                 : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
             }${disabled ? " opacity-50 cursor-not-allowed" : " cursor-pointer"}`}
           >
-            {page}
+            <span className="inline-flex items-center gap-2">
+              {iconList[i] ? <span>{iconList[i]}</span> : null}
+              <span>{page}</span>
+            </span>
           </button>
         );
       })}

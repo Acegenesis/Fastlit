@@ -18,6 +18,9 @@ interface DataFrameProps {
   truncated?: boolean;
   sourceId?: string;
   windowSize?: number;
+  selectable?: boolean;
+  selectionMode?: "single-row" | "multi-row";
+  selectedRows?: number[];
 }
 
 const ROW_HEIGHT = 36;
@@ -25,7 +28,11 @@ const HEADER_HEIGHT = 40;
 const DEFAULT_HEIGHT = 400;
 const MIN_COL_WIDTH = 100;
 
-export const DataFrame: React.FC<NodeComponentProps> = ({ props }) => {
+export const DataFrame: React.FC<NodeComponentProps> = ({
+  nodeId,
+  props,
+  sendEvent,
+}) => {
   const {
     columns = [],
     rows = [],
@@ -36,6 +43,9 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ props }) => {
     truncated = false,
     sourceId,
     windowSize = 300,
+    selectable = false,
+    selectionMode = "multi-row",
+    selectedRows = [],
   } = props as DataFrameProps;
 
   const parentRef = useRef<HTMLDivElement>(null);
@@ -43,8 +53,23 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ props }) => {
   const [serverRows, setServerRows] = useState<any[][]>(rows);
   const [serverIndex, setServerIndex] = useState<any[] | undefined>(index);
   const [loadingWindow, setLoadingWindow] = useState(false);
+  const [selectedRowPositions, setSelectedRowPositions] = useState<number[]>(
+    Array.isArray(selectedRows) ? selectedRows : []
+  );
   const fetchAbortRef = useRef<AbortController | null>(null);
   const isServerPaged = !!sourceId && (totalRows ?? rows.length) > rows.length;
+  const isSelectable = !!selectable;
+  const isMultiRowSelection = selectionMode !== "single-row";
+  const selectionColumnVisible = isSelectable && isMultiRowSelection;
+
+  const selectedSet = useMemo(
+    () => new Set(selectedRowPositions),
+    [selectedRowPositions]
+  );
+
+  useEffect(() => {
+    setSelectedRowPositions(Array.isArray(selectedRows) ? selectedRows : []);
+  }, [nodeId, selectedRows]);
 
   useEffect(() => {
     if (!isServerPaged) {
@@ -62,6 +87,9 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ props }) => {
   const columnWidths = useMemo(() => {
     const widths: number[] = [];
     const hasIndex = index && index.length > 0;
+    if (selectionColumnVisible) {
+      widths.push(44);
+    }
 
     // Index column width
     if (hasIndex) {
@@ -91,7 +119,7 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ props }) => {
     }
 
     return widths;
-  }, [columns, rows, index, isServerPaged, serverRows]);
+  }, [columns, rows, index, isServerPaged, serverRows, selectionColumnVisible]);
 
   // Total width
   const totalWidth = columnWidths.reduce((sum, w) => sum + w, 0);
@@ -111,6 +139,26 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ props }) => {
   });
 
   const hasIndex = (isServerPaged ? serverIndex : index) && (isServerPaged ? serverIndex : index)!.length > 0;
+
+  const emitSelection = (rowsToSelect: number[]) => {
+    const normalized = Array.from(new Set(rowsToSelect))
+      .filter((n) => Number.isInteger(n) && n >= 0)
+      .sort((a, b) => a - b);
+    setSelectedRowPositions(normalized);
+    sendEvent(nodeId, normalized);
+  };
+
+  const toggleRowSelection = (rowPosition: number) => {
+    if (!isSelectable) return;
+    if (isMultiRowSelection) {
+      const next = selectedSet.has(rowPosition)
+        ? selectedRowPositions.filter((p) => p !== rowPosition)
+        : [...selectedRowPositions, rowPosition];
+      emitSelection(next);
+      return;
+    }
+    emitSelection([rowPosition]);
+  };
 
   useEffect(() => {
     if (!isServerPaged || !sourceId) return;
@@ -173,10 +221,21 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ props }) => {
         className="flex bg-gray-50 border-b border-gray-200 font-medium text-sm text-gray-700"
         style={{ height: HEADER_HEIGHT }}
       >
+        {selectionColumnVisible && (
+          <div
+            className="flex items-center justify-center px-2 border-r border-gray-200 bg-gray-100 text-gray-500 text-xs"
+            style={{ width: columnWidths[0], minWidth: columnWidths[0] }}
+          >
+            Sel
+          </div>
+        )}
         {hasIndex && (
           <div
             className="flex items-center px-3 border-r border-gray-200 bg-gray-100 text-gray-500 text-xs"
-            style={{ width: columnWidths[0], minWidth: columnWidths[0] }}
+            style={{
+              width: columnWidths[selectionColumnVisible ? 1 : 0],
+              minWidth: columnWidths[selectionColumnVisible ? 1 : 0],
+            }}
           >
             #
           </div>
@@ -186,8 +245,8 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ props }) => {
             key={col.name}
             className="flex items-center px-3 border-r border-gray-200 last:border-r-0 truncate"
             style={{
-              width: columnWidths[hasIndex ? colIdx + 1 : colIdx],
-              minWidth: columnWidths[hasIndex ? colIdx + 1 : colIdx],
+              width: columnWidths[colIdx + (selectionColumnVisible ? 1 : 0) + (hasIndex ? 1 : 0)],
+              minWidth: columnWidths[colIdx + (selectionColumnVisible ? 1 : 0) + (hasIndex ? 1 : 0)],
             }}
             title={col.name}
           >
@@ -210,28 +269,52 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ props }) => {
           }}
         >
           {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            const rowPosition = virtualRow.index;
             const rowData = isServerPaged
               ? serverRows[virtualRow.index - serverOffset]
               : rows[virtualRow.index];
             const rowIndex = isServerPaged
               ? serverIndex?.[virtualRow.index - serverOffset]
               : index?.[virtualRow.index];
+            const isSelected = selectedSet.has(rowPosition);
+            const baseBg = isSelected
+              ? "bg-blue-50 dark:bg-blue-900/20"
+              : (virtualRow.index % 2 === 0 ? "bg-white" : "bg-gray-50/50");
+            const colOffset = (selectionColumnVisible ? 1 : 0) + (hasIndex ? 1 : 0);
 
             return (
               <div
                 key={virtualRow.index}
-                className={`flex absolute top-0 left-0 w-full border-b border-gray-100 ${
-                  virtualRow.index % 2 === 0 ? "bg-white" : "bg-gray-50/50"
+                className={`flex absolute top-0 left-0 w-full border-b border-gray-100 ${baseBg} ${
+                  isSelectable ? "cursor-pointer" : ""
                 } hover:bg-blue-50/50 transition-colors`}
                 style={{
                   height: `${virtualRow.size}px`,
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
+                onClick={() => toggleRowSelection(rowPosition)}
               >
+                {selectionColumnVisible && (
+                  <div
+                    className="flex items-center justify-center px-2 border-r border-gray-100 bg-gray-50/50"
+                    style={{ width: columnWidths[0], minWidth: columnWidths[0] }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleRowSelection(rowPosition)}
+                      className="h-4 w-4 cursor-pointer"
+                    />
+                  </div>
+                )}
                 {hasIndex && (
                   <div
                     className="flex items-center px-3 border-r border-gray-100 bg-gray-50/50 text-gray-500 text-xs font-mono"
-                    style={{ width: columnWidths[0], minWidth: columnWidths[0] }}
+                    style={{
+                      width: columnWidths[selectionColumnVisible ? 1 : 0],
+                      minWidth: columnWidths[selectionColumnVisible ? 1 : 0],
+                    }}
                   >
                     {formatCell(rowIndex, "string")}
                   </div>
@@ -241,8 +324,8 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ props }) => {
                     key={colIdx}
                     className="flex items-center px-3 border-r border-gray-100 last:border-r-0 text-sm truncate"
                     style={{
-                      width: columnWidths[hasIndex ? colIdx + 1 : colIdx],
-                      minWidth: columnWidths[hasIndex ? colIdx + 1 : colIdx],
+                      width: columnWidths[colIdx + colOffset],
+                      minWidth: columnWidths[colIdx + colOffset],
                     }}
                     title={String(rowData?.[colIdx] ?? "")}
                   >

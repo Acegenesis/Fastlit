@@ -50,6 +50,7 @@ from fastlit.ui.layout import (
     popover,
     divider,
     navigation,
+    Page,
     switch_page,
     set_sidebar_state,
 )
@@ -204,9 +205,15 @@ secrets = _SecretsProxy()
 context = _ContextProxy()
 
 
-def rerun() -> None:
-    """Stop the current script run and trigger a rerun."""
-    raise RerunException()
+def rerun(scope: str = "full") -> None:
+    """Stop the current run and trigger a rerun.
+
+    Args:
+        scope: "full" (default) or "fragment".
+    """
+    if scope not in {"full", "fragment"}:
+        raise ValueError("scope must be 'full' or 'fragment'")
+    raise RerunException(scope=scope)
 
 
 def stop() -> None:
@@ -332,6 +339,7 @@ __all__ = [
     "popover",
     "divider",
     "navigation",
+    "Page",
     "switch_page",
     "set_sidebar_state",
     # State

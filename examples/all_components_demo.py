@@ -9,6 +9,7 @@ Prod profile: fastlit run examples/all_components_demo.py --host 0.0.0.0 --port 
 
 import fastlit as st
 import datetime
+import inspect
 import time
 
 # =============================================================================
@@ -1590,6 +1591,7 @@ elif selected == "📊 Data Display":
     # st.dataframe()
     # -------------------------------------------------------------------------
     st.header("st.dataframe()", divider="blue")
+    st.caption("New in Fastlit: `on_select` + `selection_mode` for interactive row selection.")
     
     with st.expander("📖 Documentation", expanded=False):
         st.markdown("""
@@ -1598,6 +1600,8 @@ elif selected == "📊 Data Display":
         - `height` (int | None): Height in pixels (auto-sizes up to 400px)
         - `use_container_width` (bool): Stretch to container width
         - `hide_index` (bool): Hide row index
+        - `on_select` ("rerun" | Callable | None): Selection callback behavior
+        - `selection_mode` ("single-row" | "multi-row"): Row selection mode
         - `key` (str | None): Unique key
         
         **Features:**
@@ -1605,6 +1609,8 @@ elif selected == "📊 Data Display":
         - Column sorting (click headers)
         - Column resizing
         - Smooth scrolling
+
+        **Returns:** Selection object with `.rows` when `on_select` is set, else `None`
         """)
     
     st.code('''sample_data = {
@@ -1624,6 +1630,71 @@ st.dataframe(sample_data, height=150, hide_index=True)''', language="python")
         
         st.caption("With hidden index:")
         st.dataframe(sample_data, height=150, hide_index=True)
+
+    dataframe_params = inspect.signature(st.dataframe).parameters
+    supports_df_selection = {"on_select", "selection_mode"}.issubset(dataframe_params.keys())
+
+    if supports_df_selection:
+        st.code('''selection_demo_data = {
+    "Name": ["Alice Martin", "Bob Johnson", "Charlie Lee", "Diana Chen", "Eve Wilson"],
+    "Age": [25, 30, 35, 28, 32],
+    "City": ["Paris", "London", "Berlin", "Madrid", "Rome"],
+    "Score": [85.5, 92.0, 78.5, 95.0, 88.5],
+    "Active": [True, False, True, True, False],
+}
+
+selection = st.dataframe(
+    selection_demo_data,
+    on_select="rerun",
+    selection_mode="multi-row",
+    height=180,
+    key="df_selection_demo",
+)
+
+st.write(f"Selected rows: {selection.rows if selection is not None else []}")''', language="python")
+
+        with st.container(border=True):
+            selection_demo_data = {
+                "Name": ["Alice Martin", "Bob Johnson", "Charlie Lee", "Diana Chen", "Eve Wilson"],
+                "Age": [25, 30, 35, 28, 32],
+                "City": ["Paris", "London", "Berlin", "Madrid", "Rome"],
+                "Score": [85.5, 92.0, 78.5, 95.0, 88.5],
+                "Active": [True, False, True, True, False],
+            }
+
+            selection = st.dataframe(
+                selection_demo_data,
+                on_select="rerun",
+                selection_mode="multi-row",
+                height=180,
+                key="df_selection_demo",
+            )
+
+            st.write(f"Selected rows: {selection.rows if selection is not None else []}")
+    else:
+        st.warning(
+            "This runtime does not expose `st.dataframe(on_select=..., selection_mode=...)` yet. "
+            "Using compatibility fallback."
+        )
+        st.code('''selection_demo_data = {
+    "Name": ["Alice Martin", "Bob Johnson", "Charlie Lee", "Diana Chen", "Eve Wilson"],
+    "Age": [25, 30, 35, 28, 32],
+    "City": ["Paris", "London", "Berlin", "Madrid", "Rome"],
+    "Score": [85.5, 92.0, 78.5, 95.0, 88.5],
+    "Active": [True, False, True, True, False],
+}
+
+st.dataframe(selection_demo_data, height=180, key="df_selection_demo")''', language="python")
+
+        with st.container(border=True):
+            selection_demo_data = {
+                "Name": ["Alice Martin", "Bob Johnson", "Charlie Lee", "Diana Chen", "Eve Wilson"],
+                "Age": [25, 30, 35, 28, 32],
+                "City": ["Paris", "London", "Berlin", "Madrid", "Rome"],
+                "Score": [85.5, 92.0, 78.5, 95.0, 88.5],
+                "Active": [True, False, True, True, False],
+            }
+            st.dataframe(selection_demo_data, height=180, key="df_selection_demo")
     
     # -------------------------------------------------------------------------
     # st.data_editor()
@@ -2991,28 +3062,76 @@ if st.button("Delete"):
     
     with st.container(border=True):
         st.info("Dialogs are created using the @st.dialog decorator")
+
+    # -------------------------------------------------------------------------
+    # st.Page()
+    # -------------------------------------------------------------------------
+    st.header("st.Page()", divider="blue")
+    has_page_api = hasattr(st, "Page")
+
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Purpose:** Define page metadata for `st.navigation(...)`.
+
+        **Parameters:**
+        - `path` (str): Target script path
+        - `title` (str | None): Display title
+        - `icon` (str | None): Icon text/emoji
+        - `url_path` (str | None): URL slug
+        - `default` (bool): Default page
+        """)
+
+    st.code('''page_defs = [
+    st.Page(__file__, title="Overview", icon="H", url_path="overview", default=True),
+    st.Page(__file__, title="Data", icon="D", url_path="data"),
+    st.Page(__file__, title="Settings", icon="S", url_path="settings"),
+]
+
+selected_page = st.navigation(page_defs, key="layout_page_api_demo")
+st.write(f"Selected: title={selected_page.title}, url_path={selected_page.url_path}")''', language="python")
+
+    with st.container(border=True):
+        if has_page_api:
+            page_defs = [
+                st.Page(__file__, title="Overview", icon="H", url_path="overview", default=True),
+                st.Page(__file__, title="Data", icon="D", url_path="data"),
+                st.Page(__file__, title="Settings", icon="S", url_path="settings"),
+            ]
+
+            selected_page = st.navigation(page_defs, key="layout_page_api_demo")
+            st.write(f"Selected: title={selected_page.title}, url_path={selected_page.url_path}")
+        else:
+            st.warning(
+                "This runtime does not expose `st.Page` yet. "
+                "Using compatibility fallback with string navigation."
+            )
+            selected_page = st.navigation(["Overview", "Data", "Settings"], key="layout_page_api_demo")
+            st.write(f"Selected: {selected_page}")
     
     # -------------------------------------------------------------------------
     # st.navigation()
     # -------------------------------------------------------------------------
     st.header("st.navigation()", divider="blue")
+    st.caption("Supports both `Sequence[str]` and `Sequence[st.Page]`.")
     
     with st.expander("📖 Documentation", expanded=False):
         st.markdown("""
         **Parameters:**
-        - `pages` (Sequence[str]): Page names
+        - `pages` (Sequence[str | st.Page]): Page names or page definitions
         
-        **Returns:** str (selected page name)
+        **Returns:** `str` in string mode, `st.Page` in Page mode
         
         Typically used in sidebar for multi-page navigation.
         """)
     
-    st.code('''page = st.sidebar.navigation(["Home", "Data", "Settings"])
-if page == "Home":
-    st.title("Home")''', language="python")
+    st.markdown("Returns `str` in string mode and `st.Page` in Page mode.")
+
+    st.code('''current = st.navigation(["Home", "Data", "Settings"], key="nav_string_mode")
+st.write(f"Current page: {current}")''', language="python")
     
     with st.container(border=True):
-        st.info("See the sidebar for a live navigation example!")
+        current = st.navigation(["Home", "Data", "Settings"], key="nav_string_mode")
+        st.write(f"Current page: {current}")
     
     # -------------------------------------------------------------------------
     # st.divider()
@@ -3335,6 +3454,7 @@ host = st.secrets.database.host''', language="python")
         **Usage:**
         ```python
         st.rerun()  # Raises RerunException
+        st.rerun(scope="fragment")  # Inside @st.fragment only
         ```
         
         Useful for refreshing the UI after state changes.
@@ -3342,9 +3462,53 @@ host = st.secrets.database.host''', language="python")
     
     with st.container(border=True):
         st.caption("Click to rerun the app:")
+        st.caption("`scope=\"fragment\"` is supported inside `@st.fragment`.")
         if st.button("🔄 Rerun App"):
             st.rerun()
     
+    st.code('''if st.button("Rerun full app"):
+    st.rerun()
+
+@st.fragment
+def _fragment_rerun_demo():
+    if "fragment_scope_count" not in st.session_state:
+        st.session_state.fragment_scope_count = 0
+
+    col1, col2, col3 = st.columns([1, 1, 2])
+    with col1:
+        if st.button("+1", key="frag_scope_inc", use_container_width=True):
+            st.session_state.fragment_scope_count += 1
+    with col2:
+        if st.button("Reset fragment", key="frag_scope_reset", use_container_width=True):
+            st.session_state.fragment_scope_count = 0
+            st.rerun(scope="fragment")
+    with col3:
+        st.metric("Fragment count", st.session_state.fragment_scope_count)
+
+_fragment_rerun_demo()''', language="python")
+
+    with st.container(border=True):
+        if st.button("Rerun full app"):
+            st.rerun()
+
+        @st.fragment
+        def _fragment_rerun_demo():
+            if "fragment_scope_count" not in st.session_state:
+                st.session_state.fragment_scope_count = 0
+
+            col1, col2, col3 = st.columns([1, 1, 2])
+            with col1:
+                if st.button("+1", key="frag_scope_inc", use_container_width=True):
+                    st.session_state.fragment_scope_count += 1
+            with col2:
+                if st.button("Reset fragment", key="frag_scope_reset", use_container_width=True):
+                    st.session_state.fragment_scope_count = 0
+                    st.rerun(scope="fragment")
+            with col3:
+                st.metric("Fragment count", st.session_state.fragment_scope_count)
+
+        _fragment_rerun_demo()
+
     # -------------------------------------------------------------------------
     # st.stop()
     # -------------------------------------------------------------------------

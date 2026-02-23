@@ -3,9 +3,17 @@
 from __future__ import annotations
 
 import os
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Callable
 
 from fastlit.ui.base import _emit_node
+
+
+@dataclass
+class DataframeSelection:
+    """Selected row positions from st.dataframe(on_select=...)."""
+
+    rows: list[int]
 
 
 def dataframe(
@@ -15,8 +23,10 @@ def dataframe(
     use_container_width: bool = True,
     hide_index: bool = False,
     max_rows: int | None = None,
+    on_select: str | Callable[[DataframeSelection], None] | None = None,
+    selection_mode: str = "multi-row",
     key: str | None = None,
-) -> None:
+) -> DataframeSelection | None:
     """Display a DataFrame with virtualized scrolling.
 
     Args:
@@ -26,6 +36,8 @@ def dataframe(
         hide_index: If True, hides the row index column.
         max_rows: Maximum number of rows to serialize for display.
             If None, uses FASTLIT_MAX_DF_ROWS (default: 50_000).
+        on_select: None (default), "rerun", or a callable callback.
+        selection_mode: "single-row" or "multi-row" (used when on_select is set).
         key: Optional key for stable identity.
 
     Example:
@@ -33,6 +45,11 @@ def dataframe(
         >>> df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
         >>> st.dataframe(df)
     """
+    if selection_mode not in {"single-row", "multi-row"}:
+        raise ValueError("selection_mode must be 'single-row' or 'multi-row'")
+    if on_select is not None and on_select != "rerun" and not callable(on_select):
+        raise ValueError("on_select must be None, 'rerun', or a callable")
+
     resolved_max_rows = (
         _default_max_dataframe_rows()
         if max_rows is None
@@ -66,7 +83,35 @@ def dataframe(
         props["sourceId"] = source_id
         props["windowSize"] = _default_dataframe_window_size()
 
-    _emit_node("dataframe", props, key=key)
+    if on_select is None:
+        _emit_node("dataframe", props, key=key)
+        return None
+
+    from fastlit.runtime.context import get_current_session
+
+    props["selectable"] = True
+    props["selectionMode"] = selection_mode
+
+    node = _emit_node("dataframe", props, key=key, is_widget=True)
+    session = get_current_session()
+    rows_selected = _normalize_selection_rows(
+        session.widget_store.get(node.id), selection_mode
+    )
+    node.props["selectedRows"] = rows_selected
+    selection = DataframeSelection(rows=rows_selected)
+
+    if callable(on_select):
+        prev_key = f"_dfsel_prev_{node.id}"
+        if prev_key not in session.widget_store:
+            session.widget_store[prev_key] = rows_selected
+        elif session.widget_store.get(prev_key) != rows_selected:
+            session.widget_store[prev_key] = rows_selected
+            try:
+                on_select(selection)
+            except TypeError:
+                on_select()
+
+    return selection
 
 
 def _default_max_dataframe_rows() -> int:
@@ -76,6 +121,43 @@ def _default_max_dataframe_rows() -> int:
     except ValueError:
         value = 50000
     return max(1, value)
+
+
+def _normalize_selection_rows(
+    stored: Any,
+    selection_mode: str,
+) -> list[int]:
+    """Normalize frontend selection payload to a sorted list of row positions."""
+    raw = stored
+    if isinstance(stored, dict):
+        raw = stored.get("rows", [])
+
+    rows: list[int] = []
+    seen: set[int] = set()
+    candidates: list[Any]
+    if isinstance(raw, (list, tuple, set)):
+        candidates = list(raw)
+    else:
+        candidates = [raw]
+
+    for item in candidates:
+        if isinstance(item, bool):
+            continue
+        if isinstance(item, int):
+            idx = item
+        elif isinstance(item, str) and item.isdigit():
+            idx = int(item)
+        else:
+            continue
+        if idx < 0 or idx in seen:
+            continue
+        seen.add(idx)
+        rows.append(idx)
+
+    rows.sort()
+    if selection_mode == "single-row":
+        return rows[:1]
+    return rows
 
 
 def _default_dataframe_window_size() -> int:

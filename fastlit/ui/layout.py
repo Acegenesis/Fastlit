@@ -6,6 +6,8 @@ st.form, st.form_submit_button, st.popover, st.empty, st.divider.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Sequence
 
 from fastlit.runtime.context import get_current_session
@@ -502,16 +504,46 @@ def set_sidebar_state(state: str) -> None:
 # switch_page — st.switch_page(page)
 # ---------------------------------------------------------------------------
 
-def switch_page(page: str) -> None:
+def _slugify_page(value: str) -> str:
+    slug = str(value).strip().lower()
+    slug = slug.replace("_", "-").replace(" ", "-")
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    return slug.strip("-")
+
+
+@dataclass
+class Page:
+    """Multi-page app page definition."""
+
+    path: str
+    title: str | None = None
+    icon: str | None = None
+    url_path: str | None = None
+    default: bool = False
+
+    def __post_init__(self) -> None:
+        if self.title is None:
+            self.title = Path(self.path).stem.replace("_", " ").title()
+        if self.url_path is None:
+            self.url_path = _slugify_page(self.title or self.path)
+
+
+def switch_page(page: str | Page) -> None:
     """Switch to a different page programmatically.
 
     This stops the current script and reruns with the target page selected.
 
     Args:
-        page: The name of the page to switch to (must match a page in st.navigation).
+        page: The page name/slug (or Page object) to switch to.
     """
     from fastlit.runtime.session import SwitchPageException
-    raise SwitchPageException(page)
+
+    if isinstance(page, Page):
+        target = page.url_path or page.title or page.path
+    else:
+        target = page
+    raise SwitchPageException(str(target))
 
 
 # ---------------------------------------------------------------------------
@@ -519,24 +551,82 @@ def switch_page(page: str) -> None:
 # ---------------------------------------------------------------------------
 
 def navigation(
-    pages: Sequence[str],
+    pages: Sequence[str | Page],
     *,
     key: str | None = None,
-) -> str:
+) -> str | Page:
     """Display a navigation menu with clickable text links.
 
-    Returns the label of the currently selected page.
+    Returns the selected page label (str pages) or Page object (Page pages).
     """
     opts = list(pages)
+    if not opts:
+        return ""
+
+    session = get_current_session()
+    base_dir = Path(session.script_path).resolve().parent if session.script_path else Path.cwd()
+    labels: list[str] = []
+    icons: list[str | None] = []
+    url_paths: list[str] = []
+    values: list[str | Page] = []
+    page_scripts: dict[int, str] = {}
+    default_idx = 0
+
+    for i, item in enumerate(opts):
+        if isinstance(item, Page):
+            label = item.title or Path(item.path).stem
+            labels.append(label)
+            icons.append(item.icon)
+            url_paths.append(item.url_path or _slugify_page(label))
+            values.append(item)
+
+            script_path = Path(item.path)
+            if not script_path.is_absolute():
+                script_path = (base_dir / script_path).resolve()
+            else:
+                script_path = script_path.resolve()
+            page_scripts[i] = str(script_path)
+
+            if item.default and default_idx == 0:
+                default_idx = i
+        else:
+            label = str(item)
+            labels.append(label)
+            icons.append(None)
+            url_paths.append(_slugify_page(label))
+            values.append(label)
+
     node = _emit_node(
         "navigation",
-        {"pages": opts, "index": 0},
+        {
+            "pages": labels,
+            "icons": icons,
+            "urlPaths": url_paths,
+            "index": default_idx,
+        },
         key=key,
         is_widget=True,
     )
-    session = get_current_session()
+
+    session.register_navigation_pages(
+        nav_id=node.id,
+        labels=labels,
+        url_paths=url_paths,
+        page_scripts=page_scripts,
+    )
+
+    selected_idx = default_idx
     stored = session.widget_store.get(node.id)
-    if stored is not None and isinstance(stored, int) and 0 <= stored < len(opts):
-        node.props["index"] = stored
-        return opts[stored]
-    return opts[0] if opts else ""
+    if stored is not None and isinstance(stored, int) and 0 <= stored < len(labels):
+        selected_idx = stored
+    node.props["index"] = selected_idx
+
+    selected_script = page_scripts.get(selected_idx)
+    if selected_script is not None and selected_script != session.script_path:
+        # Keep selected index and rerun into the selected page script.
+        session._switch_to_page_index(selected_idx, node.id)
+        from fastlit.runtime.session import RerunException
+
+        raise RerunException(scope="full")
+
+    return values[selected_idx]

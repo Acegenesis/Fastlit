@@ -283,7 +283,12 @@ export const App: React.FC = () => {
         isFirstLoad = true;
         const isNav = navNode.type === "navigation";
         const opts = (isNav ? navNode.props.pages : navNode.props.options) as string[];
-        const slugs = opts.map(toSlug);
+        const rawUrlPaths = Array.isArray(navNode.props?.urlPaths)
+          ? (navNode.props.urlPaths as string[])
+          : [];
+        const slugs = rawUrlPaths.length === opts.length
+          ? rawUrlPaths.map((p) => String(p ?? "").replace(/^\/+|\/+$/g, ""))
+          : opts.map(toSlug);
         sidebarNavRef.current = { id: navNode.id, options: opts, slugs };
 
         // Respect the current URL on page reload; only fall back to server index
