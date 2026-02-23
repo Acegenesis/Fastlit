@@ -29,6 +29,7 @@ st.sidebar.caption("Complete components showcase")
 
 sections = [
     "🏠 Home",
+    "New in Fastlit",
     "📝 Text Elements",
     "🎛️ Input Widgets",
     "📊 Data Display",
@@ -116,6 +117,74 @@ if selected == "🏠 Home":
         - Radix UI components
         - Hot reload in dev
         """)
+
+
+# =============================================================================
+# NEW IN FASTLIT
+# =============================================================================
+elif selected == "New in Fastlit":
+    st.title("New in Fastlit")
+    st.caption("Dedicated overview of recently added runtime and API features")
+
+    st.header("1) Media Inputs", divider="blue")
+    st.markdown("""
+    New widgets now available with dedicated demo sections:
+    - `st.camera_input()`
+    - `st.audio_input()`
+    """)
+    st.code('''photo = st.camera_input("Take a picture")
+if photo:
+    st.image(photo.read(), caption=f"{photo.name} ({photo.size} bytes)")
+
+audio = st.audio_input("Record audio")
+if audio:
+    st.audio(audio.read(), format=audio.type)''', language="python")
+
+    st.header("2) Streaming + Fragments", divider="blue")
+    st.markdown("""
+    Runtime now focuses on patch streaming and partial reruns:
+    - WebSocket patch streaming
+    - Fragment-local reruns when possible
+    - Reduced full-script reruns
+    """)
+    st.code('''st.markdown("Main page content remains stable")
+
+with st.fragment("demo_fragment"):
+    if st.button("Refresh only this fragment"):
+        st.rerun(scope="fragment")
+    st.write("This block reruns independently when possible.")''', language="python")
+
+    st.header("3) Spinner Runtime Behavior", divider="blue")
+    st.markdown("""
+    `st.spinner()` now appears immediately during execution, then disappears automatically.
+    """)
+    st.code('''if st.button("Run task"):
+    with st.spinner("Processing..."):
+        time.sleep(1.5)
+    st.success("Done")''', language="python")
+
+    st.header("4) Cache Guarantees", divider="blue")
+    st.markdown("""
+    Cache behavior has been hardened:
+    - `my_cached_fn.clear()` clears only that function cache
+    - `@st.cache_resource` creation is synchronized per key
+    """)
+    st.code('''@st.cache_data
+def users():
+    return fetch_users()
+
+@st.cache_data
+def products():
+    return fetch_products()
+
+users.clear()  # does not clear products cache''', language="python")
+
+    st.header("5) Secrets Hot Reload", divider="blue")
+    st.markdown("""
+    `st.secrets` now reloads when the active `secrets.toml` file changes.
+    """)
+    st.code('''db_host = st.secrets["database"]["host"]
+api_key = st.secrets.api.key''', language="python")
 
 
 # =============================================================================
@@ -1288,6 +1357,84 @@ if multi_files:
         if multi_files:
             for f in multi_files:
                 st.info(f"📄 {f.name} ({f.size} bytes)")
+
+    # -------------------------------------------------------------------------
+    # st.camera_input()
+    # -------------------------------------------------------------------------
+    st.header("st.camera_input()", divider="blue")
+
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Widget label
+        - `key` (str | None): Unique widget key
+        - `help` (str | None): Tooltip text
+        - `disabled` (bool): Disable capture
+        - `label_visibility` (str): "visible", "hidden", "collapsed"
+
+        **Returns:** `UploadedFile | None`
+
+        **Notes:**
+        - Uses browser camera permission.
+        - Upload size guardrails are enforced server-side.
+        """)
+
+    st.code('''photo = st.camera_input("Take a picture")
+
+if photo:
+    data = photo.read()
+    st.success(f"Captured: {photo.name} ({photo.size} bytes)")
+    st.image(data, caption="Camera snapshot")
+else:
+    st.info("Allow camera access then capture an image.")''', language="python")
+
+    with st.container(border=True):
+        photo = st.camera_input("Take a picture")
+        if photo:
+            data = photo.read()
+            st.success(f"Captured: {photo.name} ({photo.size} bytes)")
+            st.image(data, caption="Camera snapshot")
+        else:
+            st.info("Allow camera access then capture an image.")
+
+    # -------------------------------------------------------------------------
+    # st.audio_input()
+    # -------------------------------------------------------------------------
+    st.header("st.audio_input()", divider="blue")
+
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `label` (str): Widget label
+        - `key` (str | None): Unique widget key
+        - `help` (str | None): Tooltip text
+        - `disabled` (bool): Disable recorder
+        - `label_visibility` (str): "visible", "hidden", "collapsed"
+
+        **Returns:** `UploadedFile | None`
+
+        **Notes:**
+        - Uses browser microphone permission.
+        - Upload size guardrails are enforced server-side.
+        """)
+
+    st.code('''audio = st.audio_input("Record audio")
+
+if audio:
+    data = audio.read()
+    st.success(f"Recorded: {audio.name} ({audio.size} bytes)")
+    st.audio(data, format=audio.type)
+else:
+    st.info("Allow microphone access then record audio.")''', language="python")
+
+    with st.container(border=True):
+        audio = st.audio_input("Record audio")
+        if audio:
+            data = audio.read()
+            st.success(f"Recorded: {audio.name} ({audio.size} bytes)")
+            st.audio(data, format=audio.type)
+        else:
+            st.info("Allow microphone access then record audio.")
     
     # -------------------------------------------------------------------------
     # st.feedback()
@@ -2399,6 +2546,11 @@ st.progress(100, text="100% - Complete!")''', language="python")
     with st.expander("📖 Documentation", expanded=False):
         st.markdown("""
         **Usage:** Context manager that shows a spinner while code executes.
+
+        **New behavior (runtime):**
+        - Spinner is shown immediately while the block is running.
+        - Spinner is removed automatically when the block exits.
+        - Works for full reruns and fragment reruns.
         
         ```python
         with st.spinner("Loading..."):
@@ -2416,6 +2568,7 @@ st.progress(100, text="100% - Complete!")''', language="python")
             with st.spinner("Processing..."):
                 time.sleep(1)
             st.success("Done!")
+        st.caption("Spinner should be visible during execution.")
     
     # -------------------------------------------------------------------------
     # st.status()
@@ -3108,6 +3261,10 @@ st.query_params.clear()''', language="python")
     with st.expander("📖 Documentation", expanded=False):
         st.markdown("""
         Access secrets from `secrets.toml` or `.streamlit/secrets.toml`.
+
+        **New behavior:**
+        - Secrets cache is reloaded automatically when the secrets file changes.
+        - You can still use both dict and attribute access styles.
         
         **File format:**
         ```toml
@@ -3272,6 +3429,25 @@ st.write("Secret content")''', language="python")
         ```python
         get_database.clear()
         st.cache_resource.clear()
+        ```
+        """)
+
+    with st.expander("📖 New cache guarantees", expanded=False):
+        st.markdown("""
+        **Recent updates:**
+        - `my_cached_fn.clear()` now clears only that function's entries.
+        - `@st.cache_resource` initialization is thread-safe per cache key.
+
+        ```python
+        @st.cache_data
+        def users():
+            ...
+
+        @st.cache_data
+        def products():
+            ...
+
+        users.clear()  # does not clear products cache
         ```
         """)
     

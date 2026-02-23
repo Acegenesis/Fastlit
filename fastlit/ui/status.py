@@ -9,6 +9,7 @@ Provides Streamlit-compatible status functions:
 from __future__ import annotations
 
 import traceback
+import uuid
 from contextlib import contextmanager
 from typing import Any, Generator
 
@@ -161,20 +162,27 @@ def spinner(text: str = "Loading...") -> Generator[None, None, None]:
     Args:
         text: Text to display next to the spinner.
     """
-    # In the current architecture, we can't really show/hide dynamically
-    # So we emit a spinner node that will be replaced on next rerun
-    # For now, this is a placeholder that shows the spinner
-    _emit_node(
-        "spinner",
+    session = get_current_session()
+    spinner_id = f"spin:{uuid.uuid4().hex}"
+    session.emit_runtime_event(
         {
+            "kind": "spinner",
+            "id": spinner_id,
             "text": text,
             "active": True,
-        },
+        }
     )
     try:
         yield
     finally:
-        pass  # Spinner will be gone on next render
+        session.emit_runtime_event(
+            {
+                "kind": "spinner",
+                "id": spinner_id,
+                "text": text,
+                "active": False,
+            }
+        )
 
 
 @contextmanager

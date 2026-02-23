@@ -8,6 +8,7 @@ import type {
   WidgetEvent,
   RenderFullMessage,
   RenderPatchMessage,
+  RuntimeEventMessage,
   PatchOp,
   ErrorMessage,
 } from "./types";
@@ -15,6 +16,7 @@ import type {
 type OnRenderFull = (msg: RenderFullMessage) => void;
 type OnRenderPatch = (msg: RenderPatchMessage) => void;
 type OnError = (msg: ErrorMessage) => void;
+type OnRuntimeEvent = (msg: RuntimeEventMessage) => void;
 type OnStatusChange = (status: "connected" | "disconnected" | "connecting") => void;
 
 const BASE_DELAY = 2000;
@@ -85,6 +87,7 @@ export class FastlitWS {
   private onRenderFullCb: OnRenderFull | null = null;
   private onRenderPatchCb: OnRenderPatch | null = null;
   private onErrorCb: OnError | null = null;
+  private onRuntimeEventCb: OnRuntimeEvent | null = null;
   private onStatusChangeCb: OnStatusChange | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
@@ -141,6 +144,9 @@ export class FastlitWS {
           case "error":
             this.onErrorCb?.(msg);
             break;
+          case "runtime_event":
+            this.onRuntimeEventCb?.(msg);
+            break;
         }
       } catch (e) {
         console.error("Failed to parse server message:", e);
@@ -184,6 +190,10 @@ export class FastlitWS {
 
   onError(cb: OnError): void {
     this.onErrorCb = cb;
+  }
+
+  onRuntimeEvent(cb: OnRuntimeEvent): void {
+    this.onRuntimeEventCb = cb;
   }
 
   onStatusChange(cb: OnStatusChange): void {

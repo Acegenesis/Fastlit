@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback } from "react";
+import React, { useRef, useState, useCallback, useEffect } from "react";
 import type { NodeComponentProps } from "../../registry/registry";
 import { Label } from "@/components/ui/label";
 
@@ -12,26 +12,74 @@ export const CameraInput: React.FC<NodeComponentProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [captured, setCaptured] = useState<string | null>(null);
+  const [isVideoReady, setIsVideoReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const stopStream = useCallback(() => {
+    stream?.getTracks().forEach((t) => t.stop());
+    setStream(null);
+  }, [stream]);
 
   const startCamera = useCallback(async () => {
     if (disabled) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError("Camera API not available in this browser.");
+      return;
+    }
     try {
+      stopStream();
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user" },
       });
       setStream(mediaStream);
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-      }
+      setIsVideoReady(false);
       setCaptured(null);
+      setError(null);
     } catch {
-      // Camera access denied or unavailable
+      setError("Unable to access camera. Check browser permission settings.");
     }
-  }, [disabled]);
+  }, [disabled, stopStream]);
+
+  useEffect(() => {
+    if (!stream || !videoRef.current) return;
+    const video = videoRef.current;
+    video.srcObject = stream;
+
+    const onLoadedMetadata = () => {
+      setIsVideoReady(true);
+    };
+
+    video.addEventListener("loadedmetadata", onLoadedMetadata);
+    const playPromise = video.play();
+    if (playPromise) {
+      void playPromise.catch(() => {
+        // Browser autoplay policy edge cases.
+      });
+    }
+    if (video.readyState >= 1) {
+      setIsVideoReady(true);
+    }
+
+    return () => {
+      video.removeEventListener("loadedmetadata", onLoadedMetadata);
+      if (video.srcObject === stream) {
+        video.srcObject = null;
+      }
+    };
+  }, [stream]);
+
+  useEffect(() => {
+    return () => {
+      stream?.getTracks().forEach((t) => t.stop());
+    };
+  }, [stream]);
 
   const capture = useCallback(() => {
     if (!videoRef.current || !canvasRef.current) return;
     const video = videoRef.current;
+    if (!isVideoReady || video.videoWidth <= 0 || video.videoHeight <= 0) {
+      return;
+    }
     const canvas = canvasRef.current;
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
@@ -44,22 +92,22 @@ export const CameraInput: React.FC<NodeComponentProps> = ({
     setCaptured(dataUrl);
 
     // Stop camera
-    stream?.getTracks().forEach((t) => t.stop());
-    setStream(null);
+    stopStream();
 
     sendEvent(nodeId, {
       name: "camera_capture.png",
       type: "image/png",
       content: base64,
     });
-  }, [stream, nodeId, sendEvent]);
+  }, [isVideoReady, stopStream, nodeId, sendEvent]);
 
   const clear = useCallback(() => {
     setCaptured(null);
-    stream?.getTracks().forEach((t) => t.stop());
-    setStream(null);
+    setIsVideoReady(false);
+    setError(null);
+    stopStream();
     sendEvent(nodeId, null);
-  }, [stream, nodeId, sendEvent]);
+  }, [stopStream, nodeId, sendEvent]);
 
   return (
     <div className="mb-3" title={help || undefined}>
@@ -96,8 +144,12 @@ export const CameraInput: React.FC<NodeComponentProps> = ({
             muted
             className="rounded-md border max-w-sm"
           />
+          {!isVideoReady && (
+            <p className="text-xs text-muted-foreground">Starting camera preview...</p>
+          )}
           <button
             onClick={capture}
+            disabled={!isVideoReady}
             className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
           >
             Capture
@@ -112,6 +164,7 @@ export const CameraInput: React.FC<NodeComponentProps> = ({
           Open Camera
         </button>
       )}
+      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
       <canvas ref={canvasRef} className="hidden" />
     </div>
   );

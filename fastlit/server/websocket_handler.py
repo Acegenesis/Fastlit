@@ -284,6 +284,47 @@ async def _run_in_worker(fn):
         )
 
 
+async def _run_session_op_with_runtime_events(
+    fn,
+    *,
+    session: Session,
+    websocket: WebSocket,
+    node_cache: dict[str, dict],
+):
+    """Run a session op and forward runtime events (spinner, etc.) live."""
+    run_semaphore, _ = _get_sync_primitives()
+    async with run_semaphore:
+        loop = asyncio.get_running_loop()
+        future = loop.run_in_executor(_RUN_EXECUTOR, fn)
+        deadline = loop.time() + _RUN_TIMEOUT_SECONDS
+
+        while True:
+            # Flush runtime events emitted by the running script.
+            events = session.drain_runtime_events()
+            for event in events:
+                await _send_payload(
+                    websocket,
+                    {"type": "runtime_event", "event": event},
+                    node_cache=node_cache,
+                )
+
+            if future.done():
+                # Final flush before returning.
+                events = session.drain_runtime_events()
+                for event in events:
+                    await _send_payload(
+                        websocket,
+                        {"type": "runtime_event", "event": event},
+                        node_cache=node_cache,
+                    )
+                return future.result()
+
+            if loop.time() >= deadline:
+                raise asyncio.TimeoutError()
+
+            await asyncio.sleep(0.01)
+
+
 async def _stream_generator_to_client(
     websocket: WebSocket,
     session: Session,
@@ -359,8 +400,11 @@ async def _run_fragment_timer(
     while True:
         await asyncio.sleep(interval_s)
         try:
-            result = await _run_in_worker(
-                lambda: session.run_fragment(fragment_id)
+            result = await _run_session_op_with_runtime_events(
+                lambda: session.run_fragment(fragment_id),
+                session=session,
+                websocket=websocket,
+                node_cache=node_cache,
             )
             if result is not None:
                 await _send_payload(websocket, result.to_dict(), node_cache=node_cache)
@@ -510,7 +554,12 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
         # Initial render.
         try:
             t_run0 = time.perf_counter()
-            result = await _run_in_worker(session.run)
+            result = await _run_session_op_with_runtime_events(
+                session.run,
+                session=session,
+                websocket=websocket,
+                node_cache=node_cache,
+            )
             t_run1 = time.perf_counter()
             metrics.record_run((t_run1 - t_run0) * 1000)
         except asyncio.TimeoutError:
@@ -621,22 +670,50 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
                 t2 = time.perf_counter()
                 did_full_run = False
                 if has_non_fragment_event:
-                    result = await _run_in_worker(session.run)
+                    result = await _run_session_op_with_runtime_events(
+                        session.run,
+                        session=session,
+                        websocket=websocket,
+                        node_cache=node_cache,
+                    )
                     did_full_run = True
                 elif len(fragment_ids) == 1:
-                    result = await _run_in_worker(
-                        lambda: session.run_fragment(fragment_ids[0])
+                    result = await _run_session_op_with_runtime_events(
+                        lambda: session.run_fragment(fragment_ids[0]),
+                        session=session,
+                        websocket=websocket,
+                        node_cache=node_cache,
                     )
                     if result is None:
-                        result = await _run_in_worker(session.run)
+                        result = await _run_session_op_with_runtime_events(
+                            session.run,
+                            session=session,
+                            websocket=websocket,
+                            node_cache=node_cache,
+                        )
                         did_full_run = True
                 elif len(fragment_ids) > 1:
-                    result = await _run_in_worker(lambda: session.run_fragments(fragment_ids))
+                    result = await _run_session_op_with_runtime_events(
+                        lambda: session.run_fragments(fragment_ids),
+                        session=session,
+                        websocket=websocket,
+                        node_cache=node_cache,
+                    )
                     if result is None:
-                        result = await _run_in_worker(session.run)
+                        result = await _run_session_op_with_runtime_events(
+                            session.run,
+                            session=session,
+                            websocket=websocket,
+                            node_cache=node_cache,
+                        )
                         did_full_run = True
                 else:
-                    result = await _run_in_worker(session.run)
+                    result = await _run_session_op_with_runtime_events(
+                        session.run,
+                        session=session,
+                        websocket=websocket,
+                        node_cache=node_cache,
+                    )
                     did_full_run = True
 
                 t3 = time.perf_counter()

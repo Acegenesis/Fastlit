@@ -16,7 +16,7 @@ import { SidebarContext } from "./context/SidebarContext";
 import { Toaster } from "@/components/ui/sonner";
 import { PageSkeleton } from "./components/layout/PageSkeleton";
 import { cn } from "@/lib/utils";
-import type { UINode, ErrorMessage } from "./runtime/types";
+import type { UINode, ErrorMessage, RuntimeEventPayload } from "./runtime/types";
 
 type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
@@ -67,6 +67,7 @@ export const App: React.FC = () => {
   const [isNavigating, setIsNavigating] = useState(false);
   const [layout, setLayout] = useState<string>("centered");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [runtimeSpinners, setRuntimeSpinners] = useState<Map<string, string>>(new Map());
   const wsRef = useRef<FastlitWS | null>(null);
   const storeRef = useRef(new WidgetStoreImpl());
 
@@ -245,7 +246,12 @@ export const App: React.FC = () => {
     const ws = new FastlitWS();
     wsRef.current = ws;
 
-    ws.onStatusChange(setStatus);
+    ws.onStatusChange((nextStatus) => {
+      setStatus(nextStatus);
+      if (nextStatus !== "connected") {
+        setRuntimeSpinners(new Map());
+      }
+    });
 
     ws.onRenderFull((msg) => {
       lastServerRevRef.current = Math.max(lastServerRevRef.current, msg.rev);
@@ -394,6 +400,16 @@ export const App: React.FC = () => {
     });
 
     ws.onError((msg) => setError(msg));
+    ws.onRuntimeEvent((msg) => {
+      const event: RuntimeEventPayload = msg.event;
+      if (event.kind !== "spinner") return;
+      setRuntimeSpinners((prev) => {
+        const next = new Map(prev);
+        if (event.active) next.set(event.id, event.text || "Loading...");
+        else next.delete(event.id);
+        return next;
+      });
+    });
     ws.connect();
 
     return () => ws.disconnect();
@@ -548,6 +564,22 @@ export const App: React.FC = () => {
     <WidgetStoreProvider store={storeRef.current}>
       <SidebarContext.Provider value={{ collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed }}>
         <Toaster position="bottom-right" />
+        {runtimeSpinners.size > 0 && (
+          <div className="fixed top-3 right-3 z-50 flex flex-col gap-2">
+            {Array.from(runtimeSpinners.entries()).map(([id, text]) => (
+              <div
+                key={id}
+                className="flex items-center gap-3 rounded-md border bg-white px-3 py-2 shadow-sm"
+              >
+                <div className="relative">
+                  <div className="w-5 h-5 border-2 border-gray-200 rounded-full" />
+                  <div className="absolute inset-0 w-5 h-5 border-2 border-blue-500 rounded-full border-t-transparent animate-spin" />
+                </div>
+                <span className="text-gray-700 text-sm">{text}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {sidebarNodes.map((node) => (
           <NodeRenderer key={node.id} node={node} sendEvent={sendEvent} />

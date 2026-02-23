@@ -50,11 +50,24 @@ export interface ErrorMessage {
   traceback?: string;
 }
 
+export interface RuntimeEventPayload {
+  kind: "spinner";
+  id: string;
+  text: string;
+  active: boolean;
+}
+
+export interface RuntimeEventMessage {
+  type: "runtime_event";
+  event: RuntimeEventPayload;
+}
+
 export type ServerMessage =
   | RenderFullMessage
   | RenderPatchMessage
   | RenderPatchCompactMessage
   | RenderPatchCompressedMessage
+  | RuntimeEventMessage
   | ErrorMessage;
 
 // --- Client to Server ---

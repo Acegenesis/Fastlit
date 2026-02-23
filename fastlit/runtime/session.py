@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import uuid
 from typing import Any
 
@@ -67,12 +68,16 @@ class Session:
         # Per-fragment auto-refresh intervals (seconds).  NOT cleared each run
         # so the WS handler can sync asyncio timers across full runs.
         self._fragment_run_every: dict[str, float] = {}
+        # Runtime events emitted from script thread (e.g. spinner enter/exit).
+        self._runtime_events: list[dict[str, Any]] = []
+        self._runtime_events_lock = threading.Lock()
 
     def run(self) -> RenderFull | RenderPatch:
         """Execute the script and return either a full render or a patch."""
         new_tree: UITree | None = None
         for _attempt in range(max(1, self._MAX_RERUNS)):
             self._deferred_streams.clear()
+            self.clear_runtime_events()
             self._id_counters = {}
             self._fragment_registry.clear()
             self._widget_to_fragment.clear()
@@ -148,6 +153,25 @@ class Session:
         for fragment_id in list(self._fragment_run_every):
             if fragment_id not in active_fragment_ids:
                 del self._fragment_run_every[fragment_id]
+
+    def emit_runtime_event(self, event: dict[str, Any]) -> None:
+        """Emit a runtime event from script execution (thread-safe)."""
+        with self._runtime_events_lock:
+            self._runtime_events.append(event)
+
+    def drain_runtime_events(self) -> list[dict[str, Any]]:
+        """Drain pending runtime events (thread-safe)."""
+        with self._runtime_events_lock:
+            if not self._runtime_events:
+                return []
+            events = self._runtime_events[:]
+            self._runtime_events.clear()
+            return events
+
+    def clear_runtime_events(self) -> None:
+        """Clear runtime event queue (thread-safe)."""
+        with self._runtime_events_lock:
+            self._runtime_events.clear()
 
     def handle_widget_event(self, widget_id: str, value: Any) -> RenderFull | RenderPatch:
         """Process a widget event and return the resulting render message."""

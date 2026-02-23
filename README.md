@@ -92,6 +92,7 @@ Open http://localhost:8501 in your browser.
 
 - [Text Elements](#text-elements)
 - [Auto-generated API Reference](#auto-generated-api-reference)
+- [Recent Additions](#recent-additions)
 - [Input Widgets](#input-widgets)
 - [Layout Components](#layout-components)
 - [Data Display](#data-display)
@@ -122,6 +123,39 @@ This file is generated from real Python signatures (source of truth):
 ```bash
 python scripts/generate_api_reference.py
 ```
+
+---
+
+## Recent Additions
+
+### 1) Live `st.spinner()` runtime behavior
+
+`st.spinner()` is now displayed immediately while the block is executing, then removed automatically when the block exits.
+
+```python
+if st.button("Run task"):
+    with st.spinner("Processing..."):
+        time.sleep(2)
+    st.success("Done")
+```
+
+### 2) New media input widgets in demo sections
+
+`st.camera_input()` and `st.audio_input()` now have dedicated demo sections with parameter docs and copy/paste examples.
+
+```python
+photo = st.camera_input("Take a picture")
+audio = st.audio_input("Record audio")
+```
+
+### 3) Cache behavior hardening
+
+- `my_cached_fn.clear()` now clears only that function's cache entries.
+- `@st.cache_resource` initialization is synchronized per cache key to prevent duplicate construction races.
+
+### 4) `st.secrets` auto-reload
+
+`st.secrets` now reloads when the active `secrets.toml` file changes (path/mtime), which improves dev/hot-reload workflows.
 
 ---
 
@@ -1727,6 +1761,11 @@ st.progress(
 ### st.spinner()
 
 Display a loading spinner (context manager).
+
+Behavior:
+- Spinner appears immediately while the block executes.
+- Spinner is removed automatically when the block exits.
+- Works with both full reruns and fragment reruns.
 
 ```python
 with st.spinner("Loading..."):
