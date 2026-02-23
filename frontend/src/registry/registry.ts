@@ -180,12 +180,17 @@ const chunkPrefetchers: Record<string, () => Promise<unknown>> = {
 
 // Control nodes that render nothing (processed by App.tsx as side-effects)
 const NullComponent: ComponentType<NodeComponentProps> = () => null as any;
+const Subheader: ComponentType<NodeComponentProps> = (nodeProps) =>
+  React.createElement(Header, {
+    ...nodeProps,
+    props: { ...nodeProps.props, _level: 3 },
+  } as NodeComponentProps);
 
 const registry: Record<string, ComponentType<NodeComponentProps>> = {
   // Text elements
   title: Title,
   header: Header,
-  subheader: Header,
+  subheader: Subheader,
   markdown: Markdown,
   text: Text,
   code: Code,

@@ -158,14 +158,19 @@ def slider(
     if max_value is None:
         max_value = 100
 
-    # Detect range mode
-    is_range = isinstance(value, (tuple, list))
-
     if value is None:
         value = min_value
 
+    # Detect range mode after defaulting scalar None.
+    is_range = isinstance(value, (tuple, list))
+
     if is_range:
-        lo, hi = value[0], value[1]
+        if len(value) != 2:
+            raise ValueError("Range slider value must be a tuple/list of length 2.")
+        lo_raw, hi_raw = value[0], value[1]
+        lo = min_value if lo_raw is None else lo_raw
+        hi = max_value if hi_raw is None else hi_raw
+        value = (lo, hi)
         ref_val = lo
     else:
         ref_val = value
@@ -210,9 +215,11 @@ def slider(
 
     if is_range:
         if isinstance(current, list) and len(current) == 2:
+            cur_lo = lo if current[0] is None else current[0]
+            cur_hi = hi if current[1] is None else current[1]
             if is_int_slider:
-                return WidgetValue((int(current[0]), int(current[1])), node.id)
-            return WidgetValue((float(current[0]), float(current[1])), node.id)
+                return WidgetValue((int(cur_lo), int(cur_hi)), node.id)
+            return WidgetValue((float(cur_lo), float(cur_hi)), node.id)
         if is_int_slider:
             return WidgetValue((int(lo), int(hi)), node.id)
         return WidgetValue((float(lo), float(hi)), node.id)
@@ -1729,8 +1736,14 @@ def camera_input(
     stored = session.widget_store.get(node.id)
 
     if stored and isinstance(stored, dict):
-        _run_callback(on_change, args, kwargs)
-        return _make_uploaded_file(stored)
+        max_size_bytes = _max_upload_bytes()
+        file_obj, err = _make_uploaded_file(stored, max_size_bytes)
+        if err:
+            _emit_upload_warning(err)
+            return None
+        if file_obj is not None:
+            _run_callback(on_change, args, kwargs)
+        return file_obj
     return None
 
 
@@ -1780,6 +1793,12 @@ def audio_input(
     stored = session.widget_store.get(node.id)
 
     if stored and isinstance(stored, dict):
-        _run_callback(on_change, args, kwargs)
-        return _make_uploaded_file(stored)
+        max_size_bytes = _max_upload_bytes()
+        file_obj, err = _make_uploaded_file(stored, max_size_bytes)
+        if err:
+            _emit_upload_warning(err)
+            return None
+        if file_obj is not None:
+            _run_callback(on_change, args, kwargs)
+        return file_obj
     return None

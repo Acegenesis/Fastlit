@@ -70,7 +70,9 @@ class Session:
 
     def run(self) -> RenderFull | RenderPatch:
         """Execute the script and return either a full render or a patch."""
-        for _attempt in range(self._MAX_RERUNS):
+        new_tree: UITree | None = None
+        for _attempt in range(max(1, self._MAX_RERUNS)):
+            self._deferred_streams.clear()
             self._id_counters = {}
             self._fragment_registry.clear()
             self._widget_to_fragment.clear()
@@ -97,11 +99,13 @@ class Session:
             finally:
                 clear_current_session()
 
+            self._prune_fragment_state()
             self.rev += 1
             if self._previous_tree is None:
                 self._previous_tree = new_tree
                 self._previous_tree_index = new_tree.build_index()
                 if script_error:
+                    self._deferred_streams.clear()
                     raise script_error
                 return RenderFull(rev=self.rev, tree=new_tree.to_dict())
 
@@ -111,10 +115,13 @@ class Session:
             self._previous_tree = new_tree
             self._previous_tree_index = new_tree.build_index()
             if script_error:
+                self._deferred_streams.clear()
                 raise script_error
             return RenderPatch(rev=self.rev, ops=ops or [])
 
         # Exhausted reruns.
+        if new_tree is None:
+            new_tree = UITree()
         self.rev += 1
         if self._previous_tree is None:
             self._previous_tree = new_tree
@@ -125,6 +132,22 @@ class Session:
         self._previous_tree = new_tree
         self._previous_tree_index = new_tree.build_index()
         return RenderPatch(rev=self.rev, ops=ops or [])
+
+    def _prune_fragment_state(self) -> None:
+        """Drop fragment state for fragments not registered in the latest full run."""
+        active_fragment_ids = set(self._fragment_registry)
+        if not active_fragment_ids:
+            self._fragment_subtrees.clear()
+            self._fragment_run_every.clear()
+            return
+
+        for fragment_id in list(self._fragment_subtrees):
+            if fragment_id not in active_fragment_ids:
+                del self._fragment_subtrees[fragment_id]
+
+        for fragment_id in list(self._fragment_run_every):
+            if fragment_id not in active_fragment_ids:
+                del self._fragment_run_every[fragment_id]
 
     def handle_widget_event(self, widget_id: str, value: Any) -> RenderFull | RenderPatch:
         """Process a widget event and return the resulting render message."""

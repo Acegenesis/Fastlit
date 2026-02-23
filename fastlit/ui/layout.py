@@ -41,7 +41,11 @@ class _ContainerProxy:
         if self._clear_on_enter:
             self._node.children.clear()
         if self._append_on_enter:
-            tree.append(self._node)
+            # Avoid appending the same container node multiple times when
+            # methods are called via proxy (e.g. container.write(...)).
+            already_attached = any(child is self._node for child in tree.current_container.children)
+            if not already_attached and tree.current_container is not self._node:
+                tree.append(self._node)
         tree.push_container(self._node)
         return self
 
@@ -56,6 +60,16 @@ class _ContainerProxy:
             raise AttributeError(f"{self._name} has no attribute '{name}'")
 
         def wrapper(*a, **kw):
+            session = get_current_session()
+            tree = session.current_tree
+
+            # If we're already inside this container context, avoid re-entering
+            # it; re-entry can duplicate nodes in the tree.
+            if tree.current_container is self._node:
+                if self._clear_on_call:
+                    self._node.children.clear()
+                return func(*a, **kw)
+
             with self:
                 if self._clear_on_call:
                     self._node.children.clear()

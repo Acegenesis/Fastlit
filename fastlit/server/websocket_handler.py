@@ -62,9 +62,25 @@ _MAX_SESSION_STATE_BYTES = max(
 _MAX_TREE_NODES = max(0, int(os.environ.get("FASTLIT_MAX_TREE_NODES", "200000")))
 
 _RUN_EXECUTOR = ThreadPoolExecutor(max_workers=_MAX_CONCURRENT_RUNS)
-_RUN_SEMAPHORE = asyncio.Semaphore(_MAX_CONCURRENT_RUNS)
-_SESSIONS_LOCK = asyncio.Lock()
+_RUN_SEMAPHORE: asyncio.Semaphore | None = None
+_SESSIONS_LOCK: asyncio.Lock | None = None
+_SYNC_PRIMITIVES_LOOP: asyncio.AbstractEventLoop | None = None
 _ACTIVE_SESSIONS: set[str] = set()
+
+
+def _get_sync_primitives() -> tuple[asyncio.Semaphore, asyncio.Lock]:
+    """Get event-loop-local asyncio primitives."""
+    loop = asyncio.get_running_loop()
+    global _RUN_SEMAPHORE, _SESSIONS_LOCK, _SYNC_PRIMITIVES_LOOP
+    if (
+        _SYNC_PRIMITIVES_LOOP is not loop
+        or _RUN_SEMAPHORE is None
+        or _SESSIONS_LOCK is None
+    ):
+        _RUN_SEMAPHORE = asyncio.Semaphore(_MAX_CONCURRENT_RUNS)
+        _SESSIONS_LOCK = asyncio.Lock()
+        _SYNC_PRIMITIVES_LOOP = loop
+    return _RUN_SEMAPHORE, _SESSIONS_LOCK
 
 
 def _json_loads(raw: str):
@@ -259,7 +275,8 @@ def _parse_widget_event(raw: str) -> WidgetEvent | None:
 
 async def _run_in_worker(fn):
     """Run a blocking session operation in a bounded thread pool."""
-    async with _RUN_SEMAPHORE:
+    run_semaphore, _ = _get_sync_primitives()
+    async with run_semaphore:
         loop = asyncio.get_running_loop()
         return await asyncio.wait_for(
             loop.run_in_executor(_RUN_EXECUTOR, fn),
@@ -465,7 +482,8 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
     session = Session(script_path)
     admitted = False
 
-    async with _SESSIONS_LOCK:
+    _, sessions_lock = _get_sync_primitives()
+    async with sessions_lock:
         if _MAX_SESSIONS > 0 and len(_ACTIVE_SESSIONS) >= _MAX_SESSIONS:
             metrics.on_session_rejected()
             await websocket.close(code=1013, reason="Server at capacity")
@@ -698,7 +716,7 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
             reader_task.cancel()
             try:
                 await reader_task
-            except Exception:  # noqa: BLE001
+            except BaseException:  # noqa: BLE001
                 pass
 
         # Cancel all fragment auto-refresh timers tied to this connection.
@@ -709,7 +727,8 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
             fragment_timers.clear()
 
         if admitted:
-            async with _SESSIONS_LOCK:
+            _, sessions_lock = _get_sync_primitives()
+            async with sessions_lock:
                 _ACTIVE_SESSIONS.discard(session.session_id)
             metrics.on_session_closed()
         logger.info("Session %s closed", session.session_id)

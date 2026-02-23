@@ -1,4 +1,4 @@
-"""Secrets management for Fastlit — st.secrets."""
+"""Secrets management for Fastlit - st.secrets."""
 
 from __future__ import annotations
 
@@ -25,15 +25,27 @@ class _AttrDict(dict):
         self[name] = value
 
 
-def _load_secrets() -> _AttrDict:
-    """Load secrets from secrets.toml or .streamlit/secrets.toml."""
-    candidates = [
+def _candidate_secret_paths() -> list[Path]:
+    env_path = os.environ.get("FASTLIT_SECRETS_PATH", "secrets.toml")
+    return [
         Path("secrets.toml"),
         Path(".streamlit") / "secrets.toml",
-        Path(os.environ.get("FASTLIT_SECRETS_PATH", "secrets.toml")),
+        Path(env_path),
     ]
 
-    for path in candidates:
+
+def _active_secret_signature() -> tuple[str, int]:
+    """Return (path, mtime_ns) for the active secrets file, or empty signature."""
+    for path in _candidate_secret_paths():
+        if path.exists():
+            stat = path.stat()
+            return str(path.resolve()), int(stat.st_mtime_ns)
+    return ("", 0)
+
+
+def _load_secrets() -> _AttrDict:
+    """Load secrets from secrets.toml or .streamlit/secrets.toml."""
+    for path in _candidate_secret_paths():
         if path.exists():
             try:
                 import tomllib  # Python 3.11+
@@ -41,7 +53,6 @@ def _load_secrets() -> _AttrDict:
                 try:
                     import tomli as tomllib  # type: ignore[no-redef]
                 except ImportError:
-                    # Neither available — return empty
                     return _AttrDict()
 
             with open(path, "rb") as f:
@@ -52,14 +63,23 @@ def _load_secrets() -> _AttrDict:
 
 
 class _SecretsProxy:
-    """Lazy-loaded secrets proxy. Loads secrets.toml on first access."""
+    """Lazy-loaded secrets proxy with file-change based reload."""
 
-    _loaded: _AttrDict | None = None
+    def __init__(self) -> None:
+        self._loaded: _AttrDict | None = None
+        self._loaded_signature: tuple[str, int] | None = None
 
     def _get(self) -> _AttrDict:
-        if self._loaded is None:
+        signature = _active_secret_signature()
+        if self._loaded is None or self._loaded_signature != signature:
             self._loaded = _load_secrets()
+            self._loaded_signature = signature
         return self._loaded
+
+    def clear(self) -> None:
+        """Drop the in-memory cache so secrets reload on next access."""
+        self._loaded = None
+        self._loaded_signature = None
 
     def __getitem__(self, key: str):
         return self._get()[key]
@@ -89,3 +109,4 @@ class _SecretsProxy:
     def __repr__(self) -> str:
         keys = list(self._get().keys())
         return f"Secrets(keys={keys})"
+
