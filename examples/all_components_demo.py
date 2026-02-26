@@ -4321,8 +4321,11 @@ function setHeight(px) {
             "pour renvoyer une valeur à Python à chaque clic."
         )
 
-        step = st.number_input("Step", min_value=1, max_value=10, value=1, key="counter_step")
-        init = st.number_input("Initial value", value=0, key="counter_init")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            step = st.slider("Step", min_value=1, max_value=10, value=1, key="counter_step")
+        with col_b:
+            init = st.slider("Initial value", min_value=0, max_value=50, value=0, key="counter_init")
 
         # int() extracts the real numeric value — WidgetValue.__format__ would inject
         # a live-update marker meant for st.write/markdown, not for raw HTML strings.

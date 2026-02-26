@@ -25,6 +25,12 @@ _STATE: dict[str, Any] = {
     "max_payload_bytes": 0,
     "last_message_type": None,
     "total_events_dropped": 0,
+    "total_ws_origin_rejected": 0,
+    "total_ws_auth_rejected": 0,
+    "total_ws_rate_limited": 0,
+    "total_ws_ip_banned": 0,
+    "total_ws_ip_blocked": 0,
+    "total_http_rate_limited": 0,
 }
 _RUN_SAMPLES = deque(maxlen=2048)
 _PAYLOAD_SAMPLES = deque(maxlen=2048)
@@ -97,6 +103,36 @@ def record_outbound_message(
 def record_dropped_event(count: int = 1) -> None:
     with _LOCK:
         _STATE["total_events_dropped"] += max(0, int(count))
+
+
+def record_ws_origin_rejected(count: int = 1) -> None:
+    with _LOCK:
+        _STATE["total_ws_origin_rejected"] += max(0, int(count))
+
+
+def record_ws_auth_rejected(count: int = 1) -> None:
+    with _LOCK:
+        _STATE["total_ws_auth_rejected"] += max(0, int(count))
+
+
+def record_ws_rate_limited(count: int = 1) -> None:
+    with _LOCK:
+        _STATE["total_ws_rate_limited"] += max(0, int(count))
+
+
+def record_ws_ip_blocked(count: int = 1) -> None:
+    with _LOCK:
+        _STATE["total_ws_ip_blocked"] += max(0, int(count))
+
+
+def record_ws_ip_banned(count: int = 1) -> None:
+    with _LOCK:
+        _STATE["total_ws_ip_banned"] += max(0, int(count))
+
+
+def record_http_rate_limited(count: int = 1) -> None:
+    with _LOCK:
+        _STATE["total_http_rate_limited"] += max(0, int(count))
 
 
 def snapshot() -> dict[str, Any]:

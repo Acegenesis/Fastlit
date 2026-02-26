@@ -96,6 +96,31 @@ export class FastlitWS {
     // Default: connect to same host on /ws
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     this.url = url ?? `${protocol}//${window.location.host}/ws`;
+
+    // Optional WS auth bootstrap: forward page query token to /ws.
+    // Example: http://host:8501/?fastlit_ws_token=secret
+    const searchParams = new URLSearchParams(window.location.search);
+    const token = searchParams.get("fastlit_ws_token");
+    if (token) {
+      try {
+        const wsUrl = new URL(this.url);
+        if (!wsUrl.searchParams.has("token")) {
+          wsUrl.searchParams.set("token", token);
+          this.url = wsUrl.toString();
+        }
+      } catch {
+        // Keep original URL when parsing fails.
+      }
+      // Redact token from the browser URL/history after bootstrapping WS auth.
+      try {
+        searchParams.delete("fastlit_ws_token");
+        const query = searchParams.toString();
+        const cleanUrl = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
+        window.history.replaceState(window.history.state, "", cleanUrl);
+      } catch {
+        // Best effort only.
+      }
+    }
   }
 
   connect(): void {

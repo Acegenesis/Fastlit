@@ -10,7 +10,7 @@ import { FastlitWS } from "./runtime/ws";
 import { applyPatch } from "./runtime/patcher";
 import { applyPatchAsync } from "./runtime/patchWorkerClient";
 import { NodeRenderer } from "./registry/NodeRenderer";
-import { prefetchDefaultChunks, prefetchLikelyChunks } from "./registry/registry";
+import { prefetchLikelyChunks } from "./registry/registry";
 import { WidgetStoreProvider, WidgetStoreImpl } from "./context/WidgetStore";
 import { SidebarContext } from "./context/SidebarContext";
 import { Toaster } from "@/components/ui/sonner";
@@ -36,6 +36,13 @@ function getPageFromUrl(): string {
 // Page cache for instant navigation (LRU, max 20 entries)
 type PageCache = Map<string, UINode[]>;
 const PAGE_CACHE_MAX = 20;
+const PREFETCH_SKIP_TYPES = new Set([
+  "file_uploader",
+  "data_editor",
+  "pdf",
+  "camera_input",
+  "audio_input",
+]);
 
 /** Set a page in the cache, evicting oldest if over limit */
 function setCacheEntry(cache: PageCache, slug: string, content: UINode[]) {
@@ -65,7 +72,7 @@ export const App: React.FC = () => {
   const [error, setError] = useState<ErrorMessage | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [isNavigating, setIsNavigating] = useState(false);
-  const [layout, setLayout] = useState<string>("centered");
+  const [enableSidebarTransition, setEnableSidebarTransition] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [runtimeSpinners, setRuntimeSpinners] = useState<Map<string, string>>(new Map());
   const wsRef = useRef<FastlitWS | null>(null);
@@ -96,14 +103,26 @@ export const App: React.FC = () => {
 
   const idleHandleRef = useRef<number | null>(null);
   const prefetchedNodeTypesRef = useRef<Set<string>>(new Set());
-  const prefetchedDefaultsRef = useRef(false);
   const patchJobSeqRef = useRef(0);
+
+  // Remove the inline HTML skeleton (#sk) only once we have renderable content
+  // (or when connection definitively failed and we need to show an error state).
+  useEffect(() => {
+    if (!tree && status !== "disconnected" && !error) return;
+    document.getElementById("sk")?.remove();
+  }, [tree, status, error]);
+
+  // Avoid animating sidebar offset on first paint; enable transitions afterwards.
+  useEffect(() => {
+    if (!tree || enableSidebarTransition) return;
+    const id = window.setTimeout(() => setEnableSidebarTransition(true), 0);
+    return () => window.clearTimeout(id);
+  }, [tree, enableSidebarTransition]);
 
   // Listen for page-config events from PageConfig component (A1, A4)
   useEffect(() => {
     const handler = (e: Event) => {
-      const { layout: l, initialSidebarState } = (e as CustomEvent).detail;
-      if (l) setLayout(l);
+      const { initialSidebarState } = (e as CustomEvent).detail;
       if (initialSidebarState === "collapsed") setSidebarCollapsed(true);
       else if (initialSidebarState === "expanded") setSidebarCollapsed(false);
     };
@@ -500,6 +519,13 @@ export const App: React.FC = () => {
     return tree?.children?.some((c) => c.type === "sidebar") ?? false;
   }, [tree]);
 
+  // Keep the same horizontal reservation as the HTML shell before first render
+  // to avoid CLS when the sidebar appears.
+  const reserveSidebarOffset = useMemo(
+    () => !tree && status !== "disconnected" && !error,
+    [tree, status, error]
+  );
+
   const { sidebarNodes, mainNodes } = useMemo(() => {
     if (!tree?.children) {
       return { sidebarNodes: [] as UINode[], mainNodes: [] as UINode[] };
@@ -518,41 +544,51 @@ export const App: React.FC = () => {
   // still use margin-left:auto / margin-right:auto to center the content
   // within the remaining space. Setting marginLeft on .layout-main itself
   // would override the CSS `margin-left:auto` and break centering.
-  const offsetStyle: React.CSSProperties = hasSidebar
-    ? { marginLeft: sidebarCollapsed ? 0 : 256, transition: "margin-left 200ms ease" }
+  const offsetStyle: React.CSSProperties = (hasSidebar || reserveSidebarOffset)
+    ? {
+        marginLeft: sidebarCollapsed ? 0 : 256,
+        transition:
+          enableSidebarTransition && !reserveSidebarOffset
+            ? "margin-left 200ms ease"
+            : undefined,
+      }
     : {};
 
-  // Prefetch likely chunks when browser is idle.
+  // Prefetch likely chunks when browser is idle (without competing with initial load).
   useEffect(() => {
+    if (!tree) return;
+    const nav = navigator as Navigator & {
+      connection?: { saveData?: boolean; effectiveType?: string };
+    };
+    const effectiveType = String(nav.connection?.effectiveType ?? "").toLowerCase();
+    const avoidPrefetch = Boolean(
+      nav.connection?.saveData || effectiveType.includes("2g") || effectiveType.includes("3g")
+    );
+    if (avoidPrefetch) return;
+
     const scheduleIdle = (fn: () => void) => {
       const w = window as Window & {
         requestIdleCallback?: (cb: IdleRequestCallback, opts?: IdleRequestOptions) => number;
       };
       if (w.requestIdleCallback) {
-        idleHandleRef.current = w.requestIdleCallback(() => fn(), { timeout: 1200 });
+        idleHandleRef.current = w.requestIdleCallback(() => fn(), { timeout: 4000 });
       } else {
-        idleHandleRef.current = window.setTimeout(fn, 500);
+        idleHandleRef.current = window.setTimeout(fn, 1500);
       }
     };
     scheduleIdle(() => {
-      if (!prefetchedDefaultsRef.current) {
-        prefetchedDefaultsRef.current = true;
-        prefetchDefaultChunks().catch(() => undefined);
+      const nodeTypes: string[] = [];
+      const stack = [tree];
+      while (stack.length > 0) {
+        const n = stack.pop()!;
+        if (!prefetchedNodeTypesRef.current.has(n.type) && !PREFETCH_SKIP_TYPES.has(n.type)) {
+          nodeTypes.push(n.type);
+          prefetchedNodeTypesRef.current.add(n.type);
+        }
+        if (n.children) stack.push(...n.children);
       }
-      if (tree) {
-        const nodeTypes: string[] = [];
-        const stack = [tree];
-        while (stack.length > 0) {
-          const n = stack.pop()!;
-          if (!prefetchedNodeTypesRef.current.has(n.type)) {
-            nodeTypes.push(n.type);
-            prefetchedNodeTypesRef.current.add(n.type);
-          }
-          if (n.children) stack.push(...n.children);
-        }
-        if (nodeTypes.length > 0) {
-          prefetchLikelyChunks(nodeTypes).catch(() => undefined);
-        }
+      if (nodeTypes.length > 0) {
+        prefetchLikelyChunks(nodeTypes).catch(() => undefined);
       }
     });
     return () => {
@@ -594,11 +630,6 @@ export const App: React.FC = () => {
         <div style={offsetStyle}>
         {/* Inner div: .layout-main centers via margin:auto within the remaining space */}
         <div className="layout-main">
-          {status === "connecting" && (
-            <div className="mb-4 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-700">
-              Connecting to Fastlit server...
-            </div>
-          )}
           {status === "disconnected" && (
             <div className="mb-4 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
               Disconnected. Reconnecting...
@@ -617,7 +648,7 @@ export const App: React.FC = () => {
             </div>
           )}
 
-          {/* Show skeleton while navigating to uncached page */}
+          {/* Show skeleton only for uncached page navigation (initial load uses #sk overlay). */}
           {isNavigating && <PageSkeleton />}
 
           {/* Main content with fade transition */}
@@ -635,11 +666,6 @@ export const App: React.FC = () => {
             </div>
           )}
 
-          {!tree && !isNavigating && status === "connected" && (
-            <p className="text-muted-foreground text-sm">
-              Waiting for app to render...
-            </p>
-          )}
         </div>{/* .layout-main */}
         </div>{/* sidebar offset wrapper */}
       </SidebarContext.Provider>

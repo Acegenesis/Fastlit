@@ -1,10 +1,10 @@
-import { useEffect } from "react";
+import { useLayoutEffect } from "react";
 import type { NodeComponentProps } from "../../registry/registry";
 
 export const PageConfig: React.FC<NodeComponentProps> = ({ props }) => {
   const { pageTitle, pageIcon, layout, initialSidebarState } = props;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     // Update document title
     if (pageTitle) {
       document.title = pageTitle;

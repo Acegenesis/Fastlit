@@ -1,24 +1,9 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import DOMPurify from "dompurify";
-import katex from "katex";
-import "katex/dist/katex.min.css";
 import type { NodeComponentProps } from "../../registry/registry";
 import { useResolvedText } from "../../context/WidgetStore";
 import { highlightCode } from "../../utils/highlight";
-
-// Helper to render LaTeX using KaTeX
-const renderLatex = (latex: string, displayMode: boolean = false): string => {
-  try {
-    return katex.renderToString(latex, {
-      throwOnError: false,
-      displayMode,
-      output: "html",
-    });
-  } catch (err) {
-    console.error("KaTeX render error:", err);
-    return `<span class="text-red-500">${latex}</span>`;
-  }
-};
+import { loadKatex } from "../../utils/katexLoader";
 
 // Simple check if text contains HTML tags
 const containsHtml = (text: string): boolean => {
@@ -48,6 +33,21 @@ const sanitizeUrl = (url: string): string | null => {
     return null;
   }
   return null;
+};
+
+const RICH_MARKDOWN_HINTS =
+  /```|`|\$\$|(?<!\\)\$|:\w+(?:-background)?\[|:[a-z0-9_+-]+:|\[[^\]]+\]\([^)]+\)|^\s*[-*]\s+|^\s*\d+\.\s+|([ \t]*\|[^\n]+\n[ \t]*\|[\s\-:|]+)/m;
+const LATEX_HINTS = /\$\$[^$]+\$\$|(?<!\\)\$[^$\n]+?\$/;
+
+const needsRichMarkdownParsing = (text: string): boolean => {
+  if (RICH_MARKDOWN_HINTS.test(text)) return true;
+  return (
+    text.includes("~~") ||
+    text.includes("**") ||
+    text.includes("__") ||
+    text.includes("*") ||
+    text.includes("_")
+  );
 };
 
 // Emoji shortcode mapping (common emojis)
@@ -153,7 +153,10 @@ const bgColorClasses: Record<string, string> = {
 };
 
 // Basic markdown parsing for common patterns
-const parseMarkdown = (text: string): string => {
+const parseMarkdown = (
+  text: string,
+  renderLatex?: ((latex: string, displayMode?: boolean) => string) | null
+): string => {
   // Placeholders for raw HTML blocks extracted before any escaping
   const rawPlaceholders: string[] = [];
 
@@ -182,6 +185,7 @@ const parseMarkdown = (text: string): string => {
 
   // Process block math first: $$...$$
   processed = processed.replace(/\$\$([^$]+)\$\$/g, (_, latex) => {
+    if (!renderLatex) return `$$${latex}$$`;
     const placeholder = `___LATEX_BLOCK_${latexPlaceholders.length}___`;
     latexPlaceholders.push(renderLatex(latex.trim(), true));
     return placeholder;
@@ -189,6 +193,7 @@ const parseMarkdown = (text: string): string => {
   
   // Process inline math: $...$  (but not escaped \$)
   processed = processed.replace(/(?<!\\)\$([^$\n]+?)\$/g, (_, latex) => {
+    if (!renderLatex) return `$${latex}$`;
     const placeholder = `___LATEX_INLINE_${latexPlaceholders.length}___`;
     latexPlaceholders.push(renderLatex(latex.trim(), false));
     return placeholder;
@@ -311,6 +316,32 @@ const parseMarkdown = (text: string): string => {
 export const Markdown: React.FC<NodeComponentProps> = ({ props }) => {
   const resolved = useResolvedText(props.text, props._tpl, props._refs);
   const isStreaming = Boolean(props.isStreaming);
+  const hasHtml = useMemo(() => containsHtml(resolved), [resolved]);
+  const needsKatex = useMemo(
+    () => !hasHtml && LATEX_HINTS.test(resolved),
+    [hasHtml, resolved]
+  );
+  const [katexModule, setKatexModule] = useState<Awaited<ReturnType<typeof loadKatex>> | null>(
+    null
+  );
+
+  useEffect(() => {
+    if (!needsKatex || katexModule) return;
+    let cancelled = false;
+    loadKatex()
+      .then((mod) => {
+        if (!cancelled) setKatexModule(mod);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [needsKatex, katexModule]);
+
+  const shouldParseMarkdown = useMemo(
+    () => !hasHtml && needsRichMarkdownParsing(resolved),
+    [hasHtml, resolved]
+  );
 
   // Blinking cursor appended during active streaming.
   const cursor = isStreaming ? (
@@ -320,19 +351,51 @@ export const Markdown: React.FC<NodeComponentProps> = ({ props }) => {
     />
   ) : null;
 
-  // If the content contains HTML tags, sanitize and render
-  if (containsHtml(resolved)) {
-    const sanitized = DOMPurify.sanitize(resolved);
+  const html = useMemo(() => {
+    if (hasHtml) {
+      return DOMPurify.sanitize(resolved);
+    }
+    if (!shouldParseMarkdown) {
+      return "";
+    }
+
+    const latexRenderer = katexModule
+      ? (latex: string, displayMode: boolean = false) => {
+          try {
+            return katexModule.renderToString(latex, {
+              throwOnError: false,
+              displayMode,
+              output: "html",
+            });
+          } catch (err) {
+            console.error("KaTeX render error:", err);
+            return `<span class="text-red-500">${latex}</span>`;
+          }
+        }
+      : null;
+
+    return DOMPurify.sanitize(parseMarkdown(resolved, latexRenderer));
+  }, [hasHtml, resolved, shouldParseMarkdown, katexModule]);
+
+  // Fast path for plain text avoids expensive markdown regex + sanitization.
+  if (!hasHtml && !shouldParseMarkdown) {
     return (
-      <div className="text-gray-700 mb-2 leading-relaxed prose prose-sm max-w-none">
-        <span dangerouslySetInnerHTML={{ __html: sanitized }} />
+      <div className="text-gray-700 mb-2 leading-relaxed whitespace-pre-wrap break-words">
+        {resolved}
         {cursor}
       </div>
     );
   }
 
-  // Otherwise, parse simple markdown (memoized to avoid regex on every render)
-  const html = useMemo(() => DOMPurify.sanitize(parseMarkdown(resolved)), [resolved]);
+  // If the content contains HTML tags, sanitize and render
+  if (hasHtml) {
+    return (
+      <div className="text-gray-700 mb-2 leading-relaxed prose prose-sm max-w-none">
+        <span dangerouslySetInnerHTML={{ __html: html }} />
+        {cursor}
+      </div>
+    );
+  }
 
   return (
     <div className="text-gray-700 mb-2 leading-relaxed">

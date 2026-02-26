@@ -5,8 +5,41 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Fastlit</title>
     <link rel="icon" href="/favicon.ico" />
+    <!-- Inline skeleton: shown instantly before any JS loads, removed by React on mount -->
+    <style>
+      *{box-sizing:border-box}
+      #sk{position:fixed;inset:0;display:flex;background:#fff;z-index:9999}
+      #sk-sb{width:256px;background:#f8fafc;border-right:1px solid #e2e8f0;flex-shrink:0;padding:20px 16px;display:flex;flex-direction:column;gap:10px}
+      #sk-mn{flex:1;padding:40px 48px;display:flex;flex-direction:column;gap:16px;max-width:860px}
+      @keyframes sp{0%,100%{opacity:.3}50%{opacity:.65}}
+      .b{background:#e2e8f0;border-radius:5px;animation:sp 1.6s ease-in-out infinite}
+    </style>
   </head>
-  <body class="bg-white text-gray-900 antialiased">
+  <body class="layout-centered bg-white text-gray-900 antialiased">
+    <!-- HTML skeleton: visible before JS loads (improves FCP / Lighthouse score) -->
+    <div id="sk" aria-hidden="true">
+      <div id="sk-sb">
+        <div class="b" style="height:20px;width:70%"></div>
+        <div class="b" style="height:14px;width:88%;animation-delay:.1s"></div>
+        <div class="b" style="height:14px;width:68%;animation-delay:.2s"></div>
+        <div class="b" style="height:14px;width:82%;animation-delay:.3s"></div>
+        <div class="b" style="height:14px;width:74%;animation-delay:.4s"></div>
+        <div class="b" style="height:14px;width:60%;animation-delay:.5s"></div>
+      </div>
+      <div id="sk-mn">
+        <div class="b" style="height:28px;width:42%;animation-delay:.05s"></div>
+        <div class="b" style="height:14px;width:78%;animation-delay:.15s"></div>
+        <div class="b" style="height:14px;width:62%;animation-delay:.25s"></div>
+        <div style="display:flex;gap:14px;margin-top:4px">
+          <div class="b" style="height:80px;flex:1;animation-delay:.1s"></div>
+          <div class="b" style="height:80px;flex:1;animation-delay:.2s"></div>
+          <div class="b" style="height:80px;flex:1;animation-delay:.3s"></div>
+        </div>
+        <div class="b" style="height:120px;width:100%;animation-delay:.2s"></div>
+        <div class="b" style="height:14px;width:52%;animation-delay:.35s"></div>
+        <div class="b" style="height:14px;width:44%;animation-delay:.45s"></div>
+      </div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

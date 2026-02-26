@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -22,7 +23,7 @@ export const CustomComponent: React.FC<NodeComponentProps> = ({
   props,
   sendEvent,
 }) => {
-  const { componentUrl, args } = props as {
+  const { componentUrl, componentName, args } = props as {
     componentUrl: string;
     componentName: string;
     args: Record<string, unknown>;
@@ -40,8 +41,17 @@ export const CustomComponent: React.FC<NodeComponentProps> = ({
     argsRef.current = args;
   }, [args]);
 
+  const expectedOrigin = useMemo(() => {
+    try {
+      return new URL(componentUrl, window.location.origin).origin;
+    } catch {
+      return null;
+    }
+  }, [componentUrl]);
+
   /** Dispatch streamlit:render with the current args into the iframe. */
   const sendProps = useCallback(() => {
+    if (!expectedOrigin) return;
     iframeRef.current?.contentWindow?.postMessage(
       {
         type: "streamlit:render",
@@ -49,16 +59,18 @@ export const CustomComponent: React.FC<NodeComponentProps> = ({
         disabled: false,
         theme: {},
       },
-      "*",
+      expectedOrigin,
     );
-  }, []);
+  }, [expectedOrigin]);
 
   /** Listen for messages from the iframe. */
   useEffect(() => {
     const handleMessage = (ev: MessageEvent) => {
       // Only process messages from our own iframe
       if (ev.source !== iframeRef.current?.contentWindow) return;
+      if (!expectedOrigin || ev.origin !== expectedOrigin) return;
       const data = ev.data ?? {};
+      if (typeof data !== "object" || data === null) return;
       const msgType: string = data.type ?? "";
 
       if (msgType === "streamlit:componentReady") {
@@ -78,7 +90,7 @@ export const CustomComponent: React.FC<NodeComponentProps> = ({
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [nodeId, sendEvent, sendProps]);
+  }, [expectedOrigin, nodeId, sendEvent, sendProps]);
 
   /** Re-send props whenever args change (after the iframe is ready). */
   useEffect(() => {
@@ -99,6 +111,8 @@ export const CustomComponent: React.FC<NodeComponentProps> = ({
       ref={iframeRef}
       src={componentUrl}
       onLoad={handleLoad}
+      sandbox="allow-scripts allow-same-origin"
+      referrerPolicy="no-referrer"
       style={{
         width: "100%",
         height: `${frameHeight}px`,
@@ -106,7 +120,7 @@ export const CustomComponent: React.FC<NodeComponentProps> = ({
         display: "block",
       }}
       allow="camera; microphone"
-      title={`fastlit-component-${nodeId}`}
+      title={`fastlit-component-${componentName}-${nodeId}`}
     />
   );
 };

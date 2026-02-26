@@ -5,12 +5,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import hmac
 import json
 import logging
 import os
 import time
 import traceback
 import zlib
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
 from starlette.websockets import WebSocket, WebSocketDisconnect
@@ -30,6 +32,9 @@ _MAX_QUERY_PARAMS = 64
 _MAX_QUERY_KEY_LEN = 128
 _MAX_QUERY_VAL_LEN = 2048
 _MAX_WIDGET_ID_LEN = 512
+_SENSITIVE_QUERY_PARAM_KEYS = {
+    "token",  # internal WS auth token
+}
 _MAX_WS_MESSAGE_BYTES = int(
     os.environ.get("FASTLIT_MAX_WS_MESSAGE_BYTES", str(16 * 1024 * 1024))
 )
@@ -60,12 +65,48 @@ _MAX_SESSION_STATE_BYTES = max(
     0, int(os.environ.get("FASTLIT_MAX_SESSION_STATE_BYTES", str(8 * 1024 * 1024)))
 )
 _MAX_TREE_NODES = max(0, int(os.environ.get("FASTLIT_MAX_TREE_NODES", "200000")))
+_WS_REQUIRE_ORIGIN = os.environ.get("FASTLIT_WS_REQUIRE_ORIGIN", "0").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+_WS_AUTH_TOKEN = os.environ.get("FASTLIT_WS_AUTH_TOKEN", "").strip()
+_WS_MAX_CONNECTIONS_PER_IP = max(
+    0, int(os.environ.get("FASTLIT_WS_MAX_CONNECTIONS_PER_IP", "0"))
+)
+_WS_MAX_CONNECTS_PER_MINUTE = max(
+    0, int(os.environ.get("FASTLIT_WS_MAX_CONNECTS_PER_MINUTE", "0"))
+)
+_WS_MAX_EVENTS_PER_SECOND = max(
+    0, int(os.environ.get("FASTLIT_WS_MAX_EVENTS_PER_SECOND", "0"))
+)
+_WS_RATE_LIMIT_MAX_VIOLATIONS = max(
+    1, int(os.environ.get("FASTLIT_WS_RATE_LIMIT_MAX_VIOLATIONS", "3"))
+)
+_WS_BLOCK_SECONDS = max(
+    0.0, float(os.environ.get("FASTLIT_WS_BLOCK_SECONDS", "0"))
+)
+_WS_MAX_REJECTS_PER_WINDOW = max(
+    0, int(os.environ.get("FASTLIT_WS_MAX_REJECTS_PER_WINDOW", "0"))
+)
+_WS_REJECT_WINDOW_SECONDS = max(
+    1.0, float(os.environ.get("FASTLIT_WS_REJECT_WINDOW_SECONDS", "60"))
+)
+_WS_IP_STATE_GC_INTERVAL_SECONDS = max(
+    10.0, float(os.environ.get("FASTLIT_WS_IP_STATE_GC_INTERVAL_SECONDS", "60"))
+)
 
 _RUN_EXECUTOR = ThreadPoolExecutor(max_workers=_MAX_CONCURRENT_RUNS)
 _RUN_SEMAPHORE: asyncio.Semaphore | None = None
 _SESSIONS_LOCK: asyncio.Lock | None = None
 _SYNC_PRIMITIVES_LOOP: asyncio.AbstractEventLoop | None = None
 _ACTIVE_SESSIONS: set[str] = set()
+_IP_ACTIVE_CONNECTIONS: dict[str, int] = {}
+_IP_CONNECT_HISTORY: dict[str, deque[float]] = {}
+_IP_REJECT_HISTORY: dict[str, deque[float]] = {}
+_IP_BANNED_UNTIL: dict[str, float] = {}
+_LAST_IP_STATE_GC_MONOTONIC = 0.0
 
 
 def _get_sync_primitives() -> tuple[asyncio.Semaphore, asyncio.Lock]:
@@ -224,21 +265,138 @@ def _count_nodes(tree: dict | None) -> int:
     return count
 
 
+def _normalize_origin(value: str) -> str:
+    return value.strip().rstrip("/").lower()
+
+
 def _is_origin_allowed(websocket: WebSocket) -> bool:
     """Allow same-origin by default; allow explicit origins via env override."""
     origin = websocket.headers.get("origin")
     if not origin:
-        return True
+        return not _WS_REQUIRE_ORIGIN
 
     allowed = os.environ.get("FASTLIT_ALLOWED_ORIGINS", "").strip()
     if allowed:
-        allowed_origins = {o.strip() for o in allowed.split(",") if o.strip()}
-        return origin in allowed_origins
+        allowed_origins = {
+            _normalize_origin(o)
+            for o in allowed.split(",")
+            if o.strip()
+        }
+        if "*" in allowed_origins:
+            return True
+        return _normalize_origin(origin) in allowed_origins
 
     host = websocket.headers.get("host")
     if not host:
         return False
-    return origin in {f"http://{host}", f"https://{host}"}
+    return _normalize_origin(origin) in {
+        _normalize_origin(f"http://{host}"),
+        _normalize_origin(f"https://{host}"),
+    }
+
+
+def _extract_ws_token(websocket: WebSocket) -> str | None:
+    query_token = websocket.query_params.get("token")
+    if query_token:
+        return query_token
+
+    auth_header = websocket.headers.get("authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        bearer = auth_header[7:].strip()
+        if bearer:
+            return bearer
+
+    cookie_header = websocket.headers.get("cookie", "")
+    for part in cookie_header.split(";"):
+        item = part.strip()
+        if not item or "=" not in item:
+            continue
+        key, value = item.split("=", 1)
+        if key.strip() == "fastlit_ws_token":
+            token = value.strip()
+            if token:
+                return token
+    return None
+
+
+def _is_ws_auth_allowed(websocket: WebSocket) -> bool:
+    if not _WS_AUTH_TOKEN:
+        return True
+    presented = _extract_ws_token(websocket)
+    if not presented:
+        return False
+    return hmac.compare_digest(presented, _WS_AUTH_TOKEN)
+
+
+def _client_ip(websocket: WebSocket) -> str:
+    if websocket.client and websocket.client.host:
+        return websocket.client.host
+    return "unknown"
+
+
+def _trim_window(history: deque[float], now: float, window_seconds: float) -> None:
+    cutoff = now - window_seconds
+    while history and history[0] < cutoff:
+        history.popleft()
+
+
+def _is_ip_temporarily_blocked(client_ip: str, now: float) -> bool:
+    blocked_until = _IP_BANNED_UNTIL.get(client_ip)
+    if blocked_until is None:
+        return False
+    if now >= blocked_until:
+        _IP_BANNED_UNTIL.pop(client_ip, None)
+        return False
+    return True
+
+
+def _record_reject_and_maybe_block(client_ip: str, now: float) -> bool:
+    if _WS_BLOCK_SECONDS <= 0 or _WS_MAX_REJECTS_PER_WINDOW <= 0:
+        return False
+
+    history = _IP_REJECT_HISTORY.get(client_ip)
+    if history is None:
+        history = deque()
+        _IP_REJECT_HISTORY[client_ip] = history
+
+    _trim_window(history, now, _WS_REJECT_WINDOW_SECONDS)
+    history.append(now)
+    if len(history) < _WS_MAX_REJECTS_PER_WINDOW:
+        return False
+
+    _IP_BANNED_UNTIL[client_ip] = now + _WS_BLOCK_SECONDS
+    _IP_REJECT_HISTORY.pop(client_ip, None)
+    metrics.record_ws_ip_banned(1)
+    return True
+
+
+def _cleanup_ip_state(now: float, *, force: bool = False) -> None:
+    """Prune idle IP state maps to avoid unbounded growth over time."""
+    global _LAST_IP_STATE_GC_MONOTONIC
+
+    if not force and (now - _LAST_IP_STATE_GC_MONOTONIC) < _WS_IP_STATE_GC_INTERVAL_SECONDS:
+        return
+    _LAST_IP_STATE_GC_MONOTONIC = now
+
+    # Remove expired bans.
+    for ip, blocked_until in list(_IP_BANNED_UNTIL.items()):
+        if now >= blocked_until:
+            _IP_BANNED_UNTIL.pop(ip, None)
+
+    # Trim rolling histories and remove idle keys.
+    for ip, history in list(_IP_CONNECT_HISTORY.items()):
+        _trim_window(history, now, 60.0)
+        if not history and _IP_ACTIVE_CONNECTIONS.get(ip, 0) <= 0:
+            _IP_CONNECT_HISTORY.pop(ip, None)
+
+    for ip, history in list(_IP_REJECT_HISTORY.items()):
+        _trim_window(history, now, _WS_REJECT_WINDOW_SECONDS)
+        if (
+            not history
+            and _IP_ACTIVE_CONNECTIONS.get(ip, 0) <= 0
+            and ip not in _IP_BANNED_UNTIL
+        ):
+            _IP_REJECT_HISTORY.pop(ip, None)
 
 
 def _validate_and_copy_query_params(websocket: WebSocket, session: Session) -> bool:
@@ -250,6 +408,8 @@ def _validate_and_copy_query_params(websocket: WebSocket, session: Session) -> b
             return False
         if len(key) > _MAX_QUERY_KEY_LEN or len(value) > _MAX_QUERY_VAL_LEN:
             return False
+        if key.lower() in _SENSITIVE_QUERY_PARAM_KEYS:
+            continue
         session.query_params[key] = value
     return True
 
@@ -453,12 +613,51 @@ def _sync_fragment_timers(
 
 
 async def _ws_reader(
-    websocket: WebSocket, queue: asyncio.Queue[WidgetEvent | None]
+    websocket: WebSocket,
+    queue: asyncio.Queue[WidgetEvent | None],
+    *,
+    client_ip: str,
+    sessions_lock: asyncio.Lock,
 ) -> None:
     """Read and validate WS events into a bounded per-session queue."""
+    recent_events: deque[float] = deque()
+    violations = 0
     try:
         while True:
             raw = await websocket.receive_text()
+
+            if _WS_MAX_EVENTS_PER_SECOND > 0:
+                now = time.monotonic()
+                cutoff = now - 1.0
+                while recent_events and recent_events[0] < cutoff:
+                    recent_events.popleft()
+                if len(recent_events) >= _WS_MAX_EVENTS_PER_SECOND:
+                    violations += 1
+                    metrics.record_ws_rate_limited(1)
+                    metrics.record_dropped_event(1)
+                    if violations >= _WS_RATE_LIMIT_MAX_VIOLATIONS:
+                        logger.warning("WebSocket rate limit exceeded; closing connection")
+                        if _WS_BLOCK_SECONDS > 0 and _WS_MAX_REJECTS_PER_WINDOW > 0:
+                            async with sessions_lock:
+                                now2 = time.monotonic()
+                                if _record_reject_and_maybe_block(client_ip, now2):
+                                    logger.warning(
+                                        "Temporarily blocked IP %s for %.0fs after WS event abuse",
+                                        client_ip,
+                                        _WS_BLOCK_SECONDS,
+                                    )
+                        try:
+                            await websocket.close(
+                                code=1013, reason="WebSocket event rate limit exceeded"
+                            )
+                        except Exception:  # noqa: BLE001
+                            pass
+                        break
+                    continue
+                recent_events.append(now)
+                if violations > 0:
+                    violations -= 1
+
             event = _parse_widget_event(raw)
             if event is None:
                 logger.warning("Invalid or oversized WebSocket message")
@@ -519,20 +718,85 @@ def _coalesce_events(
 
 async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
     """Handle a single WebSocket connection."""
-    if not _is_origin_allowed(websocket):
-        await websocket.close(code=1008, reason="WebSocket origin not allowed")
-        return
-
     session = Session(script_path)
     admitted = False
+    client_ip = _client_ip(websocket)
 
     _, sessions_lock = _get_sync_primitives()
     async with sessions_lock:
+        now = time.monotonic()
+        _cleanup_ip_state(now)
+
+        if _is_ip_temporarily_blocked(client_ip, now):
+            metrics.on_session_rejected()
+            metrics.record_ws_ip_blocked(1)
+            await websocket.close(code=1013, reason="IP temporarily blocked")
+            return
+
+        if not _is_origin_allowed(websocket):
+            metrics.on_session_rejected()
+            metrics.record_ws_origin_rejected(1)
+            if _record_reject_and_maybe_block(client_ip, now):
+                logger.warning(
+                    "Temporarily blocked IP %s for %.0fs after origin rejects",
+                    client_ip,
+                    _WS_BLOCK_SECONDS,
+                )
+            await websocket.close(code=1008, reason="WebSocket origin not allowed")
+            return
+
+        if not _is_ws_auth_allowed(websocket):
+            metrics.on_session_rejected()
+            metrics.record_ws_auth_rejected(1)
+            if _record_reject_and_maybe_block(client_ip, now):
+                logger.warning(
+                    "Temporarily blocked IP %s for %.0fs after auth rejects",
+                    client_ip,
+                    _WS_BLOCK_SECONDS,
+                )
+            await websocket.close(code=1008, reason="WebSocket authentication failed")
+            return
+
+        if _WS_MAX_CONNECTS_PER_MINUTE > 0:
+            connect_history = _IP_CONNECT_HISTORY.get(client_ip)
+            if connect_history is None:
+                connect_history = deque()
+                _IP_CONNECT_HISTORY[client_ip] = connect_history
+            cutoff = now - 60.0
+            while connect_history and connect_history[0] < cutoff:
+                connect_history.popleft()
+            if len(connect_history) >= _WS_MAX_CONNECTS_PER_MINUTE:
+                metrics.on_session_rejected()
+                metrics.record_ws_rate_limited(1)
+                if _record_reject_and_maybe_block(client_ip, now):
+                    logger.warning(
+                        "Temporarily blocked IP %s for %.0fs after connect-rate rejects",
+                        client_ip,
+                        _WS_BLOCK_SECONDS,
+                    )
+                await websocket.close(code=1013, reason="Too many connection attempts")
+                return
+            connect_history.append(now)
+
+        ip_active = _IP_ACTIVE_CONNECTIONS.get(client_ip, 0)
+        if _WS_MAX_CONNECTIONS_PER_IP > 0 and ip_active >= _WS_MAX_CONNECTIONS_PER_IP:
+            metrics.on_session_rejected()
+            metrics.record_ws_rate_limited(1)
+            if _record_reject_and_maybe_block(client_ip, now):
+                logger.warning(
+                    "Temporarily blocked IP %s for %.0fs after active-connection rejects",
+                    client_ip,
+                    _WS_BLOCK_SECONDS,
+                )
+            await websocket.close(code=1013, reason="Too many active sessions for this IP")
+            return
+
         if _MAX_SESSIONS > 0 and len(_ACTIVE_SESSIONS) >= _MAX_SESSIONS:
             metrics.on_session_rejected()
             await websocket.close(code=1013, reason="Server at capacity")
             return
         _ACTIVE_SESSIONS.add(session.session_id)
+        _IP_ACTIVE_CONNECTIONS[client_ip] = ip_active + 1
         admitted = True
         metrics.on_session_opened()
 
@@ -549,7 +813,7 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
             await websocket.close(code=1008, reason="Invalid query parameters")
             return
 
-        logger.info("Session %s connected", session.session_id)
+        logger.info("Session %s connected (%s)", session.session_id, client_ip)
 
         # Initial render.
         try:
@@ -603,7 +867,14 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
                 await websocket.close(code=1013, reason="Tree too large")
                 return
 
-        reader_task = asyncio.create_task(_ws_reader(websocket, events_queue))
+        reader_task = asyncio.create_task(
+            _ws_reader(
+                websocket,
+                events_queue,
+                client_ip=client_ip,
+                sessions_lock=sessions_lock,
+            )
+        )
 
         while True:
             coalesce_window_s = _WS_COALESCE_WINDOW_MS / 1000.0
@@ -808,5 +1079,19 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
             # recreate loop-local primitives during teardown.
             async with sessions_lock:
                 _ACTIVE_SESSIONS.discard(session.session_id)
+                ip_active = _IP_ACTIVE_CONNECTIONS.get(client_ip, 0)
+                if ip_active <= 1:
+                    _IP_ACTIVE_CONNECTIONS.pop(client_ip, None)
+                else:
+                    _IP_ACTIVE_CONNECTIONS[client_ip] = ip_active - 1
+
+                history = _IP_CONNECT_HISTORY.get(client_ip)
+                if history:
+                    cutoff = time.monotonic() - 60.0
+                    while history and history[0] < cutoff:
+                        history.popleft()
+                    if not history and client_ip not in _IP_ACTIVE_CONNECTIONS:
+                        _IP_CONNECT_HISTORY.pop(client_ip, None)
+                _cleanup_ip_state(time.monotonic(), force=True)
             metrics.on_session_closed()
         logger.info("Session %s closed", session.session_id)

@@ -6,7 +6,7 @@ const ChartLoading: React.FC = () => (
   <div className="flex items-center justify-center h-64 bg-muted/20 rounded-lg border border-dashed">
     <div className="flex flex-col items-center gap-2 text-muted-foreground">
       <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-      <span className="text-sm">Loading chart…</span>
+      <span className="text-sm">Loading chart...</span>
     </div>
   </div>
 );
@@ -21,7 +21,7 @@ const ChartSkeleton: React.FC<{ height: number }> = ({ height }) => (
 
 /**
  * Returns a ref + boolean: the boolean flips to true once the element
- * enters the viewport (with a 300px lookahead).  After that it never
+ * enters the viewport (with a 300px lookahead). After that it never
  * reverts, so the chart stays mounted.
  */
 function useInViewport(rootMargin = "300px") {
@@ -61,15 +61,11 @@ const DeferredChart: React.FC<{ children: React.ReactNode; height: number }> = (
   height,
 }) => {
   const { ref, visible } = useInViewport("300px");
-  return (
-    <div ref={ref}>
-      {visible ? children : <ChartSkeleton height={height} />}
-    </div>
-  );
+  return <div ref={ref}>{visible ? children : <ChartSkeleton height={height} />}</div>;
 };
 
 // ---------------------------------------------------------------------------
-// Lazy imports — each becomes a separate bundle chunk
+// Lazy imports - each becomes a separate bundle chunk
 // ---------------------------------------------------------------------------
 const LazyLineChart = React.lazy(() =>
   import("./LineChart").then((m) => ({ default: m.LineChart }))
@@ -83,9 +79,7 @@ const LazyAreaChart = React.lazy(() =>
 const LazyScatterChart = React.lazy(() =>
   import("./ScatterChart").then((m) => ({ default: m.ScatterChart }))
 );
-const LazyMap = React.lazy(() =>
-  import("./Map").then((m) => ({ default: m.Map }))
-);
+const LazyMap = React.lazy(() => import("./Map").then((m) => ({ default: m.Map })));
 const LazyPlotlyChart = React.lazy(() =>
   import("./PlotlyChart").then((m) => ({ default: m.PlotlyChart }))
 );
@@ -106,10 +100,10 @@ const LazyPydeckChart = React.lazy(() =>
 );
 
 // ---------------------------------------------------------------------------
-// Exported wrappers — light charts load immediately, heavy ones are deferred
+// Exported wrappers
 // ---------------------------------------------------------------------------
 
-// Recharts-based — small shared bundle, load immediately
+// Recharts-based - small shared bundle, load immediately
 export const LineChart: React.FC<NodeComponentProps> = (props) => (
   <Suspense fallback={<ChartLoading />}>
     <LazyLineChart {...props} />
@@ -130,29 +124,36 @@ export const ScatterChart: React.FC<NodeComponentProps> = (props) => (
     <LazyScatterChart {...props} />
   </Suspense>
 );
+
+// Map and iframe-backed charts can still trigger heavy dependency work; defer them.
 export const Map: React.FC<NodeComponentProps> = (props) => (
-  <Suspense fallback={<ChartLoading />}>
-    <LazyMap {...props} />
-  </Suspense>
+  <DeferredChart height={props.props?.height ?? 400}>
+    <Suspense fallback={<ChartLoading />}>
+      <LazyMap {...props} />
+    </Suspense>
+  </DeferredChart>
 );
 export const Pyplot: React.FC<NodeComponentProps> = (props) => (
   <Suspense fallback={<ChartLoading />}>
     <LazyPyplot {...props} />
   </Suspense>
 );
-// Bokeh and PyDeck use iframes — very lightweight wrappers, no heavy bundle
 export const BokehChart: React.FC<NodeComponentProps> = (props) => (
-  <Suspense fallback={<ChartLoading />}>
-    <LazyBokehChart {...props} />
-  </Suspense>
+  <DeferredChart height={props.props?.height ?? 450}>
+    <Suspense fallback={<ChartLoading />}>
+      <LazyBokehChart {...props} />
+    </Suspense>
+  </DeferredChart>
 );
 export const PydeckChart: React.FC<NodeComponentProps> = (props) => (
-  <Suspense fallback={<ChartLoading />}>
-    <LazyPydeckChart {...props} />
-  </Suspense>
+  <DeferredChart height={props.props?.height ?? 500}>
+    <Suspense fallback={<ChartLoading />}>
+      <LazyPydeckChart {...props} />
+    </Suspense>
+  </DeferredChart>
 );
 
-// Heavy charts — deferred until near viewport
+// Heavy charts - deferred until near viewport
 export const PlotlyChart: React.FC<NodeComponentProps> = (props) => (
   <DeferredChart height={props.props?.height ?? 400}>
     <Suspense fallback={<ChartLoading />}>
@@ -174,3 +175,4 @@ export const GraphvizChart: React.FC<NodeComponentProps> = (props) => (
     </Suspense>
   </DeferredChart>
 );
+

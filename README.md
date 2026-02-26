@@ -2160,6 +2160,56 @@ Runtime metrics endpoint:
 - `GET /_fastlit/metrics`
 - Disable via `FASTLIT_ENABLE_METRICS=0`
 
+### Security hardening (Phase B/C)
+
+Recommended production env vars:
+
+```bash
+# Host + origin allowlists
+FASTLIT_TRUSTED_HOSTS=app.example.com,api.example.com
+FASTLIT_ALLOWED_ORIGINS=https://app.example.com
+FASTLIT_WS_REQUIRE_ORIGIN=1
+
+# Optional WebSocket shared token (query token=..., Bearer header, or cookie fastlit_ws_token)
+FASTLIT_WS_AUTH_TOKEN=change-me
+
+# WebSocket anti-abuse guards (per worker process)
+FASTLIT_WS_MAX_CONNECTIONS_PER_IP=20
+FASTLIT_WS_MAX_CONNECTS_PER_MINUTE=120
+FASTLIT_WS_MAX_EVENTS_PER_SECOND=100
+FASTLIT_WS_RATE_LIMIT_MAX_VIOLATIONS=3
+FASTLIT_WS_BLOCK_SECONDS=300
+FASTLIT_WS_MAX_REJECTS_PER_WINDOW=8
+FASTLIT_WS_REJECT_WINDOW_SECONDS=60
+FASTLIT_WS_IP_STATE_GC_INTERVAL_SECONDS=60
+
+# HTTP anti-abuse guard (per worker process)
+FASTLIT_HTTP_RATE_LIMIT_PER_MINUTE=600
+FASTLIT_HTTP_RATE_LIMIT_EXEMPT=/assets/,/_components/
+
+# Response security headers
+FASTLIT_ENABLE_CSP=1
+FASTLIT_CSP_REPORT_ONLY=0
+FASTLIT_HSTS_SECONDS=31536000
+FASTLIT_PERMISSIONS_POLICY="camera=(self), microphone=(self), geolocation=(), payment=()"
+```
+
+Notes:
+- Limits are in-memory and apply per worker (scale with worker count).
+- CSP is applied to Fastlit app pages; component paths `/_components/*` are excluded to avoid breaking third-party bundles.
+- The default CSP allows HTTPS + inline script/style so iframe-based embeds (for example `st.bokeh_chart()` / `st.pydeck_chart()`) can execute.
+- For a stricter policy, set a custom `FASTLIT_CSP` value and tighten `script-src` / `style-src` as needed.
+- If you set `FASTLIT_WS_AUTH_TOKEN`, frontend can pass it with `?fastlit_ws_token=...` in the page URL.
+- `FASTLIT_WS_BLOCK_SECONDS` + `FASTLIT_WS_MAX_REJECTS_PER_WINDOW` enable temporary IP blocking after repeated origin/auth/rate-limit rejects.
+
+Security metrics in `GET /_fastlit/metrics`:
+- `total_ws_origin_rejected`
+- `total_ws_auth_rejected`
+- `total_ws_rate_limited`
+- `total_ws_ip_banned`
+- `total_ws_ip_blocked`
+- `total_http_rate_limited`
+
 ---
 
 ## Configuration

@@ -100,17 +100,61 @@ export interface NodeComponentProps {
 }
 
 function lazyNode(
-  loader: () => Promise<{ default: ComponentType<NodeComponentProps> }>
+  loader: () => Promise<{ default: ComponentType<NodeComponentProps> }>,
+  fallback?: (props: NodeComponentProps) => React.ReactNode
 ): ComponentType<NodeComponentProps> {
   const LazyComp = React.lazy(loader);
   const Wrapped: React.FC<NodeComponentProps> = (props) =>
     React.createElement(
       Suspense,
-      { fallback: null },
+      { fallback: fallback ? fallback(props) : null },
       React.createElement(LazyComp, props)
     );
   return Wrapped;
 }
+
+const LazyBlockSkeleton: React.FC<{ minHeight: number }> = ({ minHeight }) =>
+  React.createElement("div", {
+    className:
+      "mb-3 rounded-lg border border-dashed border-border/70 bg-muted/20 animate-pulse",
+    style: { minHeight },
+    "aria-hidden": "true",
+  });
+
+const clamp = (value: number, min: number, max: number): number =>
+  Math.max(min, Math.min(max, value));
+
+const numberProp = (value: unknown, fallback: number): number =>
+  typeof value === "number" && Number.isFinite(value) ? value : fallback;
+
+const dataEditorFallback = (props: NodeComponentProps) =>
+  React.createElement(LazyBlockSkeleton, {
+    minHeight: clamp(numberProp(props.props?.height, 320), 220, 700),
+  });
+
+const jsonFallback = (_props: NodeComponentProps) =>
+  React.createElement(LazyBlockSkeleton, { minHeight: 160 });
+const fileUploaderFallback = (_props: NodeComponentProps) =>
+  React.createElement(LazyBlockSkeleton, { minHeight: 120 });
+const cameraFallback = (_props: NodeComponentProps) =>
+  React.createElement(LazyBlockSkeleton, { minHeight: 120 });
+const audioInputFallback = (_props: NodeComponentProps) =>
+  React.createElement(LazyBlockSkeleton, { minHeight: 96 });
+const audioFallback = (_props: NodeComponentProps) =>
+  React.createElement(LazyBlockSkeleton, { minHeight: 72 });
+
+const videoFallback = (props: NodeComponentProps) =>
+  React.createElement(LazyBlockSkeleton, {
+    minHeight: clamp(numberProp(props.props?.height, 260), 180, 700),
+  });
+
+const logoFallback = (_props: NodeComponentProps) =>
+  React.createElement(LazyBlockSkeleton, { minHeight: 56 });
+
+const pdfFallback = (props: NodeComponentProps) =>
+  React.createElement(LazyBlockSkeleton, {
+    minHeight: clamp(numberProp(props.props?.height, 420), 240, 900),
+  });
 
 const loadDataEditor = () =>
   import("../components/data/DataEditor").then((m) => ({ default: m.DataEditor }));
@@ -145,15 +189,15 @@ const loadBalloons = () =>
 const loadSnow = () =>
   import("../components/status/Snow").then((m) => ({ default: m.Snow }));
 
-const DataEditor = lazyNode(loadDataEditor);
-const Json = lazyNode(loadJson);
-const FileUploader = lazyNode(loadFileUploader);
-const CameraInput = lazyNode(loadCameraInput);
-const AudioInput = lazyNode(loadAudioInput);
-const Audio = lazyNode(loadAudio);
-const Video = lazyNode(loadVideo);
-const Logo = lazyNode(loadLogo);
-const Pdf = lazyNode(loadPdf);
+const DataEditor = lazyNode(loadDataEditor, dataEditorFallback);
+const Json = lazyNode(loadJson, jsonFallback);
+const FileUploader = lazyNode(loadFileUploader, fileUploaderFallback);
+const CameraInput = lazyNode(loadCameraInput, cameraFallback);
+const AudioInput = lazyNode(loadAudioInput, audioInputFallback);
+const Audio = lazyNode(loadAudio, audioFallback);
+const Video = lazyNode(loadVideo, videoFallback);
+const Logo = lazyNode(loadLogo, logoFallback);
+const Pdf = lazyNode(loadPdf, pdfFallback);
 const Dialog = lazyNode(loadDialog);
 const Popover = lazyNode(loadPopover);
 const Exception = lazyNode(loadException);

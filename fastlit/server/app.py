@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import os
+import threading
+import time
+from collections import deque
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncIterator
 
 from starlette.applications import Starlette
@@ -42,15 +46,165 @@ _registered_startup_keys: set = set()  # deduplicate by qualname across reruns
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Attach baseline security headers to HTTP responses."""
 
+    def __init__(
+        self,
+        app,
+        *,
+        csp_policy: str | None = None,
+        csp_report_only: bool = False,
+        permissions_policy: str | None = None,
+        hsts_seconds: int = 0,
+    ) -> None:
+        super().__init__(app)
+        self._csp_policy = csp_policy
+        self._csp_report_only = csp_report_only
+        self._permissions_policy = permissions_policy
+        self._hsts_seconds = max(0, int(hsts_seconds))
+
     async def dispatch(self, request, call_next):
         response = await call_next(request)
+        path = request.url.path
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
+        if self._permissions_policy:
+            response.headers.setdefault("Permissions-Policy", self._permissions_policy)
+        if self._hsts_seconds > 0 and request.url.scheme == "https":
+            response.headers.setdefault(
+                "Strict-Transport-Security",
+                f"max-age={self._hsts_seconds}; includeSubDomains",
+            )
         # SAMEORIGIN allows our own path-based component iframes (/_components/*)
         # while still blocking cross-origin framing of the main app.
-        if not request.url.path.startswith("/_components/"):
+        if not path.startswith("/_components/"):
             response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+        if self._csp_policy and not path.startswith("/_components/"):
+            csp_header = (
+                "Content-Security-Policy-Report-Only"
+                if self._csp_report_only
+                else "Content-Security-Policy"
+            )
+            response.headers.setdefault(csp_header, self._csp_policy)
         return response
+
+
+class HTTPRateLimitMiddleware(BaseHTTPMiddleware):
+    """Simple in-memory per-IP request rate limiter for HTTP routes."""
+
+    def __init__(
+        self,
+        app,
+        *,
+        max_requests_per_minute: int,
+        exempt_prefixes: tuple[str, ...] = (),
+    ) -> None:
+        super().__init__(app)
+        self._max_requests_per_minute = max(0, int(max_requests_per_minute))
+        self._exempt_prefixes = exempt_prefixes
+        self._hits: dict[str, deque[float]] = {}
+        self._lock = threading.Lock()
+
+    async def dispatch(self, request: Request, call_next):
+        if self._max_requests_per_minute <= 0:
+            return await call_next(request)
+
+        path = request.url.path
+        if any(path.startswith(prefix) for prefix in self._exempt_prefixes):
+            return await call_next(request)
+
+        client_ip = request.client.host if request.client else "unknown"
+        now = time.monotonic()
+        retry_after = 0
+
+        with self._lock:
+            hits = self._hits.get(client_ip)
+            if hits is None:
+                hits = deque()
+                self._hits[client_ip] = hits
+
+            cutoff = now - 60.0
+            while hits and hits[0] < cutoff:
+                hits.popleft()
+
+            if len(hits) >= self._max_requests_per_minute:
+                retry_after = max(1, int(60.0 - (now - hits[0])))
+            else:
+                hits.append(now)
+
+            if not hits:
+                self._hits.pop(client_ip, None)
+
+        if retry_after > 0:
+            metrics.record_http_rate_limited(1)
+            return JSONResponse(
+                {"error": "HTTP rate limit exceeded"},
+                status_code=429,
+                headers={"Retry-After": str(retry_after)},
+            )
+
+        return await call_next(request)
+
+
+class CacheControlMiddleware(BaseHTTPMiddleware):
+    """Set cache headers for static assets and SPA shell responses."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+
+        if request.method not in {"GET", "HEAD"}:
+            return response
+
+        path = request.url.path
+        content_type = response.headers.get("content-type", "").lower()
+
+        # Vite emits fingerprinted files under /assets/*, safe for long immutable cache.
+        if path.startswith("/assets/"):
+            response.headers.setdefault(
+                "Cache-Control",
+                "public, max-age=31536000, immutable",
+            )
+            return response
+
+        # Component bundles can change without strong fingerprint guarantees.
+        if path.startswith("/_components/"):
+            response.headers.setdefault("Cache-Control", "public, max-age=3600")
+            return response
+
+        # HTML shell should be revalidated to pick up new deployments quickly.
+        if "text/html" in content_type:
+            response.headers.setdefault("Cache-Control", "no-cache")
+
+        return response
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _default_csp_policy() -> str:
+    directives = [
+        "default-src 'self'",
+        "base-uri 'self'",
+        "object-src 'none'",
+        "frame-ancestors 'self'",
+        "img-src 'self' data: blob: https:",
+        "media-src 'self' data: blob:",
+        "font-src 'self' data: https:",
+        # Allow remote+inline style/script for iframe embeds generated by
+        # Bokeh/PyDeck (their HTML payloads include inline bootstrap code and
+        # CDN-hosted assets).
+        "style-src 'self' 'unsafe-inline' https:",
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: https:",
+        "connect-src 'self' https: ws: wss:",
+        "worker-src 'self' blob:",
+        "frame-src 'self' blob: https:",
+        "form-action 'self'",
+    ]
+    return "; ".join(directives)
 
 
 def register_startup(fn) -> None:
@@ -149,19 +303,22 @@ async def component_file_endpoint(request: Request) -> Response:
         return Response(f"Component '{name}' not registered.", status_code=404)
 
     # Resolve and sanitize path — prevent directory traversal
-    abs_file = os.path.normpath(os.path.join(base, file_path.lstrip("/")))
-    if not abs_file.startswith(os.path.normpath(base)):
+    base_path = Path(base).resolve(strict=False)
+    requested_path = (base_path / file_path.lstrip("/\\")).resolve(strict=False)
+    try:
+        requested_path.relative_to(base_path)
+    except ValueError:
         return Response("Forbidden", status_code=403)
 
-    if not os.path.isfile(abs_file):
+    if not requested_path.is_file():
         # SPA fallback: serve index.html for sub-paths
-        index_fallback = os.path.join(base, "index.html")
-        if os.path.isfile(index_fallback):
-            return FileResponse(index_fallback, media_type="text/html")
+        index_fallback = base_path / "index.html"
+        if index_fallback.is_file():
+            return FileResponse(str(index_fallback), media_type="text/html")
         return Response("Not found", status_code=404)
 
-    mime, _ = mimetypes.guess_type(abs_file)
-    return FileResponse(abs_file, media_type=mime or "application/octet-stream")
+    mime, _ = mimetypes.guess_type(str(requested_path))
+    return FileResponse(str(requested_path), media_type=mime or "application/octet-stream")
 
 
 async def dataframe_slice_endpoint(request):
@@ -249,7 +406,43 @@ def create_app(script_path: str | None = None, static_dir: str | None = None) ->
 
     app = Starlette(routes=routes, lifespan=_lifespan)
     app.add_middleware(GZipMiddleware, minimum_size=500)
-    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(CacheControlMiddleware)
+
+    http_rate_limit = max(
+        0, int(os.environ.get("FASTLIT_HTTP_RATE_LIMIT_PER_MINUTE", "0"))
+    )
+    if http_rate_limit > 0:
+        exempt_raw = os.environ.get(
+            "FASTLIT_HTTP_RATE_LIMIT_EXEMPT",
+            "/assets/,/_components/",
+        )
+        exempt_prefixes = tuple(
+            p.strip() for p in exempt_raw.split(",") if p.strip()
+        )
+        app.add_middleware(
+            HTTPRateLimitMiddleware,
+            max_requests_per_minute=http_rate_limit,
+            exempt_prefixes=exempt_prefixes,
+        )
+
+    enable_csp = _env_flag("FASTLIT_ENABLE_CSP", default=True)
+    csp_policy = os.environ.get("FASTLIT_CSP", "").strip()
+    if enable_csp and not csp_policy:
+        csp_policy = _default_csp_policy()
+    if not enable_csp:
+        csp_policy = None
+
+    app.add_middleware(
+        SecurityHeadersMiddleware,
+        csp_policy=csp_policy,
+        csp_report_only=_env_flag("FASTLIT_CSP_REPORT_ONLY", default=False),
+        permissions_policy=os.environ.get(
+            "FASTLIT_PERMISSIONS_POLICY",
+            "camera=(self), microphone=(self), geolocation=(), payment=()",
+        ).strip()
+        or None,
+        hsts_seconds=max(0, int(os.environ.get("FASTLIT_HSTS_SECONDS", "0"))),
+    )
 
     trusted_hosts = os.environ.get("FASTLIT_TRUSTED_HOSTS", "").strip()
     if trusted_hosts:

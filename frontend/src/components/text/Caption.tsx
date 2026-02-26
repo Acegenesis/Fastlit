@@ -1,14 +1,44 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import DOMPurify from "dompurify";
-import katex from "katex";
-import "katex/dist/katex.min.css";
 import type { NodeComponentProps } from "../../registry/registry";
 import { useResolvedText } from "../../context/WidgetStore";
+import { loadKatex } from "../../utils/katexLoader";
 
 // Simple check if text contains HTML tags
 const containsHtml = (text: string): boolean => {
   return /<[a-z][\s\S]*>/i.test(text);
 };
+
+const escapeHtmlAttr = (value: string): string =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+const sanitizeUrl = (url: string): string | null => {
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("/") || trimmed.startsWith("#") || trimmed.startsWith("?")) {
+    return trimmed;
+  }
+  try {
+    const parsed = new URL(trimmed, window.location.origin);
+    const protocol = parsed.protocol.toLowerCase();
+    if (protocol === "http:" || protocol === "https:" || protocol === "mailto:" || protocol === "tel:") {
+      return parsed.href;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+};
+
+const RICH_CAPTION_HINTS =
+  /`|\$\$|(?<!\\)\$|:\w+(?:-background)?\[|:[a-z0-9_+-]+:|\[[^\]]+\]\([^)]+\)|~~|\*\*|__|\*|_/;
+const LATEX_HINTS = /\$\$[^$]+\$\$|(?<!\\)\$[^$\n]+?\$/;
+
+const needsRichCaptionParsing = (text: string): boolean => RICH_CAPTION_HINTS.test(text);
 
 // Emoji shortcode mapping (common emojis)
 const emojiMap: Record<string, string> = {
@@ -34,26 +64,22 @@ const bgColorClasses: Record<string, string> = {
   gray: "bg-gray-100 text-gray-800 px-1 rounded",
 };
 
-// Helper to render LaTeX
-const renderLatex = (latex: string, displayMode: boolean = false): string => {
-  try {
-    return katex.renderToString(latex, { throwOnError: false, displayMode, output: "html" });
-  } catch {
-    return `<span class="text-red-500">${latex}</span>`;
-  }
-};
-
 // Parse markdown
-const parseMarkdown = (text: string): string => {
+const parseMarkdown = (
+  text: string,
+  renderLatex?: ((latex: string, displayMode?: boolean) => string) | null
+): string => {
   const latexPlaceholders: string[] = [];
   
   // Process LaTeX first
   let processed = text.replace(/\$\$([^$]+)\$\$/g, (_, latex) => {
+    if (!renderLatex) return `$$${latex}$$`;
     const placeholder = `___LATEX_BLOCK_${latexPlaceholders.length}___`;
     latexPlaceholders.push(renderLatex(latex.trim(), true));
     return placeholder;
   });
   processed = processed.replace(/(?<!\\)\$([^$\n]+?)\$/g, (_, latex) => {
+    if (!renderLatex) return `$${latex}$`;
     const placeholder = `___LATEX_INLINE_${latexPlaceholders.length}___`;
     latexPlaceholders.push(renderLatex(latex.trim(), false));
     return placeholder;
@@ -90,7 +116,13 @@ const parseMarkdown = (text: string): string => {
   html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
   html = html.replace(/_(.+?)_/g, "<em>$1</em>");
   html = html.replace(/`([^`]+)`/g, '<code class="bg-gray-100 px-1 py-0.5 rounded text-xs font-mono">$1</code>');
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">$1</a>');
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
+    const safeUrl = sanitizeUrl(String(url));
+    if (!safeUrl) {
+      return label;
+    }
+    return `<a href="${escapeHtmlAttr(safeUrl)}" class="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">${label}</a>`;
+  });
 
   return html;
 };
@@ -98,21 +130,77 @@ const parseMarkdown = (text: string): string => {
 export const Caption: React.FC<NodeComponentProps> = ({ props }) => {
   const resolved = useResolvedText(props.text, props._tpl, props._refs);
   const help = props.help;
+  const hasHtml = useMemo(() => containsHtml(resolved), [resolved]);
+  const needsKatex = useMemo(
+    () => !hasHtml && LATEX_HINTS.test(resolved),
+    [hasHtml, resolved]
+  );
+  const [katexModule, setKatexModule] = useState<Awaited<ReturnType<typeof loadKatex>> | null>(
+    null
+  );
+
+  useEffect(() => {
+    if (!needsKatex || katexModule) return;
+    let cancelled = false;
+    loadKatex()
+      .then((mod) => {
+        if (!cancelled) setKatexModule(mod);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [needsKatex, katexModule]);
+
+  const shouldParseCaption = useMemo(
+    () => !hasHtml && needsRichCaptionParsing(resolved),
+    [hasHtml, resolved]
+  );
+
+  const html = useMemo(() => {
+    if (hasHtml) {
+      return DOMPurify.sanitize(resolved);
+    }
+    if (!shouldParseCaption) {
+      return "";
+    }
+
+    const latexRenderer = katexModule
+      ? (latex: string, displayMode: boolean = false) => {
+          try {
+            return katexModule.renderToString(latex, {
+              throwOnError: false,
+              displayMode,
+              output: "html",
+            });
+          } catch {
+            return `<span class="text-red-500">${latex}</span>`;
+          }
+        }
+      : null;
+
+    return DOMPurify.sanitize(parseMarkdown(resolved, latexRenderer));
+  }, [hasHtml, resolved, shouldParseCaption, katexModule]);
+
+  // Fast path for plain text captions.
+  if (!hasHtml && !shouldParseCaption) {
+    return (
+      <p className="text-sm text-gray-500 mb-2 whitespace-pre-wrap break-words" title={help || undefined}>
+        {resolved}
+      </p>
+    );
+  }
 
   // If contains HTML, sanitize and render
-  if (containsHtml(resolved)) {
-    const sanitized = DOMPurify.sanitize(resolved);
+  if (hasHtml) {
     return (
       <p
         className="text-sm text-gray-500 mb-2"
         title={help || undefined}
-        dangerouslySetInnerHTML={{ __html: sanitized }}
+        dangerouslySetInnerHTML={{ __html: html }}
       />
     );
   }
-
-  // Parse markdown
-  const html = useMemo(() => parseMarkdown(resolved), [resolved]);
 
   return (
     <p

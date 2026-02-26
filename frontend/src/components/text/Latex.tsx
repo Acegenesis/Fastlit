@@ -1,14 +1,29 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type { NodeComponentProps } from "../../registry/registry";
-import katex from "katex";
-import "katex/dist/katex.min.css";
+import { loadKatex } from "../../utils/katexLoader";
 
 export const Latex: React.FC<NodeComponentProps> = ({ props }) => {
   const { text, help } = props;
+  const [katexModule, setKatexModule] = useState<Awaited<ReturnType<typeof loadKatex>> | null>(
+    null
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    loadKatex()
+      .then((mod) => {
+        if (!cancelled) setKatexModule(mod);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const html = useMemo(() => {
+    if (!katexModule) return null;
     try {
-      return katex.renderToString(text as string, {
+      return katexModule.renderToString(text as string, {
         throwOnError: false,
         displayMode: true,
       });
@@ -16,7 +31,7 @@ export const Latex: React.FC<NodeComponentProps> = ({ props }) => {
       console.error("KaTeX render error:", err);
       return null;
     }
-  }, [text]);
+  }, [katexModule, text]);
 
   return (
     <div

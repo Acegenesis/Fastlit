@@ -1,10 +1,23 @@
 import React, { useEffect, useState } from "react";
+import DOMPurify from "dompurify";
 import type { NodeComponentProps } from "../../registry/registry";
 
 interface GraphvizChartProps {
   dot: string;
   useContainerWidth?: boolean;
 }
+
+const sanitizeGraphvizSvg = (svg: string): string => {
+  const sanitized = DOMPurify.sanitize(svg, {
+    USE_PROFILES: { svg: true, svgFilters: true, html: false },
+    FORBID_TAGS: ["script", "foreignObject"],
+  });
+  // Defense in depth: strip javascript: URLs from links.
+  return sanitized.replace(
+    /\s(?:xlink:href|href)\s*=\s*(['"])\s*javascript:[\s\S]*?\1/gi,
+    ""
+  );
+};
 
 export const GraphvizChart: React.FC<NodeComponentProps> = ({ props }) => {
   const { dot, useContainerWidth = true } = props as GraphvizChartProps;
@@ -20,7 +33,7 @@ export const GraphvizChart: React.FC<NodeComponentProps> = ({ props }) => {
         const hpccWasm = await import("@hpcc-js/wasm");
         const graphviz = await hpccWasm.Graphviz.load();
         const result = graphviz.dot(dot);
-        setSvg(result);
+        setSvg(sanitizeGraphvizSvg(result));
         setError(null);
       } catch (err) {
         console.error("Graphviz render error:", err);
