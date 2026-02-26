@@ -10,7 +10,8 @@ from starlette.applications import Starlette
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-from starlette.responses import FileResponse, HTMLResponse, JSONResponse
+from starlette.requests import Request
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.routing import Route, WebSocketRoute, Mount
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket
@@ -22,6 +23,14 @@ from fastlit.server.websocket_handler import handle_websocket
 # Will be set by CLI before the app starts
 _script_path: str = ""
 _static_dir: str = ""
+
+# Custom component static file registry: name → abs build directory
+_component_paths: dict[str, str] = {}
+
+
+def register_component_path(name: str, path: str) -> None:
+    """Register a component's built frontend directory for static serving."""
+    _component_paths[name] = path
 
 # Lifecycle hook registries (B3)
 _startup_handlers: list = []
@@ -37,7 +46,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "no-referrer")
-        response.headers.setdefault("X-Frame-Options", "DENY")
+        # SAMEORIGIN allows our own path-based component iframes (/_components/*)
+        # while still blocking cross-origin framing of the main app.
+        if not request.url.path.startswith("/_components/"):
+            response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
         return response
 
 
@@ -121,6 +133,37 @@ async def metrics_endpoint(request):
     return JSONResponse(metrics.snapshot())
 
 
+async def component_file_endpoint(request: Request) -> Response:
+    """Serve static files for path-based custom components.
+
+    Handles requests to /_components/{name}/{file_path}.
+    Prevents path traversal attacks.
+    """
+    import mimetypes
+
+    name: str = request.path_params.get("name", "")
+    file_path: str = request.path_params.get("file_path", "index.html") or "index.html"
+
+    base = _component_paths.get(name)
+    if base is None:
+        return Response(f"Component '{name}' not registered.", status_code=404)
+
+    # Resolve and sanitize path — prevent directory traversal
+    abs_file = os.path.normpath(os.path.join(base, file_path.lstrip("/")))
+    if not abs_file.startswith(os.path.normpath(base)):
+        return Response("Forbidden", status_code=403)
+
+    if not os.path.isfile(abs_file):
+        # SPA fallback: serve index.html for sub-paths
+        index_fallback = os.path.join(base, "index.html")
+        if os.path.isfile(index_fallback):
+            return FileResponse(index_fallback, media_type="text/html")
+        return Response("Not found", status_code=404)
+
+    mime, _ = mimetypes.guess_type(abs_file)
+    return FileResponse(abs_file, media_type=mime or "application/octet-stream")
+
+
 async def dataframe_slice_endpoint(request):
     """Serve server-side dataframe row windows."""
     source_id = request.path_params.get("source_id", "")
@@ -190,6 +233,9 @@ def create_app(script_path: str | None = None, static_dir: str | None = None) ->
     if os.environ.get("FASTLIT_ENABLE_METRICS", "1") not in {"0", "false", "False"}:
         routes.append(Route("/_fastlit/metrics", metrics_endpoint))
     routes.append(Route("/_fastlit/dataframe/{source_id}", dataframe_slice_endpoint))
+    # Custom component static assets (path-based components)
+    routes.append(Route("/_components/{name}/{file_path:path}", component_file_endpoint))
+    routes.append(Route("/_components/{name}", component_file_endpoint))
 
     # Mount static files if the directory exists
     assets_dir = os.path.join(static_dir, "assets")

@@ -98,6 +98,9 @@ from fastlit.ui.context import _ContextProxy
 from fastlit.runtime.session import RerunException, StopException
 from fastlit.runtime.context import get_current_session, run_with_session_context, run_in_thread
 from fastlit.cache import cache_data, cache_resource
+from fastlit.connections import connection
+import fastlit.connections as connections
+import fastlit.components as components
 
 
 # --- Lifecycle hooks (B3) ---
@@ -359,6 +362,11 @@ __all__ = [
     # Cache
     "cache_data",
     "cache_resource",
+    # Connections
+    "connection",
+    "connections",
+    # Components
+    "components",
     # Status elements
     "success",
     "info",

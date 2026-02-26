@@ -84,6 +84,10 @@ import { Navigation } from "../components/layout/Navigation";
 import { PageConfig } from "../components/layout/PageConfig";
 import { Fragment } from "../components/layout/Fragment";
 
+// ---- Custom components ----
+import { CustomComponent } from "../components/custom/CustomComponent";
+import { StaticHtml } from "../components/custom/StaticHtml";
+
 export interface SendEventOptions {
   noRerun?: boolean;
 }
@@ -272,6 +276,10 @@ const registry: Record<string, ComponentType<NodeComponentProps>> = {
   page_config: PageConfig,
   sidebar_state: NullComponent,
   fragment: Fragment,
+
+  // Custom components (st.components.v1)
+  custom_component: CustomComponent,
+  static_html: StaticHtml,
 
   // Status elements
   alert: Alert,
