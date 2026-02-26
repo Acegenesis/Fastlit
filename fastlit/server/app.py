@@ -166,9 +166,10 @@ class CacheControlMiddleware(BaseHTTPMiddleware):
             )
             return response
 
-        # Component bundles can change without strong fingerprint guarantees.
+        # Component bundles/pages are often not fingerprinted (especially in dev
+        # and local demos). Force revalidation to avoid stale iframe code.
         if path.startswith("/_components/"):
-            response.headers.setdefault("Cache-Control", "public, max-age=3600")
+            response.headers.setdefault("Cache-Control", "no-cache")
             return response
 
         # HTML shell should be revalidated to pick up new deployments quickly.

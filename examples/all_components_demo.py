@@ -4108,10 +4108,9 @@ _hybrid_fragment()''', language="python")
 # =============================================================================
 elif selected == "🧩 Custom Components":
     st.title("🧩 Custom Components")
-    st.markdown(
-        "**`st.components.v1`** — Compatible with Streamlit third-party components. "
-        "Render arbitrary HTML, embed iframes, or declare fully interactive custom components "
-        "using the standard **postMessage** protocol."
+    st.caption(
+        "Compatibility layer for `st.components.v1`: static HTML, external iframes, "
+        "and interactive components via Streamlit postMessage protocol."
     )
 
     st.divider()
@@ -4121,7 +4120,17 @@ elif selected == "🧩 Custom Components":
     # -------------------------------------------------------------------------
     with st.container(border=True):
         st.subheader("`st.components.v1.html()` — Static HTML")
-        st.markdown("Renders arbitrary HTML in a sandboxed `<iframe>` (`sandbox=\"allow-scripts\"`). Scripts run isolated from the parent page.")
+        with st.expander("📖 Documentation", expanded=False):
+            st.markdown("""
+            **Parameters:**
+            - `html_string` (str): HTML payload rendered in a sandboxed iframe
+            - `height` (int | None): Iframe height in pixels (default `150`)
+            - `scrolling` (bool): Enable scrollbars inside the iframe
+
+            **Behavior:**
+            - Uses a sandboxed iframe (`allow-scripts`)
+            - Scripts run client-side, isolated from the parent app context
+            """)
 
         col_code, col_preview = st.columns([1, 1])
 
@@ -4170,11 +4179,18 @@ elif selected == "🧩 Custom Components":
     st.divider()
 
     # -------------------------------------------------------------------------
-    # HTML with interactive JS
+    # HTML + JavaScript (client-only)
     # -------------------------------------------------------------------------
     with st.container(border=True):
-        st.subheader("HTML + JavaScript interactif")
-        st.markdown("Scripts inside `html()` can run freely — they just can't access the parent DOM.")
+        st.subheader("HTML + JavaScript (client-only)")
+        with st.expander("📖 Documentation", expanded=False):
+            st.markdown("""
+            `st.components.v1.html()` is display-only from Python's perspective.
+
+            - JavaScript executes in the iframe
+            - No value is returned to Python
+            - For bidirectional communication, use `declare_component()`
+            """)
 
         st.code(
             '''st.components.v1.html("""
@@ -4182,7 +4198,7 @@ elif selected == "🧩 Custom Components":
 <script>
   const ctx = document.getElementById("c").getContext("2d");
   let x = 0;
-  setInterval(() => {
+  setInterval(function () {
     ctx.clearRect(0, 0, 400, 80);
     ctx.fillStyle = "#667eea";
     ctx.beginPath();
@@ -4201,7 +4217,7 @@ elif selected == "🧩 Custom Components":
 <script>
   const ctx = document.getElementById("c").getContext("2d");
   let x = 0;
-  setInterval(function() {
+  setInterval(function () {
     ctx.clearRect(0, 0, 400, 80);
     ctx.fillStyle = "#667eea";
     ctx.beginPath();
@@ -4221,7 +4237,15 @@ elif selected == "🧩 Custom Components":
     # -------------------------------------------------------------------------
     with st.container(border=True):
         st.subheader("`st.components.v1.iframe()` — Embed External URL")
-        st.markdown("Embeds any public URL in an `<iframe>`. Read-only — no events flow back to Python.")
+        with st.expander("📖 Documentation", expanded=False):
+            st.markdown("""
+            **Parameters:**
+            - `src` (str): External URL to display
+            - `height` (int | None): Iframe height in pixels
+            - `scrolling` (bool): Enable scrollbars
+
+            Read-only embed. No value is sent back to Python.
+            """)
 
         url = st.text_input(
             "URL to embed",
@@ -4240,153 +4264,237 @@ elif selected == "🧩 Custom Components":
     st.divider()
 
     # -------------------------------------------------------------------------
-    # declare_component — usage guide
+    # st.components.v1.declare_component
     # -------------------------------------------------------------------------
-    with st.container(border=True):
-        st.subheader("`st.components.v1.declare_component()` — Interactive Components")
-        st.markdown(
-            "Register a custom React/HTML component that communicates back to Python "
-            "via the **Streamlit postMessage protocol** (100% compatible with third-party packages "
-            "like `streamlit-aggrid`, `streamlit-folium`, etc.)."
-        )
+    def _ensure_demo_component_build_dir() -> str:
+        import tempfile
+        from pathlib import Path
 
-        tab_dev, tab_prod, tab_proto = st.tabs(["Dev mode (url=)", "Prod mode (path=)", "Protocol"])
+        build_dir = Path(tempfile.gettempdir()) / "fastlit_demo_counter_component_v2"
+        build_dir.mkdir(parents=True, exist_ok=True)
 
-        with tab_dev:
-            st.markdown("**Dev mode** — component runs on its own dev server (e.g. Vite HMR):")
-            st.code(
-                '''# Component source (frontend/index.html or localhost:3001)
-my_comp = st.components.v1.declare_component(
-    "my_comp",
-    url="http://localhost:3001",   # dev server
-)
+        component_html = """<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: transparent;
+    }
+    .wrap {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+    }
+    .label {
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 4px;
+    }
+    .value {
+      font-size: 24px;
+      font-weight: 700;
+      min-width: 44px;
+      text-align: center;
+      color: #111827;
+    }
+    .controls { display: flex; align-items: center; gap: 8px; }
+    button {
+      border: none;
+      border-radius: 8px;
+      width: 34px;
+      height: 34px;
+      cursor: pointer;
+      font-size: 18px;
+      font-weight: 700;
+      color: white;
+      background: #4f46e5;
+    }
+    button:active { transform: translateY(1px); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div>
+      <div class="label" id="lbl">Counter</div>
+      <div class="value" id="val">0</div>
+    </div>
+    <div class="controls">
+      <button id="dec" type="button">−</button>
+      <button id="inc" type="button">+</button>
+    </div>
+  </div>
 
-# Call it like a function; key= ensures stable widget identity
-value = my_comp(label="Hello", step=1, key="c1")
-st.write(f"Value from component: {value}")''',
-                language="python",
-            )
+  <script>
+    (function () {
+      var state = {
+        value: 0,
+        step: 1,
+        label: "Counter",
+        resetNonce: "",
+        lastHeight: 0
+      };
+      var initialized = false;
 
-        with tab_prod:
-            st.markdown("**Prod mode** — Fastlit serves the built assets at `/_components/<name>/`:")
-            st.code(
-                '''# Build your component first: cd my_comp/frontend && npm run build
-counter = st.components.v1.declare_component(
-    "counter",
-    path="./my_comp/frontend/build",  # abs or relative path to build dir
-)
+      function setHeight() {
+        var root = document.querySelector(".wrap");
+        var measured = root ? Math.ceil(root.getBoundingClientRect().height) : 56;
+        var nextHeight = Math.max(56, Math.min(240, measured + 2));
+        if (nextHeight !== state.lastHeight) {
+          state.lastHeight = nextHeight;
+          window.parent.postMessage(
+            { type: "streamlit:setFrameHeight", height: nextHeight },
+            "*"
+          );
+        }
+      }
 
-n = counter(step=1, key="cnt")
-st.write(f"Counter value: {n}")''',
-                language="python",
-            )
+      function sendValue() {
+        window.parent.postMessage({ type: "streamlit:setComponentValue", value: state.value }, "*");
+      }
 
-        with tab_proto:
-            st.markdown("**postMessage protocol** (same as Streamlit — zero changes needed for existing components):")
-            st.code(
-                '''// Inside the component iframe (JavaScript):
+      function paint() {
+        document.getElementById("lbl").textContent = state.label;
+        document.getElementById("val").textContent = String(state.value);
+      }
 
-// 1. Signal ready
-window.parent.postMessage({ type: "streamlit:componentReady", apiVersion: 1 }, "*");
+      function applyArgs(args) {
+        var nextLabel = typeof args.label === "string" ? args.label : "Counter";
+        var nextStep = Number(args.step);
+        var nextInitial = Number(args.initial);
+        var nextResetNonce = String(args.reset_nonce == null ? "" : args.reset_nonce);
 
-// 2. Receive props
-window.addEventListener("message", (ev) => {
-  if (ev.data.type === "streamlit:render") {
-    const { args } = ev.data;   // { label: "Hello", step: 1 }
-    render(args);
-  }
-});
+        state.label = nextLabel;
+        if (Number.isFinite(nextStep) && nextStep > 0) {
+          state.step = nextStep;
+        }
 
-// 3. Send value back to Python
-function setValue(val) {
-  window.parent.postMessage({ type: "streamlit:setComponentValue", value: val }, "*");
-}
+        if (!initialized || nextResetNonce !== state.resetNonce) {
+          state.value = Number.isFinite(nextInitial) ? nextInitial : 0;
+          state.resetNonce = nextResetNonce;
+          initialized = true;
+        }
+      }
 
-// 4. Resize the iframe
-function setHeight(px) {
-  window.parent.postMessage({ type: "streamlit:setFrameHeight", height: px }, "*");
-}''',
-                language="javascript",
-            )
+      document.getElementById("inc").addEventListener("click", function () {
+        state.value += state.step;
+        paint();
+        sendValue();
+      });
+      document.getElementById("dec").addEventListener("click", function () {
+        state.value -= state.step;
+        paint();
+        sendValue();
+      });
 
-    st.divider()
+      window.addEventListener("message", function (event) {
+        var data = event.data || {};
+        if (data.type !== "streamlit:render") return;
+        applyArgs(data.args || {});
+        paint();
+        setHeight();
+        sendValue();
+      });
 
-    # -------------------------------------------------------------------------
-    # Live demo: built-in HTML counter as custom component
-    # -------------------------------------------------------------------------
-    with st.container(border=True):
-        st.subheader("Demo live : mini-counter HTML")
-        st.markdown(
-            "Un composant HTML complet qui utilise `streamlit:setComponentValue` "
-            "pour renvoyer une valeur à Python à chaque clic."
-        )
-
-        col_a, col_b = st.columns(2)
-        with col_a:
-            step = st.slider("Step", min_value=1, max_value=10, value=1, key="counter_step")
-        with col_b:
-            init = st.slider("Initial value", min_value=0, max_value=50, value=0, key="counter_init")
-
-        # int() extracts the real numeric value — WidgetValue.__format__ would inject
-        # a live-update marker meant for st.write/markdown, not for raw HTML strings.
-        _step = int(step)
-        _init = int(init)
-
-        counter_html = f"""
-<style>
-  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-  body {{ font-family: sans-serif; display: flex; align-items: center;
-          justify-content: center; height: 80px; background: transparent; }}
-  .wrap {{ display: flex; align-items: center; gap: 16px; }}
-  button {{
-    background: #667eea; color: white; border: none; border-radius: 8px;
-    width: 36px; height: 36px; font-size: 1.2rem; cursor: pointer;
-    transition: background .15s;
-  }}
-  button:hover {{ background: #5a67d8; }}
-  .val {{ font-size: 2rem; font-weight: 700; min-width: 48px; text-align: center;
-          color: #1a202c; }}
-</style>
-<div class="wrap">
-  <button id="dec">−</button>
-  <span class="val" id="v">{_init}</span>
-  <button id="inc">+</button>
-</div>
-<script>
-  var count = {_init};
-  var step  = {_step};
-
-  function send() {{
-    window.parent.postMessage({{ type: "streamlit:setComponentValue", value: count }}, "*");
-    window.parent.postMessage({{ type: "streamlit:setFrameHeight", height: 80 }}, "*");
-  }}
-
-  document.getElementById("inc").onclick = function() {{ count += step; document.getElementById("v").textContent = count; send(); }};
-  document.getElementById("dec").onclick = function() {{ count -= step; document.getElementById("v").textContent = count; send(); }};
-
-  window.parent.postMessage({{ type: "streamlit:componentReady", apiVersion: 1 }}, "*");
-  send();
-</script>
+      window.parent.postMessage({ type: "streamlit:componentReady", apiVersion: 1 }, "*");
+      setHeight();
+    })();
+  </script>
+</body>
+</html>
 """
+        (build_dir / "index.html").write_text(component_html, encoding="utf-8")
+        return str(build_dir)
 
-        st.components.v1.html(counter_html, height=88)
+    with st.container(border=True):
+        st.subheader("`st.components.v1.declare_component()` — Interactive Component")
+        with st.expander("📖 Documentation", expanded=False):
+            st.markdown("""
+            **Parameters:**
+            - `name` (str): Unique component identifier
+            - `url` (str | None): Dev server URL (HMR workflow)
+            - `path` (str | None): Built frontend directory served at `/_components/{name}/`
 
+            **Protocol expected in iframe JS:**
+            - Parent → child: `streamlit:render`
+            - Child → parent: `streamlit:componentReady`
+            - Child → parent: `streamlit:setComponentValue`
+            - Child → parent: `streamlit:setFrameHeight`
+            """)
+
+        st.code(
+            '''demo_counter = st.components.v1.declare_component(
+    "demo_counter_component_v2",
+    path=_ensure_demo_component_build_dir(),
+)
+
+value = demo_counter(
+    label="Demo counter",
+    step=2,
+    initial=10,
+    reset_nonce=0,
+    key="demo_counter_component_widget",
+)
+st.write("Returned value:", value)''',
+            language="python",
+        )
+
+        if "demo_counter_reset_nonce" not in st.session_state:
+            st.session_state.demo_counter_reset_nonce = 0
+
+        c1, c2, c3 = st.columns([1, 1, 1])
+        with c1:
+            step = st.slider("Step", min_value=1, max_value=10, value=1, key="counter_step")
+        with c2:
+            initial = st.slider("Initial value", min_value=0, max_value=50, value=5, key="counter_init")
+        with c3:
+            st.markdown("&nbsp;")
+            if st.button("Reset to initial", key="counter_reset"):
+                st.session_state.demo_counter_reset_nonce += 1
+
+        demo_counter = st.components.v1.declare_component(
+            "demo_counter_component_v2",
+            path=_ensure_demo_component_build_dir(),
+        )
+
+        counter_value = demo_counter(
+            label="Demo counter",
+            step=int(step),
+            initial=int(initial),
+            reset_nonce=int(st.session_state.demo_counter_reset_nonce),
+            key="demo_counter_component_widget",
+            default=int(initial),
+        )
+
+        st.metric("Value returned to Python", counter_value)
         st.caption(
-            "Ce composant envoie `streamlit:setComponentValue` à chaque clic. "
-            "Avec `declare_component()`, cette valeur serait reçue en Python au prochain rerun."
+            "This demo is fully interactive: button clicks in the iframe send "
+            "`streamlit:setComponentValue`, and Python receives the value on rerun."
         )
 
     st.divider()
 
     # -------------------------------------------------------------------------
-    # Scrolling param demo
+    # scrolling=True demo
     # -------------------------------------------------------------------------
     with st.container(border=True):
-        st.subheader("Paramètre `scrolling=True`")
+        st.subheader("`scrolling=True` behavior")
+        with st.expander("📖 Documentation", expanded=False):
+            st.markdown("""
+            - `scrolling=False` (default): iframe content is clipped
+            - `scrolling=True`: iframe shows scrollbars when content exceeds height
+            """)
 
         col1, col2 = st.columns(2)
         with col1:
-            st.markdown("**scrolling=False** (défaut)")
+            st.markdown("**scrolling=False** (default)")
             st.components.v1.html(
                 "<br>".join(f"<p>Line {i}</p>" for i in range(1, 12)),
                 height=80,
