@@ -101,6 +101,7 @@ from fastlit.cache import cache_data, cache_resource
 from fastlit.connections import connection
 import fastlit.connections as connections
 import fastlit.components as components
+from fastlit.ui.user import user
 
 
 # --- Lifecycle hooks (B3) ---
@@ -206,6 +207,35 @@ session_state = _SessionStateProxy()
 query_params = _QueryParamsProxy()
 secrets = _SecretsProxy()
 context = _ContextProxy()
+
+
+def require_login() -> None:
+    """Redirect to the login page if the current user is not authenticated.
+
+    Call this at the top of any page that requires authentication::
+
+        import fastlit as st
+
+        st.require_login()
+        st.write(f"Welcome, {st.user.name}!")
+
+    When auth is not configured (no ``[auth]`` section in ``secrets.toml``),
+    this function does nothing and the app works without authentication.
+    """
+    if not user.is_logged_in:
+        from fastlit.runtime.session import _RequireLoginException
+        raise _RequireLoginException()
+
+
+def logout() -> None:
+    """Clear the authentication session and redirect to the logout endpoint.
+
+    Example::
+
+        if st.button("Sign out"):
+            st.logout()
+    """
+    switch_page("/auth/logout")
 
 
 def rerun(scope: str = "full") -> None:
@@ -367,6 +397,10 @@ __all__ = [
     "connections",
     # Components
     "components",
+    # Auth
+    "user",
+    "require_login",
+    "logout",
     # Status elements
     "success",
     "info",

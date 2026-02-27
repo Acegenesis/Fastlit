@@ -43,6 +43,7 @@ sections = [
     "🎨 Advanced Features",
     "🔄 Streaming & Fragments",
     "🧩 Custom Components",
+    "🔐 Auth (Beta)",
 ]
 
 selected = st.sidebar.navigation(sections)
@@ -550,6 +551,34 @@ st.badge("In Progress", color="orange", icon="🔄")''', language="python")
             # This code is displayed AND executed
             result = 2 + 2
             st.write(f"2 + 2 = {result}")
+
+    # -------------------------------------------------------------------------
+    # st.help()
+    # -------------------------------------------------------------------------
+    st.header("st.help()", divider="blue")
+
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `obj` (Any): Python object to introspect
+
+        **Behavior:**
+        - Displays object name + type
+        - Shows callable signature when available
+        - Renders docstring content
+        """)
+
+    st.code('''st.help(st.slider)
+
+class Demo:
+    """Small object for st.help demo."""
+    def run(self, x: int) -> int:
+        return x * 2
+
+st.help(Demo)''', language="python")
+
+    with st.container(border=True):
+        st.help(st.slider)
     
     # -------------------------------------------------------------------------
     # st.divider()
@@ -671,6 +700,35 @@ with col3:
             st.link_button("Google", "https://google.com", type="primary")
         with col3:
             st.link_button("Disabled", "https://example.com", disabled=True)
+
+    # -------------------------------------------------------------------------
+    # st.page_link()
+    # -------------------------------------------------------------------------
+    st.header("st.page_link()", divider="blue")
+
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        **Parameters:**
+        - `page` (str): Target page path or URL
+        - `label` (str | None): Link label (defaults to `page`)
+        - `icon` (str | None): Optional icon
+        - `help` (str | None): Tooltip
+        - `disabled` (bool): Disable interaction
+        - `use_container_width` (bool): Full-width layout
+        """)
+
+    st.code('''st.page_link("/", label="Home", icon="🏠")
+st.page_link("/charts", label="Charts page")
+st.page_link("https://docs.streamlit.io", label="External docs")''', language="python")
+
+    with st.container(border=True):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.page_link("/", label="Home", icon="🏠")
+        with c2:
+            st.page_link("/charts", label="Charts page")
+        with c3:
+            st.page_link("https://docs.streamlit.io", label="External docs")
     
     # -------------------------------------------------------------------------
     # st.download_button()
@@ -1341,6 +1399,8 @@ if multi_files:
         st.info(f"📄 {f.name} ({f.size} bytes)")''', language="python")
     
     with st.container(border=True):
+        st.caption(f"Uploaded file object type: `{st.UploadedFile.__name__}`")
+
         single_file = st.file_uploader(
             "Upload a single file",
             type=["csv", "txt", "json"],
@@ -3133,6 +3193,46 @@ st.write(f"Current page: {current}")''', language="python")
     with st.container(border=True):
         current = st.navigation(["Home", "Data", "Settings"], key="nav_string_mode")
         st.write(f"Current page: {current}")
+
+    # -------------------------------------------------------------------------
+    # st.switch_page()
+    # -------------------------------------------------------------------------
+    st.header("st.switch_page()", divider="blue")
+
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        Programmatically switch to another page.
+
+        **Parameters:**
+        - `page` (str | st.Page): Target page slug/name or `st.Page` object
+
+        **Behavior:**
+        - Raises an internal navigation exception
+        - Stops current execution and reruns on target page
+        """)
+
+    st.code('''if st.button("Go to Data page"):
+    st.switch_page("data")
+
+# Or with Page objects:
+# st.switch_page(my_page_def)''', language="python")
+
+    with st.container(border=True):
+        st.info(
+            "Real page switch is optional in this demo to avoid accidental navigation."
+        )
+        enable_switch = st.toggle(
+            "Enable real st.switch_page() call",
+            value=False,
+            key="switch_page_enable",
+        )
+        target_slug = st.selectbox(
+            "Target slug",
+            options=["home", "new-in-fastlit", "charts", "state-control"],
+            key="switch_page_target",
+        )
+        if enable_switch and st.button("Switch now", key="switch_page_now"):
+            st.switch_page(target_slug)
     
     # -------------------------------------------------------------------------
     # st.divider()
@@ -3442,6 +3542,88 @@ host = st.secrets.database.host''', language="python")
             "headers": dict(st.context.headers),
             "cookies": dict(st.context.cookies),
         })
+
+    # -------------------------------------------------------------------------
+    # st.user / st.require_login() / st.logout()
+    # -------------------------------------------------------------------------
+    st.header("st.user / st.require_login() / st.logout()", divider="blue")
+
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        Authentication helpers and current user proxy.
+
+        **APIs:**
+        - `st.user`: claims proxy (`is_logged_in`, `name`, `email`, custom claims)
+        - `st.require_login()`: redirect to login when not authenticated
+        - `st.logout()`: clear auth session and redirect to logout route
+        """)
+
+    st.code('''# Protect a page
+st.require_login()
+st.write("Hello", st.user.name, st.user.email)
+
+if st.button("Sign out"):
+    st.logout()''', language="python")
+
+    with st.container(border=True):
+        st.write(f"Authenticated: `{st.user.is_logged_in}`")
+        st.json(
+            {
+                "name": st.user.name,
+                "email": st.user.email,
+                "sub": st.user.sub,
+            },
+            expanded=True,
+        )
+        if st.user.is_logged_in:
+            if st.button("Logout now", key="auth_logout_now"):
+                st.logout()
+        else:
+            st.info(
+                "No authenticated user in this session. Configure [auth] in secrets.toml "
+                "to enable login."
+            )
+
+    # -------------------------------------------------------------------------
+    # st.connection() / st.connections
+    # -------------------------------------------------------------------------
+    st.header("st.connection() / st.connections", divider="blue")
+
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        Reusable backend connections with optional TTL-based recreation.
+
+        **APIs:**
+        - `st.connection(name, type=..., ttl=..., **kwargs)`
+        - `st.connections`: module with built-ins (e.g., `BaseConnection`, `SQLConnection`)
+        """)
+
+    st.code('''conn = st.connection(
+    "demo_db",
+    type="sql",
+    url="sqlite:///demo.db",
+    ttl=60,
+)
+df = conn.query("SELECT 1 AS ok", ttl=0)
+st.dataframe(df)''', language="python")
+
+    with st.container(border=True):
+        visible_symbols = [n for n in dir(st.connections) if not n.startswith("_")]
+        st.write("`st.connections` public symbols:", visible_symbols)
+
+        if st.button("Run SQL smoke query", key="connection_sql_smoke"):
+            try:
+                conn = st.connection(
+                    "demo_sqlite_conn",
+                    type="sql",
+                    url="sqlite:///fastlit_demo.db",
+                    ttl=30,
+                )
+                df = conn.query("SELECT 1 AS ok", ttl=0)
+                st.dataframe(df, height=120)
+                st.success("Connection demo OK.")
+            except Exception as exc:
+                st.warning(f"Connection demo unavailable in this environment: {exc}")
     
     # -------------------------------------------------------------------------
     # st.rerun()
@@ -3707,6 +3889,34 @@ elif selected == "🎨 Advanced Features":
         
         if st.session_state.thread_result:
             st.success(st.session_state.thread_result)
+
+    # -------------------------------------------------------------------------
+    # st.on_startup() / st.on_shutdown()
+    # -------------------------------------------------------------------------
+    st.header("st.on_startup() / st.on_shutdown()", divider="blue")
+
+    with st.expander("📖 Documentation", expanded=False):
+        st.markdown("""
+        Register lifecycle hooks on ASGI server startup/shutdown.
+
+        **Best practice:**
+        - Declare hooks at module import time (top-level app code).
+        - Keep startup/shutdown handlers idempotent and fast.
+        """)
+
+    st.code('''@st.on_startup
+def init_resources():
+    print("Server startup hook")
+
+@st.on_shutdown
+def close_resources():
+    print("Server shutdown hook")''', language="python")
+
+    with st.container(border=True):
+        st.info(
+            "Lifecycle hooks are intentionally shown as code-only in this demo. "
+            "Declare them in your app module to run at server start/stop."
+        )
     
     # -------------------------------------------------------------------------
     # Sidebar Control
@@ -4507,6 +4717,262 @@ st.write("Returned value:", value)''',
                 height=80,
                 scrolling=True,
             )
+
+# =============================================================================
+# 🔐 AUTH (BETA)
+# =============================================================================
+elif selected == "🔐 Auth (Beta)":
+    st.title("🔐 Auth (Beta)")
+    st.caption("OIDC authentication — `st.user`, `st.require_login()`, `st.logout()`")
+
+    st.warning(
+        "**Beta feature** — The implementation is complete (Authorization Code + PKCE, "
+        "HMAC-signed cookies) but has not been validated against a live IdP. "
+        "API and behaviour may change.",
+        icon="⚠️",
+    )
+
+    st.divider()
+
+    # -------------------------------------------------------------------------
+    # Overview
+    # -------------------------------------------------------------------------
+    with st.container(border=True):
+        st.subheader("Overview")
+        st.markdown("""
+        Fastlit integrates **OpenID Connect** at the server level — compatible with any
+        OIDC provider (Google, Azure AD, Okta, Keycloak, Dex…) via auto-discovery
+        (`/.well-known/openid-configuration`).
+
+        Auth is **opt-in**: without an `[auth]` section in `secrets.toml`, the app
+        runs normally and all auth calls are no-ops.
+
+        **Install the extra:**
+        ```bash
+        pip install "fastlit[auth]"
+        ```
+        """)
+
+    st.divider()
+
+    # -------------------------------------------------------------------------
+    # Configuration
+    # -------------------------------------------------------------------------
+    with st.container(border=True):
+        st.subheader("`secrets.toml` configuration")
+        with st.expander("📖 All options", expanded=True):
+            st.markdown("""
+            | Key | Required | Description |
+            |---|---|---|
+            | `provider` | yes | Always `"oidc"` |
+            | `issuer_url` | yes | OIDC issuer (e.g. `https://accounts.google.com`) |
+            | `client_id` | yes | OAuth2 client ID |
+            | `client_secret` | yes* | OAuth2 client secret (*optional for public clients) |
+            | `redirect_uri` | yes | Must match IdP registration (e.g. `http://localhost:8501/auth/callback`) |
+            | `cookie_secret` | yes | HMAC signing key, min 32 chars |
+            | `scopes` | no | Default: `["openid", "profile", "email"]` |
+            | `cookie_name` | no | Default: `fl_session` |
+            | `cookie_max_age` | no | Default: `86400` (24 h) |
+            """)
+        st.code("""
+[auth]
+provider = "oidc"
+issuer_url = "https://accounts.google.com"
+client_id = "your-client-id"
+client_secret = "your-client-secret"
+redirect_uri = "http://localhost:8501/auth/callback"
+cookie_secret = "change-me-32-chars-minimum!!!!!"
+scopes = ["openid", "profile", "email"]
+""", language="toml")
+
+    st.divider()
+
+    # -------------------------------------------------------------------------
+    # st.require_login
+    # -------------------------------------------------------------------------
+    with st.container(border=True):
+        st.subheader("`st.require_login()`")
+        with st.expander("📖 Documentation", expanded=False):
+            st.markdown("""
+            **Signature:** `st.require_login() -> None`
+
+            Call at the top of any page that requires authentication. If the user
+            has no valid session cookie, raises an internal exception that redirects
+            to `/auth/login?next=<current_path>`.
+
+            When auth is not configured (no `[auth]` in `secrets.toml`), this is a no-op.
+            """)
+        st.code("""
+import fastlit as st
+
+st.require_login()   # ← redirect to /auth/login if not authenticated
+
+st.title("Protected page")
+st.write(f"Welcome, {st.user.name}!")
+""", language="python")
+
+    st.divider()
+
+    # -------------------------------------------------------------------------
+    # st.user
+    # -------------------------------------------------------------------------
+    with st.container(border=True):
+        st.subheader("`st.user`")
+        with st.expander("📖 Documentation", expanded=False):
+            st.markdown("""
+            Lazy proxy that reads OIDC claims from the current session.
+
+            | Property | OIDC claim | Type |
+            |---|---|---|
+            | `st.user.is_logged_in` | — | `bool` |
+            | `st.user.email` | `email` | `str \| None` |
+            | `st.user.name` | `name` / `preferred_username` | `str \| None` |
+            | `st.user.sub` | `sub` | `str \| None` |
+            | `st.user.<claim>` | any | `Any` |
+
+            All claims from the ID token are accessible as attributes.
+            When auth is disabled or the user is not logged in, all properties
+            return `None` / `False`.
+            """)
+        col_code, col_live = st.columns([1, 1])
+        with col_code:
+            st.code("""
+import fastlit as st
+
+# Check login status
+if st.user.is_logged_in:
+    st.success(f"Logged in as {st.user.email}")
+else:
+    st.info("Not authenticated (auth disabled or not logged in)")
+
+# Access any OIDC claim
+st.write("Name:", st.user.name)
+st.write("Subject:", st.user.sub)
+st.write("Picture:", st.user.picture)   # if provided by IdP
+""", language="python")
+        with col_live:
+            st.markdown("**Live values** (in this session):")
+            if st.user.is_logged_in:
+                st.success(f"Logged in as `{st.user.email}`")
+                st.json({
+                    "is_logged_in": st.user.is_logged_in,
+                    "email": st.user.email,
+                    "name": st.user.name,
+                    "sub": st.user.sub,
+                })
+            else:
+                st.info("Not authenticated — auth is disabled in this demo (no `[auth]` in secrets.toml).")
+                st.json({
+                    "is_logged_in": False,
+                    "email": None,
+                    "name": None,
+                    "sub": None,
+                })
+
+    st.divider()
+
+    # -------------------------------------------------------------------------
+    # st.logout
+    # -------------------------------------------------------------------------
+    with st.container(border=True):
+        st.subheader("`st.logout()`")
+        with st.expander("📖 Documentation", expanded=False):
+            st.markdown("""
+            **Signature:** `st.logout() -> None`
+
+            Clears the session cookie and redirects to `/auth/logout` → then to `/`.
+            Typically called inside a button handler.
+            """)
+        st.code("""
+import fastlit as st
+
+st.require_login()
+
+if st.button("Sign out", type="secondary"):
+    st.logout()
+""", language="python")
+
+    st.divider()
+
+    # -------------------------------------------------------------------------
+    # Auth flow diagram
+    # -------------------------------------------------------------------------
+    with st.container(border=True):
+        st.subheader("Auth flow")
+        st.markdown("""
+        ```
+        Browser          Fastlit server         IdP (Google/Azure/…)
+           │                   │                        │
+           │── GET /page ──────►│                        │
+           │                   │ (no valid cookie)       │
+           │◄─ 302 /auth/login─│                        │
+           │                   │                        │
+           │── GET /auth/login ►│                        │
+           │                   │ generate state+PKCE     │
+           │◄─ 302 IdP URL ───►│────── redirect ────────►│
+           │                   │                        │
+           │◄──────────────────────────────────────────►│
+           │          user authenticates at IdP         │
+           │                   │                        │
+           │── GET /auth/callback?code=… ──────────────►│
+           │                   │◄── token response ─────│
+           │                   │  parse id_token claims  │
+           │◄─ 302 /page ──────│  set fl_session cookie  │
+           │    (with cookie)  │                        │
+           │── GET /page ──────►│                        │
+           │                   │  verify cookie HMAC     │
+           │◄─ 200 (app) ──────│  attach user_claims     │
+        ```
+        """)
+
+    st.divider()
+
+    # -------------------------------------------------------------------------
+    # Providers
+    # -------------------------------------------------------------------------
+    with st.container(border=True):
+        st.subheader("Provider examples")
+        provider = st.selectbox(
+            "Select provider",
+            ["Google", "Azure AD", "Okta", "Keycloak (self-hosted)"],
+            key="auth_provider_select",
+        )
+        configs = {
+            "Google": """[auth]
+provider = "oidc"
+issuer_url = "https://accounts.google.com"
+client_id = "XXXXXXX.apps.googleusercontent.com"
+client_secret = "GOCSPX-XXXXXXXXXXXXXXX"
+redirect_uri = "http://localhost:8501/auth/callback"
+cookie_secret = "change-me-32-chars-minimum!!!!!"
+scopes = ["openid", "profile", "email"]""",
+            "Azure AD": """[auth]
+provider = "oidc"
+issuer_url = "https://login.microsoftonline.com/<tenant-id>/v2.0"
+client_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+client_secret = "your-client-secret"
+redirect_uri = "http://localhost:8501/auth/callback"
+cookie_secret = "change-me-32-chars-minimum!!!!!"
+scopes = ["openid", "profile", "email"]""",
+            "Okta": """[auth]
+provider = "oidc"
+issuer_url = "https://your-org.okta.com"
+client_id = "your-client-id"
+client_secret = "your-client-secret"
+redirect_uri = "http://localhost:8501/auth/callback"
+cookie_secret = "change-me-32-chars-minimum!!!!!"
+scopes = ["openid", "profile", "email"]""",
+            "Keycloak (self-hosted)": """[auth]
+provider = "oidc"
+issuer_url = "http://localhost:8080/realms/myrealm"
+client_id = "fastlit"
+client_secret = "your-client-secret"
+redirect_uri = "http://localhost:8501/auth/callback"
+cookie_secret = "change-me-32-chars-minimum!!!!!"
+scopes = ["openid", "profile", "email"]""",
+        }
+        st.code(configs[provider], language="toml")
+
 
 # =============================================================================
 # FOOTER

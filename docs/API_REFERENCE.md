@@ -3,7 +3,26 @@
 Generated from real Python signatures in `fastlit`.
 Regenerate with: `python scripts/generate_api_reference.py`
 
-Total documented functions: **96**
+Total documented functions: **100**
+
+## `st.Page`
+
+**Signature**
+```python
+st.Page(path: 'str', title: 'str | None' = None, icon: 'str | None' = None, url_path: 'str | None' = None, default: 'bool' = False) -> None
+```
+
+**Parameters**
+- `path`: `str` (default: `required`)
+- `title`: `str | None` (default: `None`)
+- `icon`: `str | None` (default: `None`)
+- `url_path`: `str | None` (default: `None`)
+- `default`: `bool` (default: `False`)
+
+**Example**
+```python
+st.Page("value", title="Example", icon="value", url_path="value", default=False)
+```
 
 ## `st.altair_chart`
 
@@ -387,6 +406,24 @@ st.columns(spec: 'int | Sequence[int | float]', *, gap: 'str | None' = 'small', 
 col1, col2 = st.columns(2)
 ```
 
+## `st.connection`
+
+**Signature**
+```python
+st.connection(name: 'str', type: 'str | type[BaseConnection] | None' = None, ttl: 'float | int | None' = None, **kwargs: 'Any') -> 'BaseConnection'
+```
+
+**Parameters**
+- `name`: `str` (default: `required`)
+- `type`: `str | type[BaseConnection] | None` (default: `None`)
+- `ttl`: `float | int | None` (default: `None`)
+- `kwargs`: `Any` (default: `required`)
+
+**Example**
+```python
+st.connection("value", type="value", ttl=1)
+```
+
 ## `st.container`
 
 **Signature**
@@ -433,7 +470,7 @@ edited = st.data_editor({"a": [1, 2]})
 
 **Signature**
 ```python
-st.dataframe(data: 'Any', *, height: 'int | None' = None, use_container_width: 'bool' = True, hide_index: 'bool' = False, max_rows: 'int | None' = None, key: 'str | None' = None) -> 'None'
+st.dataframe(data: 'Any', *, height: 'int | None' = None, use_container_width: 'bool' = True, hide_index: 'bool' = False, max_rows: 'int | None' = None, on_select: 'str | Callable[[DataframeSelection], None] | None' = None, selection_mode: 'str' = 'multi-row', key: 'str | None' = None) -> 'DataframeSelection | None'
 ```
 
 **Parameters**
@@ -442,6 +479,8 @@ st.dataframe(data: 'Any', *, height: 'int | None' = None, use_container_width: '
 - `use_container_width`: `bool` (default: `True`)
 - `hide_index`: `bool` (default: `False`)
 - `max_rows`: `int | None` (default: `None`)
+- `on_select`: `str | Callable[[DataframeSelection], None] | None` (default: `None`)
+- `selection_mode`: `str` (default: `'multi-row'`)
 - `key`: `str | None` (default: `None`)
 
 **Example**
@@ -938,6 +977,21 @@ st.logo(image: 'Any', *, size: 'str' = 'medium', link: 'str | None' = None, icon
 st.logo("https://picsum.photos/120/40")
 ```
 
+## `st.logout`
+
+**Signature**
+```python
+st.logout() -> 'None'
+```
+
+**Parameters**
+- No parameters.
+
+**Example**
+```python
+st.logout()
+```
+
 ## `st.map`
 
 **Signature**
@@ -1033,11 +1087,11 @@ tags = st.multiselect("Tags", ["a", "b", "c"])
 
 **Signature**
 ```python
-st.navigation(pages: 'Sequence[str]', *, key: 'str | None' = None) -> 'str'
+st.navigation(pages: 'Sequence[str | Page]', *, key: 'str | None' = None) -> 'str | Page'
 ```
 
 **Parameters**
-- `pages`: `Sequence[str]` (default: `required`)
+- `pages`: `Sequence[str | Page]` (default: `required`)
 - `key`: `str | None` (default: `None`)
 
 **Example**
@@ -1290,15 +1344,30 @@ st.radio(label: 'str', options: 'Sequence', index: 'int | None' = 0, format_func
 mode = st.radio("Mode", ["A", "B"])
 ```
 
-## `st.rerun`
+## `st.require_login`
 
 **Signature**
 ```python
-st.rerun() -> 'None'
+st.require_login() -> 'None'
 ```
 
 **Parameters**
 - No parameters.
+
+**Example**
+```python
+st.require_login()
+```
+
+## `st.rerun`
+
+**Signature**
+```python
+st.rerun(scope: 'str' = 'full') -> 'None'
+```
+
+**Parameters**
+- `scope`: `str` (default: `'full'`)
 
 **Example**
 ```python
@@ -1606,11 +1675,11 @@ st.success("Saved")
 
 **Signature**
 ```python
-st.switch_page(page: 'str') -> 'None'
+st.switch_page(page: 'str | Page') -> 'None'
 ```
 
 **Parameters**
-- `page`: `str` (default: `required`)
+- `page`: `str | Page` (default: `required`)
 
 **Example**
 ```python

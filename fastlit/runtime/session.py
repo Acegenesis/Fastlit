@@ -76,6 +76,8 @@ class Session:
         self._page_labels: list[str] = []
         self._page_url_paths: list[str] = []
         self._page_scripts: dict[int, str] = {}
+        # OIDC claims attached by the WS handler from the session cookie.
+        self.user_claims: dict = {}
 
     def register_navigation_pages(
         self,
@@ -154,6 +156,10 @@ class Session:
             except SwitchPageException as spe:
                 clear_current_session()
                 self._handle_switch_page(spe.page_name)
+                continue
+            except _RequireLoginException:
+                clear_current_session()
+                self._handle_switch_page("/auth/login")
                 continue
             except _StopException:
                 pass
@@ -445,6 +451,13 @@ class SwitchPageException(Exception):
     def __init__(self, page_name: str) -> None:
         self.page_name = page_name
         super().__init__(f"Switch to page: {page_name}")
+
+
+class _RequireLoginException(Exception):
+    """Raised by st.require_login() when the user is not authenticated.
+
+    The session run loop catches this and redirects to ``/auth/login``.
+    """
 
 
 # Private alias used internally to avoid name clashes with `fastlit.__init__`

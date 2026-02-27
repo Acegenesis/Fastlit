@@ -17,6 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 dataframe = ["pyarrow>=14.0", "pandas>=2.0"]
 sql = ["sqlalchemy>=2.0", "pandas>=2.0"]
+auth = ["httpx>=0.25"]
 dev = ["watchfiles>=0.21"]
 
 [project.scripts]

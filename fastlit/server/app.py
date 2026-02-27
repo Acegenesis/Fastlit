@@ -385,8 +385,25 @@ def create_app(script_path: str | None = None, static_dir: str | None = None) ->
         static_dir = os.path.join(os.path.dirname(__file__), "static")
     set_static_dir(static_dir)
 
+    # Load auth config from secrets.toml (optional — auth disabled if absent)
+    _auth_cfg: dict = {}
+    try:
+        from fastlit.ui.secrets import _load_secrets as _ls
+        _auth_cfg = dict(_ls().get("auth", {}))
+    except Exception:
+        pass
+
     # Build routes list
     routes = [WebSocketRoute("/ws", ws_endpoint)]
+
+    # Auth routes (must appear before the SPA catch-all)
+    if _auth_cfg:
+        from fastlit.server.auth import route_login, route_callback, route_logout
+        routes += [
+            Route("/auth/login", route_login),
+            Route("/auth/callback", route_callback),
+            Route("/auth/logout", route_logout),
+        ]
 
     if os.environ.get("FASTLIT_ENABLE_METRICS", "1") not in {"0", "false", "False"}:
         routes.append(Route("/_fastlit/metrics", metrics_endpoint))
@@ -406,6 +423,14 @@ def create_app(script_path: str | None = None, static_dir: str | None = None) ->
     routes.append(Route("/", homepage))
 
     app = Starlette(routes=routes, lifespan=_lifespan)
+
+    # Attach auth state so route handlers and middleware can access config
+    if _auth_cfg:
+        from fastlit.server.auth import OIDCClient, AuthMiddleware
+        _oidc = OIDCClient(_auth_cfg)
+        app.state.oidc_client = _oidc
+        app.state.auth_cfg = _auth_cfg
+
     app.add_middleware(GZipMiddleware, minimum_size=500)
     app.add_middleware(CacheControlMiddleware)
 
@@ -450,5 +475,9 @@ def create_app(script_path: str | None = None, static_dir: str | None = None) ->
         allowed_hosts = [h.strip() for h in trusted_hosts.split(",") if h.strip()]
         if allowed_hosts:
             app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
+
+    # AuthMiddleware added last = outermost layer (runs before all other middleware)
+    if _auth_cfg:
+        app.add_middleware(AuthMiddleware, cfg=_auth_cfg, oidc=_oidc)
 
     return app

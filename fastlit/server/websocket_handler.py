@@ -319,6 +319,21 @@ def _extract_ws_token(websocket: WebSocket) -> str | None:
     return None
 
 
+def _extract_ws_cookie(websocket: WebSocket, cookie_name: str) -> str | None:
+    """Extract a specific cookie value from WebSocket upgrade headers."""
+    cookie_header = websocket.headers.get("cookie", "")
+    for part in cookie_header.split(";"):
+        item = part.strip()
+        if not item or "=" not in item:
+            continue
+        key, value = item.split("=", 1)
+        if key.strip() == cookie_name:
+            v = value.strip()
+            if v:
+                return v
+    return None
+
+
 def _is_ws_auth_allowed(websocket: WebSocket) -> bool:
     if not _WS_AUTH_TOKEN:
         return True
@@ -812,6 +827,20 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
         if not _validate_and_copy_query_params(websocket, session):
             await websocket.close(code=1008, reason="Invalid query parameters")
             return
+
+        # Attach OIDC user claims from session cookie (if auth is configured).
+        try:
+            from fastlit.server.app import _auth_cfg as _app_auth_cfg
+            if _app_auth_cfg:
+                from fastlit.server.auth import read_session_cookie
+                _cookie_name = _app_auth_cfg.get("cookie_name", "fl_session")
+                _cookie_val = _extract_ws_cookie(websocket, _cookie_name)
+                if _cookie_val:
+                    _claims = read_session_cookie(_cookie_val, _app_auth_cfg)
+                    if _claims:
+                        session.user_claims = _claims
+        except Exception:
+            pass  # Auth optional — never break WS on config errors
 
         logger.info("Session %s connected (%s)", session.session_id, client_ip)
 
