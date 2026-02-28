@@ -20,6 +20,12 @@ import type { UINode, ErrorMessage, RuntimeEventPayload } from "./runtime/types"
 
 type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
+function isLikelyNavigationSyncPatch(ops: Array<{ op?: string }> | undefined): boolean {
+  if (!Array.isArray(ops) || ops.length === 0) return false;
+  if (ops.length > 8) return true;
+  return ops.some((op) => op.op === "insertChild" || op.op === "remove" || op.op === "replace");
+}
+
 /** Convert page name to URL slug */
 function toSlug(page: string): string {
   const normalized = page.normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
@@ -50,9 +56,6 @@ const PREFETCH_SKIP_TYPES = new Set([
   "camera_input",
   "audio_input",
 ]);
-const DEV_BACKEND_POLL_MS = 1000;
-const DEV_BACKEND_RELOAD_STORAGE_KEY = "fastlit:dev-backend-reload-ts";
-
 /** Set a page in the cache, evicting oldest if over limit */
 function setCacheEntry(cache: PageCache, slug: string, content: UINode[]) {
   cache.delete(slug); // remove first so re-insert puts it at end (most recent)
@@ -113,12 +116,6 @@ export const App: React.FC = () => {
   const idleHandleRef = useRef<number | null>(null);
   const prefetchedNodeTypesRef = useRef<Set<string>>(new Set());
   const patchJobSeqRef = useRef(0);
-  const devBackendBootIdRef = useRef<string | null>(null);
-  // Ref mirror of `status` so the polling loop can read it without being a dependency.
-  const statusRef = useRef(status);
-
-  // Keep statusRef in sync so the boot-id polling loop can read it without re-mounting.
-  useEffect(() => { statusRef.current = status; }, [status]);
 
   // Remove the inline HTML skeleton (#sk) only once we have renderable content
   // (or when connection definitively failed and we need to show an error state).
@@ -143,63 +140,6 @@ export const App: React.FC = () => {
     };
     window.addEventListener("fastlit:page-config", handler);
     return () => window.removeEventListener("fastlit:page-config", handler);
-  }, []);
-
-  useEffect(() => {
-    if (!import.meta.env.DEV) return;
-
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    const pollBackendBoot = async () => {
-      // Skip network request while WS is healthy — Vite watcher already handles
-      // Python file changes. Only poll when disconnected/connecting to catch
-      // backend restarts that Vite may have missed (e.g. manual uvicorn restart).
-      if (statusRef.current === "connected") {
-        if (!cancelled) timer = window.setTimeout(pollBackendBoot, DEV_BACKEND_POLL_MS);
-        return;
-      }
-
-      try {
-        const response = await fetch("/_fastlit/metrics", {
-          cache: "no-store",
-          headers: { "cache-control": "no-store" },
-        });
-        if (!response.ok) {
-          throw new Error(`metrics ${response.status}`);
-        }
-        const payload = (await response.json()) as { boot_id?: string };
-        const nextBootId = String(payload.boot_id ?? "").trim();
-        if (!nextBootId) return;
-
-        const previousBootId = devBackendBootIdRef.current;
-        if (previousBootId && previousBootId !== nextBootId) {
-          try {
-            window.sessionStorage.setItem(
-              DEV_BACKEND_RELOAD_STORAGE_KEY,
-              String(Date.now())
-            );
-          } catch {
-            // Best effort only.
-          }
-          window.location.reload();
-          return;
-        }
-        devBackendBootIdRef.current = nextBootId;
-      } catch {
-        // Backend can be briefly unavailable during reload. Retry on next tick.
-      } finally {
-        if (!cancelled) {
-          timer = window.setTimeout(pollBackendBoot, DEV_BACKEND_POLL_MS);
-        }
-      }
-    };
-
-    void pollBackendBoot();
-    return () => {
-      cancelled = true;
-      if (timer !== null) window.clearTimeout(timer);
-    };
   }, []);
 
   // Listen for sidebar_state nodes from backend (C2)
@@ -460,10 +400,17 @@ export const App: React.FC = () => {
       // frontend already shows the new page from cache. Applying this patch
       // would corrupt the tree (duplication). Skip only the expected next rev.
       const skipAfterRev = pendingSkipPatchAfterRevRef.current;
-      if (skipAfterRev !== null && msg.rev > skipAfterRev) {
+      if (
+        skipAfterRev !== null &&
+        msg.rev > skipAfterRev &&
+        isLikelyNavigationSyncPatch(msg.ops)
+      ) {
         pendingSkipPatchAfterRevRef.current = null;
         setIsNavigating(false);
         return;
+      }
+      if (skipAfterRev !== null && msg.rev > skipAfterRev) {
+        pendingSkipPatchAfterRevRef.current = null;
       }
 
       setTree((prev) => {

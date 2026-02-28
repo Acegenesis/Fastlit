@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import threading
 import time
@@ -9,19 +11,28 @@ from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
+from urllib.error import HTTPError, URLError
+from urllib.request import Request as UrlRequest, urlopen
 
 from starlette.applications import Starlette
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
-from starlette.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.routing import Route, WebSocketRoute, Mount
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket
+from websockets import connect as ws_connect
+from websockets.exceptions import ConnectionClosed
 
 from fastlit.server import metrics
-from fastlit.server.dataframe_store import get_slice as get_dataframe_slice
+from fastlit.server.dataframe_store import (
+    DataframeFilter,
+    DataframeQuery,
+    DataframeSort,
+    get_slice as get_dataframe_slice,
+)
 from fastlit.server.websocket_handler import handle_websocket
 
 # Will be set by CLI before the app starts
@@ -41,6 +52,18 @@ _startup_handlers: list = []
 _shutdown_handlers: list = []
 _server_started: bool = False
 _registered_startup_keys: set = set()  # deduplicate by qualname across reruns
+_HOP_BY_HOP_HEADERS = {
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailers",
+    "transfer-encoding",
+    "upgrade",
+    "content-length",
+    "content-encoding",
+}
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -63,6 +86,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request, call_next):
         response = await call_next(request)
+        is_dev_vite_proxy = (
+            response.headers.get("X-Fastlit-Dev-Proxy", "").strip().lower() == "vite"
+        )
         path = request.url.path
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "no-referrer")
@@ -79,7 +105,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # while still blocking cross-origin framing of the main app.
         if not path.startswith("/_components/"):
             response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
-        if self._csp_policy and not path.startswith("/_components/"):
+        if self._csp_policy and not path.startswith("/_components/") and not is_dev_vite_proxy:
             csp_header = (
                 "Content-Security-Policy-Report-Only"
                 if self._csp_report_only
@@ -252,17 +278,80 @@ def set_static_dir(path: str) -> None:
     _static_dir = path
 
 
+def _dev_server_url() -> str:
+    return os.environ.get("FASTLIT_DEV_SERVER_URL", "").strip().rstrip("/")
+
+
+def _copy_proxy_request_headers(request: Request) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    for key, value in request.headers.items():
+        lower = key.lower()
+        if lower in _HOP_BY_HOP_HEADERS or lower == "host":
+            continue
+        if lower == "accept-encoding":
+            continue
+        headers[key] = value
+    return headers
+
+
+def _copy_proxy_response_headers(headers) -> dict[str, str]:
+    copied: dict[str, str] = {}
+    for key, value in headers.items():
+        if key.lower() in _HOP_BY_HOP_HEADERS:
+            continue
+        copied[key] = value
+    return copied
+
+
+def _fetch_dev_server_response(
+    *,
+    url: str,
+    method: str,
+    headers: dict[str, str],
+    body: bytes | None,
+) -> tuple[int, dict[str, str], bytes]:
+    request = UrlRequest(url, data=body if body else None, headers=headers, method=method)
+    try:
+        with urlopen(request, timeout=10.0) as upstream:
+            return upstream.status, _copy_proxy_response_headers(upstream.headers), upstream.read()
+    except HTTPError as exc:
+        return exc.code, _copy_proxy_response_headers(exc.headers), exc.read()
+    except URLError as exc:
+        raise RuntimeError(f"Failed to proxy request to Vite dev server: {exc}") from exc
+
+
+async def _proxy_dev_server_http(request: Request) -> Response:
+    dev_server_url = _dev_server_url()
+    if not dev_server_url:
+        return Response("Vite dev server URL is not configured.", status_code=503)
+
+    path = request.url.path or "/"
+    query = request.url.query
+    target = f"{dev_server_url}{path}"
+    if query:
+        target = f"{target}?{query}"
+
+    body = await request.body()
+    try:
+        status_code, headers, payload = await asyncio.to_thread(
+            _fetch_dev_server_response,
+            url=target,
+            method=request.method,
+            headers=_copy_proxy_request_headers(request),
+            body=body or None,
+        )
+    except RuntimeError as exc:
+        return Response(str(exc), status_code=502)
+
+    response = Response(payload, status_code=status_code, headers=headers)
+    response.headers["X-Fastlit-Dev-Proxy"] = "vite"
+    return response
+
+
 async def homepage(request):
     """Serve the frontend SPA entry point."""
     if _env_flag("FASTLIT_DEV_MODE", default=False):
-        dev_server_url = os.environ.get("FASTLIT_DEV_SERVER_URL", "").strip().rstrip("/")
-        if dev_server_url:
-            path = request.url.path or "/"
-            query = request.url.query
-            target = f"{dev_server_url}{path}"
-            if query:
-                target = f"{target}?{query}"
-            return RedirectResponse(target, status_code=307)
+        return await _proxy_dev_server_http(request)
 
     index_path = os.path.join(_static_dir, "index.html")
     if os.path.exists(index_path):
@@ -291,6 +380,65 @@ async def homepage(request):
 async def ws_endpoint(websocket: WebSocket):
     """WebSocket endpoint for client connections."""
     await handle_websocket(websocket, _script_path)
+
+
+async def vite_hmr_proxy_endpoint(websocket: WebSocket):
+    """Proxy Vite HMR WebSocket through the backend dev URL."""
+    if not _env_flag("FASTLIT_DEV_MODE", default=False):
+        await websocket.close(code=1008, reason="Vite HMR proxy is only available in dev mode")
+        return
+
+    dev_server_url = _dev_server_url()
+    if not dev_server_url:
+        await websocket.close(code=1011, reason="Vite dev server URL is not configured")
+        return
+
+    target_url = dev_server_url.replace("http://", "ws://", 1).replace(
+        "https://", "wss://", 1
+    ) + "/_vite_hmr"
+    query = websocket.url.query
+    if query:
+        target_url = f"{target_url}?{query}"
+
+    await websocket.accept()
+    try:
+        async with ws_connect(target_url) as upstream:
+            async def browser_to_vite() -> None:
+                while True:
+                    message = await websocket.receive()
+                    message_type = message.get("type")
+                    if message_type == "websocket.disconnect":
+                        break
+                    text = message.get("text")
+                    data = message.get("bytes")
+                    if text is not None:
+                        await upstream.send(text)
+                    elif data is not None:
+                        await upstream.send(data)
+
+            async def vite_to_browser() -> None:
+                while True:
+                    payload = await upstream.recv()
+                    if isinstance(payload, bytes):
+                        await websocket.send_bytes(payload)
+                    else:
+                        await websocket.send_text(payload)
+
+            forward_client = asyncio.create_task(browser_to_vite())
+            forward_vite = asyncio.create_task(vite_to_browser())
+            done, pending = await asyncio.wait(
+                {forward_client, forward_vite},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+            for task in done:
+                task.result()
+    except (ConnectionClosed, OSError):
+        pass
+    finally:
+        await websocket.close()
 
 
 async def metrics_endpoint(request):
@@ -340,11 +488,70 @@ async def dataframe_slice_endpoint(request):
         limit = int(request.query_params.get("limit", "200"))
     except ValueError:
         return JSONResponse({"error": "invalid offset/limit"}, status_code=400)
+    search = request.query_params.get("search", "")
+    try:
+        sorts = _parse_dataframe_sorts(request.query_params.get("sort", ""))
+        filters = _parse_dataframe_filters(request.query_params.get("filters", ""))
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
 
-    data = get_dataframe_slice(source_id, offset, limit)
+    data = get_dataframe_slice(
+        source_id,
+        DataframeQuery(
+            offset=offset,
+            limit=limit,
+            search=search,
+            sorts=tuple(sorts),
+            filters=tuple(filters),
+        ),
+    )
     if data is None:
         return JSONResponse({"error": "unknown dataframe source"}, status_code=404)
     return JSONResponse(data)
+
+
+def _parse_dataframe_sorts(raw: str) -> list[DataframeSort]:
+    if not raw:
+        return []
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("invalid sort payload") from exc
+    if not isinstance(payload, list):
+        raise ValueError("sort payload must be a list")
+    sorts: list[DataframeSort] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        column = str(item.get("column", "")).strip()
+        direction = str(item.get("direction", "asc")).strip().lower()
+        if not column:
+            continue
+        if direction not in {"asc", "desc"}:
+            direction = "asc"
+        sorts.append(DataframeSort(column=column, direction=direction))
+    return sorts
+
+
+def _parse_dataframe_filters(raw: str) -> list[DataframeFilter]:
+    if not raw:
+        return []
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("invalid filters payload") from exc
+    if not isinstance(payload, list):
+        raise ValueError("filters payload must be a list")
+    filters: list[DataframeFilter] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        column = str(item.get("column", "")).strip()
+        op = str(item.get("op", "")).strip()
+        if not column or not op:
+            continue
+        filters.append(DataframeFilter(column=column, op=op, value=item.get("value")))
+    return filters
 
 
 @asynccontextmanager
@@ -405,6 +612,8 @@ def create_app(script_path: str | None = None, static_dir: str | None = None) ->
 
     # Build routes list
     routes = [WebSocketRoute("/ws", ws_endpoint)]
+    if _env_flag("FASTLIT_DEV_MODE", default=False):
+        routes.append(WebSocketRoute("/_vite_hmr", vite_hmr_proxy_endpoint))
 
     # Auth routes (must appear before the SPA catch-all)
     if _auth_cfg:
@@ -461,24 +670,25 @@ def create_app(script_path: str | None = None, static_dir: str | None = None) ->
             exempt_prefixes=exempt_prefixes,
         )
 
-    enable_csp = _env_flag("FASTLIT_ENABLE_CSP", default=True)
-    csp_policy = os.environ.get("FASTLIT_CSP", "").strip()
-    if enable_csp and not csp_policy:
-        csp_policy = _default_csp_policy()
-    if not enable_csp:
-        csp_policy = None
+    if not _env_flag("FASTLIT_DEV_MODE", default=False):
+        enable_csp = _env_flag("FASTLIT_ENABLE_CSP", default=True)
+        csp_policy = os.environ.get("FASTLIT_CSP", "").strip()
+        if enable_csp and not csp_policy:
+            csp_policy = _default_csp_policy()
+        if not enable_csp:
+            csp_policy = None
 
-    app.add_middleware(
-        SecurityHeadersMiddleware,
-        csp_policy=csp_policy,
-        csp_report_only=_env_flag("FASTLIT_CSP_REPORT_ONLY", default=False),
-        permissions_policy=os.environ.get(
-            "FASTLIT_PERMISSIONS_POLICY",
-            "camera=(self), microphone=(self), geolocation=(), payment=()",
-        ).strip()
-        or None,
-        hsts_seconds=max(0, int(os.environ.get("FASTLIT_HSTS_SECONDS", "0"))),
-    )
+        app.add_middleware(
+            SecurityHeadersMiddleware,
+            csp_policy=csp_policy,
+            csp_report_only=_env_flag("FASTLIT_CSP_REPORT_ONLY", default=False),
+            permissions_policy=os.environ.get(
+                "FASTLIT_PERMISSIONS_POLICY",
+                "camera=(self), microphone=(self), geolocation=(), payment=()",
+            ).strip()
+            or None,
+            hsts_seconds=max(0, int(os.environ.get("FASTLIT_HSTS_SECONDS", "0"))),
+        )
 
     trusted_hosts = os.environ.get("FASTLIT_TRUSTED_HOSTS", "").strip()
     if trusted_hosts:

@@ -256,6 +256,12 @@ def metric(
     help: str | None = None,
     label_visibility: str = "visible",
     border: bool = False,
+    width: int | str = "content",
+    height: int | str = "content",
+    chart_data: Any | None = None,
+    chart_type: str = "line",
+    delta_arrow: str = "auto",
+    format: str | None = None,
 ) -> None:
     """Display a metric with an optional delta indicator.
 
@@ -267,17 +273,31 @@ def metric(
         help: Tooltip text.
         label_visibility: "visible", "hidden", or "collapsed".
         border: If True, show a border around the metric.
+        width: "content" (default), "stretch", or a fixed pixel width.
+        height: "content" (default), "stretch", or a fixed pixel height.
+        chart_data: Optional series used for an inline sparkline.
+        chart_type: "line", "area", or "bar".
+        delta_arrow: "auto", "up", "down", or "off".
+        format: Optional numeric format string applied to value and delta.
     """
+    display_value = _format_metric_value(value, format)
+    display_delta = _format_metric_value(delta, format) if delta is not None else None
     _emit_node(
         "metric",
         {
             "label": str(label),
-            "value": str(value) if value is not None else "-",
-            "delta": str(delta) if delta is not None else None,
+            "value": display_value,
+            "delta": display_delta,
             "deltaColor": delta_color,
             "help": help,
             "labelVisibility": label_visibility,
             "border": border,
+            "width": width,
+            "height": height,
+            "chartData": _normalize_metric_chart_data(chart_data),
+            "chartType": chart_type,
+            "deltaArrow": delta_arrow,
+            "format": format,
         },
     )
 
@@ -302,6 +322,8 @@ def json(body: Any, *, expanded: bool | int = True) -> None:
     else:
         data = body
 
+    data = _json_safe_value(data)
+
     _emit_node(
         "json",
         {
@@ -309,6 +331,160 @@ def json(body: Any, *, expanded: bool | int = True) -> None:
             "expanded": expanded,
         },
     )
+
+
+def _json_safe_value(value: Any) -> Any:
+    """Best-effort conversion to JSON-friendly nested data."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+
+    try:
+        import pandas as pd
+        if isinstance(value, pd.DataFrame):
+            return [_json_safe_value(row) for row in value.to_dict(orient="records")]
+        if isinstance(value, pd.Series):
+            return {str(k): _json_safe_value(v) for k, v in value.to_dict().items()}
+    except ImportError:
+        pass
+
+    try:
+        import numpy as np
+        if isinstance(value, (np.integer, np.floating)):
+            return value.item()
+        if isinstance(value, np.ndarray):
+            return [_json_safe_value(item) for item in value.tolist()]
+        if isinstance(value, np.bool_):
+            return bool(value)
+    except ImportError:
+        pass
+
+    if isinstance(value, dict):
+        return {str(k): _json_safe_value(v) for k, v in value.items()}
+
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item) for item in value]
+
+    if hasattr(value, "__dict__") and not isinstance(value, type):
+        try:
+            return {
+                str(k): _json_safe_value(v)
+                for k, v in vars(value).items()
+                if not callable(v)
+            }
+        except TypeError:
+            pass
+
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except Exception:
+            pass
+
+    if hasattr(value, "to_dict") and callable(value.to_dict):
+        try:
+            return _json_safe_value(value.to_dict())
+        except Exception:
+            pass
+
+    if hasattr(value, "tolist") and callable(value.tolist):
+        try:
+            return _json_safe_value(value.tolist())
+        except Exception:
+            pass
+
+    return str(value)
+
+
+def _coerce_metric_number(value: Any) -> float | int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    return None
+
+
+def _format_metric_value(value: Any, fmt: str | None) -> str:
+    if value is None:
+        return "-"
+    if not fmt:
+        return str(value)
+
+    numeric = _coerce_metric_number(value)
+    if numeric is None:
+        return str(value)
+
+    if "{}" in fmt:
+        try:
+            return fmt.format(numeric)
+        except Exception:
+            return str(value)
+
+    if fmt.startswith("%"):
+        try:
+            return fmt % numeric
+        except Exception:
+            return str(value)
+
+    try:
+        return format(numeric, fmt)
+    except Exception:
+        prefix = ""
+        suffix = ""
+        spec = fmt
+        if spec and spec[0] in "$€£¥":
+            prefix = spec[0]
+            spec = spec[1:]
+        try:
+            return f"{prefix}{format(numeric, spec)}{suffix}"
+        except Exception:
+            return str(value)
+
+
+def _normalize_metric_chart_data(data: Any) -> list[float] | None:
+    if data is None:
+        return None
+
+    try:
+        import pandas as pd
+
+        if isinstance(data, pd.Series):
+            return _normalize_metric_chart_data(data.tolist())
+        if isinstance(data, pd.DataFrame):
+            numeric = data.select_dtypes(include=["number"])
+            if not numeric.empty:
+                return _normalize_metric_chart_data(numeric.iloc[:, 0].tolist())
+            if not data.empty:
+                return _normalize_metric_chart_data(data.iloc[:, 0].tolist())
+            return []
+    except ImportError:
+        pass
+
+    try:
+        import numpy as np
+
+        if isinstance(data, np.ndarray):
+            return _normalize_metric_chart_data(data.tolist())
+        if isinstance(data, (np.integer, np.floating)):
+            return [float(data.item())]
+    except ImportError:
+        pass
+
+    if isinstance(data, dict):
+        return _normalize_metric_chart_data(list(data.values()))
+
+    if isinstance(data, (list, tuple, set)):
+        normalized: list[float] = []
+        for item in data:
+            number = _coerce_metric_number(item)
+            if number is None:
+                continue
+            normalized.append(float(number))
+        return normalized
+
+    scalar = _coerce_metric_number(data)
+    if scalar is not None:
+        return [float(scalar)]
+    return None
 
 
 def code(

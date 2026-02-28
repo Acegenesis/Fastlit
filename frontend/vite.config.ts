@@ -1,66 +1,54 @@
-import fs from "fs";
-import { defineConfig, normalizePath, type PluginOption } from "vite";
+import { createLogger, defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
 const backendTarget =
   process.env.FASTLIT_DEV_BACKEND_URL || "http://127.0.0.1:8501";
-const pythonWatchDirs = (process.env.FASTLIT_DEV_WATCH_DIRS || "")
-  .split(path.delimiter)
-  .map((dir) => dir.trim())
-  .filter(Boolean)
-  .map((dir) => normalizePath(path.resolve(dir)))
-  .filter((dir) => fs.existsSync(dir));
+const backendUrl = new URL(backendTarget);
+const frontendTarget =
+  process.env.FASTLIT_DEV_SERVER_URL || "http://127.0.0.1:5173";
+const frontendUrl = new URL(frontendTarget);
 
-function fastlitPythonReloadPlugin(): PluginOption {
-  return {
-    name: "fastlit-python-full-reload",
-    apply: "serve",
-    configureServer(server) {
-      if (pythonWatchDirs.length === 0) {
-        return;
-      }
+function createFastlitDevLogger() {
+  const logger = createLogger();
+  const baseInfo = logger.info.bind(logger);
+  const baseWarn = logger.warn.bind(logger);
+  const baseError = logger.error.bind(logger);
 
-      server.watcher.add(pythonWatchDirs);
+  const shouldSuppress = (msg: string) =>
+    msg.includes("Local:") ||
+    msg.includes("Network:") ||
+    msg.includes("press h + enter to show help") ||
+    msg.includes("proxy error:") ||
+    msg.includes("ECONNREFUSED");
 
-      let reloadTimer: ReturnType<typeof setTimeout> | null = null;
-      let changedFile = "";
-
-      const scheduleReload = (file: string) => {
-        const normalizedFile = normalizePath(path.resolve(file));
-        if (!normalizedFile.endsWith(".py")) {
-          return;
-        }
-        const matchesWatchedDir = pythonWatchDirs.some(
-          (dir) => normalizedFile === dir || normalizedFile.startsWith(`${dir}/`)
-        );
-        if (!matchesWatchedDir) {
-          return;
-        }
-
-        changedFile = normalizedFile;
-        if (reloadTimer) {
-          clearTimeout(reloadTimer);
-        }
-        reloadTimer = setTimeout(() => {
-          reloadTimer = null;
-          server.config.logger.info(
-            `fastlit python reload ${path.relative(server.config.root, changedFile)}`,
-            { clear: true, timestamp: true }
-          );
-          server.ws.send({ type: "full-reload", path: "*" });
-        }, 400);
-      };
-
-      server.watcher.on("change", scheduleReload);
-      server.watcher.on("add", scheduleReload);
-      server.watcher.on("unlink", scheduleReload);
-    },
+  logger.info = (msg, options) => {
+    if (shouldSuppress(msg)) {
+      return;
+    }
+    baseInfo(msg, options);
   };
+
+  logger.warn = (msg, options) => {
+    if (shouldSuppress(msg)) {
+      return;
+    }
+    baseWarn(msg, options);
+  };
+
+  logger.error = (msg, options) => {
+    if (shouldSuppress(msg)) {
+      return;
+    }
+    baseError(msg, options);
+  };
+
+  return logger;
 }
 
 export default defineConfig({
-  plugins: [react(), fastlitPythonReloadPlugin()],
+  customLogger: createFastlitDevLogger(),
+  plugins: [react()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -140,6 +128,13 @@ export default defineConfig({
     },
   },
   server: {
+    hmr: {
+      host: frontendUrl.hostname,
+      clientPort:
+        Number(frontendUrl.port) || (frontendUrl.protocol === "https:" ? 443 : 80),
+      path: "/_vite_hmr",
+      protocol: frontendUrl.protocol === "https:" ? "wss" : "ws",
+    },
     proxy: {
       "/ws": {
         target: backendTarget.replace(/^http/, "ws"),

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fastlit"
-version = "0.1.0"
+version = "0.2.0"
 description = "Streamlit-compatible, blazing fast, Python-first UI framework"
 requires-python = ">=3.11"
 dependencies = [
@@ -18,7 +18,7 @@ dependencies = [
 dataframe = ["pyarrow>=14.0", "pandas>=2.0"]
 sql = ["sqlalchemy>=2.0", "pandas>=2.0"]
 auth = ["httpx>=0.25"]
-dev = ["watchfiles>=0.21"]
+dev = ["watchfiles>=0.21", "pytest>=8.0"]
 
 [project.scripts]
 fastlit = "fastlit.cli:main"

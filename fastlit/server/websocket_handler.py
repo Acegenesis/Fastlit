@@ -130,19 +130,59 @@ def _json_loads(raw: str):
     return json.loads(raw)
 
 
+class _SafeJSONEncoder(json.JSONEncoder):
+    """JSON encoder that handles common non-serializable types gracefully."""
+
+    def default(self, obj: object) -> object:
+        # pandas DataFrame / Series
+        try:
+            import pandas as pd
+            if isinstance(obj, pd.DataFrame):
+                return obj.to_dict(orient="records")
+            if isinstance(obj, pd.Series):
+                return obj.to_dict()
+        except ImportError:
+            pass
+        # numpy scalar types
+        try:
+            import numpy as np
+            if isinstance(obj, (np.integer,)):
+                return int(obj)
+            if isinstance(obj, (np.floating,)):
+                return float(obj)
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            if isinstance(obj, np.bool_):
+                return bool(obj)
+        except ImportError:
+            pass
+        # datetime / date
+        import datetime
+        if isinstance(obj, (datetime.datetime, datetime.date)):
+            return obj.isoformat()
+        # fallback: string repr
+        return repr(obj)
+
+
 def _serialize_payload(payload: dict) -> tuple[str, int]:
     if orjson is not None:
-        body = orjson.dumps(payload)
-        return body.decode("utf-8"), len(body)
-    text = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+        try:
+            body = orjson.dumps(payload)
+            return body.decode("utf-8"), len(body)
+        except TypeError:
+            pass  # fall through to safe encoder
+    text = json.dumps(payload, separators=(",", ":"), ensure_ascii=False, cls=_SafeJSONEncoder)
     return text, len(text.encode("utf-8"))
 
 
 def _node_token(node: dict) -> str:
     if orjson is not None:
-        raw = orjson.dumps(node)
-    else:
-        raw = json.dumps(node, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        try:
+            raw = orjson.dumps(node)
+            return hashlib.sha1(raw).hexdigest()
+        except TypeError:
+            pass
+    raw = json.dumps(node, sort_keys=True, separators=(",", ":"), ensure_ascii=False, cls=_SafeJSONEncoder).encode("utf-8")
     return hashlib.sha1(raw).hexdigest()
 
 

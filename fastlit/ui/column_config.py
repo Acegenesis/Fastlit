@@ -1,16 +1,29 @@
-"""Column configuration for st.dataframe and st.data_editor.
+"""Column configuration for tabular widgets.
 
 Provides Streamlit-compatible column configuration classes.
 
 Usage:
     import fastlit as st
 
-    st.dataframe(
+    st.data_editor(
         df,
         column_config={
-            "name": st.column_config.TextColumn("Name", help="User name"),
-            "age": st.column_config.NumberColumn("Age", min_value=0, max_value=120),
-            "progress": st.column_config.ProgressColumn("Progress", min_value=0, max_value=100),
+            "name": st.column_config.TextColumn(
+                "Name",
+                help="User name",
+                resizable=True,
+            ),
+            "age": st.column_config.NumberColumn(
+                "Age",
+                min_value=0,
+                max_value=120,
+                resizable=True,
+            ),
+            "progress": st.column_config.ProgressColumn(
+                "Progress",
+                min_value=0,
+                max_value=100,
+            ),
         }
     )
 """
@@ -27,6 +40,10 @@ class Column:
 
     label: str | None = None
     width: str | None = None  # "small", "medium", "large", or pixels
+    resizable: bool = False
+    min_width: int | None = None
+    max_width: int | None = None
+    pinned: str | None = None
     help: str | None = None
     disabled: bool = False
     required: bool = False
@@ -39,6 +56,10 @@ class Column:
             "type": "default",
             "label": self.label,
             "width": self.width,
+            "resizable": self.resizable,
+            "minWidth": self.min_width,
+            "maxWidth": self.max_width,
+            "pinned": self.pinned,
             "help": self.help,
             "disabled": self.disabled,
             "required": self.required,
@@ -238,4 +259,42 @@ class ListColumn(Column):
     def to_dict(self) -> dict:
         d = super().to_dict()
         d["type"] = "list"
+        return d
+
+
+@dataclass
+class MultiselectColumn(Column):
+    """Multiselect column configuration."""
+
+    options: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        d = super().to_dict()
+        d["type"] = "multiselect"
+        d["options"] = self.options
+        return d
+
+
+@dataclass
+class JSONColumn(Column):
+    """JSON/object column configuration."""
+
+    def to_dict(self) -> dict:
+        d = super().to_dict()
+        d["type"] = "json"
+        return d
+
+
+@dataclass
+class AreaChartColumn(Column):
+    """Sparkline/area chart column configuration."""
+
+    y_min: float | None = None
+    y_max: float | None = None
+
+    def to_dict(self) -> dict:
+        d = super().to_dict()
+        d["type"] = "area_chart"
+        d["yMin"] = self.y_min
+        d["yMax"] = self.y_max
         return d

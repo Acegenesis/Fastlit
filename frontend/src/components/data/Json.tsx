@@ -1,197 +1,258 @@
-import React, { useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronRight, Copy, FoldVertical, Search, UnfoldVertical } from "lucide-react";
 import type { NodeComponentProps } from "../../registry/registry";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 interface JsonProps {
   data: any;
   expanded?: boolean | number;
 }
 
-export const Json: React.FC<NodeComponentProps> = ({ props }) => {
-  const { data, expanded = true } = props as JsonProps;
+function expansionModeLabel(expanded: boolean | number): string {
+  if (expanded === true) return "All expanded";
+  if (expanded === false) return "Collapsed";
+  return `Depth ${expanded}`;
+}
 
+function isExpandable(value: any): boolean {
+  return Array.isArray(value) ? value.length > 0 : !!value && typeof value === "object" && Object.keys(value).length > 0;
+}
+
+function valueSummary(value: any): string {
+  if (Array.isArray(value)) return `[${value.length}]`;
+  if (value && typeof value === "object") return `{${Object.keys(value).length}}`;
+  if (typeof value === "string") return `"${value}"`;
+  if (value === null) return "null";
+  return String(value);
+}
+
+function valueColorClass(value: any): string {
+  if (value === null) return "text-slate-400";
+  if (typeof value === "string") return "text-emerald-600";
+  if (typeof value === "number") return "text-sky-600";
+  if (typeof value === "boolean") return "text-amber-600";
+  return "text-slate-600";
+}
+
+function safeStringify(value: any): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function highlightMatch(text: string, query: string): React.ReactNode {
+  if (!query) return text;
+  const lower = text.toLowerCase();
+  const target = query.toLowerCase();
+  const index = lower.indexOf(target);
+  if (index < 0) return text;
+  const before = text.slice(0, index);
+  const match = text.slice(index, index + query.length);
+  const after = text.slice(index + query.length);
   return (
-    <div className="font-mono text-sm bg-gray-50 border border-gray-200 rounded-lg p-4 overflow-auto max-h-[500px]">
-      <JsonNode value={data} depth={0} expanded={expanded} />
-    </div>
+    <>
+      {before}
+      <mark className="rounded bg-amber-100 px-0.5 text-inherit">{match}</mark>
+      {after}
+    </>
   );
-};
+}
+
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // Best effort only.
+  }
+}
+
+function countMatches(value: any, query: string): number {
+  if (!query) return 0;
+  const target = query.toLowerCase();
+  let count = 0;
+  if (Array.isArray(value)) {
+    for (const item of value) count += countMatches(item, query);
+    return count;
+  }
+  if (value && typeof value === "object") {
+    for (const [key, nested] of Object.entries(value)) {
+      if (key.toLowerCase().includes(target)) count += 1;
+      count += countMatches(nested, query);
+    }
+    return count;
+  }
+  if (String(valueSummary(value)).toLowerCase().includes(target)) count += 1;
+  return count;
+}
 
 interface JsonNodeProps {
   value: any;
   depth: number;
-  expanded: boolean | number;
-  keyName?: string;
+  nodeKey?: string;
+  path: string;
+  expansion: boolean | number;
+  search: string;
 }
 
-const JsonNode: React.FC<JsonNodeProps> = ({ value, depth, expanded, keyName }) => {
-  const shouldExpand =
-    expanded === true || (typeof expanded === "number" && depth < expanded);
-  const [isExpanded, setIsExpanded] = useState(shouldExpand);
+const JsonNode: React.FC<JsonNodeProps> = ({ value, depth, nodeKey, path, expansion, search }) => {
+  const selfMatch = useMemo(() => {
+    if (!search) return false;
+    const target = search.toLowerCase();
+    return (nodeKey?.toLowerCase().includes(target) ?? false) || valueSummary(value).toLowerCase().includes(target);
+  }, [nodeKey, search, value]);
 
-  const toggle = useCallback(() => setIsExpanded((prev) => !prev), []);
+  const initiallyExpanded =
+    expansion === true || selfMatch || (typeof expansion === "number" && depth < Math.max(0, expansion));
+  const [open, setOpen] = useState(initiallyExpanded);
 
-  const indent = depth * 16;
+  useEffect(() => {
+    setOpen(initiallyExpanded);
+  }, [initiallyExpanded]);
 
-  // Render key if present
-  const keyElement = keyName !== undefined && (
-    <span className="text-purple-600">"{keyName}"</span>
+  const expandable = isExpandable(value);
+  const isArray = Array.isArray(value);
+  const indentStyle = { paddingLeft: `${depth * 16}px` };
+
+  const tools = (
+    <div className="ml-auto flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+      <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => copyText(path)}>
+        <Copy className="h-3.5 w-3.5" />
+      </Button>
+      <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => copyText(safeStringify(value))}>
+        <span className="text-[10px] font-semibold">V</span>
+      </Button>
+    </div>
   );
 
-  // Null
-  if (value === null) {
+  if (!expandable) {
     return (
-      <div style={{ marginLeft: indent }}>
-        {keyElement}
-        {keyElement && <span className="text-gray-600">: </span>}
-        <span className="text-gray-500">null</span>
+      <div className={cn("group flex min-w-0 items-start gap-2 py-0.5 text-sm", selfMatch && "rounded bg-amber-50/70")} style={indentStyle}>
+        {nodeKey !== undefined ? <span className="shrink-0 text-violet-600">{highlightMatch(`"${nodeKey}"`, search)}:</span> : null}
+        <span className={cn("min-w-0 break-words", valueColorClass(value))}>{highlightMatch(valueSummary(value), search)}</span>
+        {tools}
       </div>
     );
   }
 
-  // Primitives
-  if (typeof value === "string") {
-    return (
-      <div style={{ marginLeft: indent }}>
-        {keyElement}
-        {keyElement && <span className="text-gray-600">: </span>}
-        <span className="text-green-600">"{escapeString(value)}"</span>
-      </div>
-    );
-  }
+  const entries = isArray
+    ? value.map((item: any, index: number) => [String(index), item] as const)
+    : Object.entries(value);
 
-  if (typeof value === "number") {
-    return (
-      <div style={{ marginLeft: indent }}>
-        {keyElement}
-        {keyElement && <span className="text-gray-600">: </span>}
-        <span className="text-blue-600">{value}</span>
-      </div>
-    );
-  }
-
-  if (typeof value === "boolean") {
-    return (
-      <div style={{ marginLeft: indent }}>
-        {keyElement}
-        {keyElement && <span className="text-gray-600">: </span>}
-        <span className="text-orange-600">{value ? "true" : "false"}</span>
-      </div>
-    );
-  }
-
-  // Array
-  if (Array.isArray(value)) {
-    if (value.length === 0) {
-      return (
-        <div style={{ marginLeft: indent }}>
-          {keyElement}
-          {keyElement && <span className="text-gray-600">: </span>}
-          <span className="text-gray-600">[]</span>
-        </div>
-      );
-    }
-
-    return (
-      <div style={{ marginLeft: indent }}>
-        <span
-          onClick={toggle}
-          className="cursor-pointer select-none hover:bg-gray-200 rounded px-1"
-        >
-          {isExpanded ? "▼" : "▶"}
-        </span>
-        {keyElement}
-        {keyElement && <span className="text-gray-600">: </span>}
-        <span className="text-gray-600">[</span>
-        {!isExpanded && (
-          <span className="text-gray-400 ml-1">
-            {value.length} items
-          </span>
-        )}
-        {isExpanded && (
-          <>
-            {value.map((item, idx) => (
-              <JsonNode
-                key={idx}
-                value={item}
-                depth={depth + 1}
-                expanded={expanded}
-              />
-            ))}
-            <div style={{ marginLeft: indent }}>
-              <span className="text-gray-600">]</span>
-            </div>
-          </>
-        )}
-        {!isExpanded && <span className="text-gray-600">]</span>}
-      </div>
-    );
-  }
-
-  // Object
-  if (typeof value === "object") {
-    const keys = Object.keys(value);
-    if (keys.length === 0) {
-      return (
-        <div style={{ marginLeft: indent }}>
-          {keyElement}
-          {keyElement && <span className="text-gray-600">: </span>}
-          <span className="text-gray-600">{"{}"}</span>
-        </div>
-      );
-    }
-
-    return (
-      <div style={{ marginLeft: indent }}>
-        <span
-          onClick={toggle}
-          className="cursor-pointer select-none hover:bg-gray-200 rounded px-1"
-        >
-          {isExpanded ? "▼" : "▶"}
-        </span>
-        {keyElement}
-        {keyElement && <span className="text-gray-600">: </span>}
-        <span className="text-gray-600">{"{"}</span>
-        {!isExpanded && (
-          <span className="text-gray-400 ml-1">
-            {keys.length} keys
-          </span>
-        )}
-        {isExpanded && (
-          <>
-            {keys.map((key) => (
-              <JsonNode
-                key={key}
-                keyName={key}
-                value={value[key]}
-                depth={depth + 1}
-                expanded={expanded}
-              />
-            ))}
-            <div style={{ marginLeft: indent }}>
-              <span className="text-gray-600">{"}"}</span>
-            </div>
-          </>
-        )}
-        {!isExpanded && <span className="text-gray-600">{"}"}</span>}
-      </div>
-    );
-  }
-
-  // Unknown type - stringify
   return (
-    <div style={{ marginLeft: indent }}>
-      {keyElement}
-      {keyElement && <span className="text-gray-600">: </span>}
-      <span className="text-gray-600">{String(value)}</span>
-    </div>
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <div className={cn("group py-0.5", selfMatch && "rounded bg-amber-50/70")} style={indentStyle}>
+        <div className="flex min-w-0 items-center gap-2 text-sm">
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex h-5 w-5 items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+            >
+              {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </button>
+          </CollapsibleTrigger>
+          {nodeKey !== undefined ? <span className="shrink-0 text-violet-600">{highlightMatch(`"${nodeKey}"`, search)}:</span> : null}
+          <span className="font-medium text-slate-700">{isArray ? "Array" : "Object"}</span>
+          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500">{valueSummary(value)}</span>
+          {tools}
+        </div>
+        <CollapsibleContent>
+          <div className="mt-1 border-l border-slate-200/80">
+            {entries.map(([entryKey, entryValue]) => (
+              <JsonNode
+                key={`${path}-${entryKey}`}
+                value={entryValue}
+                depth={depth + 1}
+                nodeKey={isArray ? undefined : entryKey}
+                path={isArray ? `${path}[${entryKey}]` : path ? `${path}.${entryKey}` : entryKey}
+                expansion={expansion}
+                search={search}
+              />
+            ))}
+          </div>
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
   );
 };
 
-function escapeString(str: string): string {
-  return str
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, "\\n")
-    .replace(/\r/g, "\\r")
-    .replace(/\t/g, "\\t");
-}
+export const Json: React.FC<NodeComponentProps> = ({ props }) => {
+  const { data, expanded = true } = props as JsonProps;
+  const [viewerExpansion, setViewerExpansion] = useState<boolean | number>(expanded);
+  const [treeReset, setTreeReset] = useState(0);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    setViewerExpansion(expanded);
+    setTreeReset((value) => value + 1);
+  }, [expanded, data]);
+
+  const serialized = useMemo(() => safeStringify(data), [data]);
+  const rootLabel = Array.isArray(data) ? "Array" : data && typeof data === "object" ? "Object" : "Value";
+  const rootMeta = valueSummary(data);
+  const resultCount = useMemo(() => countMatches(data, search), [data, search]);
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+            <span>{rootLabel}</span>
+            <span className="rounded bg-white px-1.5 py-0.5 text-[11px] font-medium text-slate-500 shadow-sm">
+              {rootMeta}
+            </span>
+          </div>
+          <div className="text-xs text-slate-500">{expansionModeLabel(viewerExpansion)}</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1"
+            onClick={() => {
+              setViewerExpansion(true);
+              setTreeReset((value) => value + 1);
+            }}
+          >
+            <UnfoldVertical className="h-4 w-4" />
+            Expand
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1"
+            onClick={() => {
+              setViewerExpansion(false);
+              setTreeReset((value) => value + 1);
+            }}
+          >
+            <FoldVertical className="h-4 w-4" />
+            Collapse
+          </Button>
+          <Button type="button" variant="outline" size="sm" className="h-8 gap-1" onClick={() => copyText(serialized)}>
+            <Copy className="h-4 w-4" />
+            Copy JSON
+          </Button>
+        </div>
+      </div>
+      <div className="border-b border-slate-200 bg-white px-3 py-2">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-slate-400" />
+          <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search keys and values" className="pl-8" />
+        </div>
+        <div className="mt-2 text-xs text-slate-500">
+          {search ? `${resultCount} result${resultCount === 1 ? "" : "s"}` : "Search disabled"}
+        </div>
+      </div>
+      <div className="max-h-[560px] overflow-auto bg-[linear-gradient(180deg,#ffffff,#f8fafc)] p-3 font-mono text-sm">
+        <JsonNode key={`json-tree-${treeReset}-${search}`} value={data} depth={0} path="" expansion={viewerExpansion} search={search} />
+      </div>
+    </div>
+  );
+};

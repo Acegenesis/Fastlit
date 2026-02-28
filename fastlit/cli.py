@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -30,9 +31,9 @@ def main():
 @click.option("--dev", is_flag=True, help="Enable dev mode (backend reload + frontend HMR)")
 @click.option(
     "--frontend-port",
-    default=5173,
+    default=None,
     type=int,
-    help="Frontend Vite dev server port (dev mode only)",
+    help="Frontend Vite dev server port (dev mode only, defaults to a free local port)",
 )
 @click.option(
     "--frontend-host",
@@ -86,7 +87,7 @@ def run(
     port: int,
     host: str,
     dev: bool,
-    frontend_port: int,
+    frontend_port: int | None,
     frontend_host: str,
     workers: int,
     limit_concurrency: int | None,
@@ -165,6 +166,8 @@ def run(
             )
 
         frontend_url_host = _browser_host(frontend_host)
+        if frontend_port is None:
+            frontend_port = _pick_free_port(frontend_url_host)
         backend_url_host = "127.0.0.1"
         frontend_url = f"http://{frontend_url_host}:{frontend_port}"
         backend_url = f"http://{backend_url_host}:{port}"
@@ -176,26 +179,39 @@ def run(
         dev_env["FASTLIT_DEV_WATCH_DIRS"] = os.pathsep.join(
             [script_dir, os.path.dirname(os.path.abspath(__file__))]
         )
+        os.environ["FASTLIT_DEV_MODE"] = "1"
+        os.environ["FASTLIT_DEV_SERVER_URL"] = frontend_url
+        os.environ["FASTLIT_DEV_BACKEND_URL"] = backend_url
+        os.environ["FASTLIT_DEV_WATCH_DIRS"] = dev_env["FASTLIT_DEV_WATCH_DIRS"]
 
-        click.echo(f"  Fastlit backend: http://{host}:{port}")
-        click.echo(f"  Frontend Vite: {frontend_url}")
-        click.echo("  Browser requests to the backend SPA routes will redirect to Vite in dev.")
+        click.echo(f"  Fastlit dev URL: http://{host}:{port}")
+        click.echo("  Frontend HMR: enabled")
+        click.echo("  Browser traffic stays on the backend URL; Vite is proxied internally in dev.")
         click.echo()
 
         _ensure_frontend_port_available(frontend_port, frontend_dir)
 
+        vite_cmd_prefix = _resolve_vite_command(frontend_dir)
+        if vite_cmd_prefix is None:
+            raise click.ClickException(
+                "Frontend dev server requires the Vite CLI. "
+                "Run: cd frontend && npm install"
+            )
+
         vite_cmd = [
-            npm_cmd,
-            "run",
-            "dev",
-            "--",
+            *vite_cmd_prefix,
             "--host",
             frontend_host,
             "--port",
             str(frontend_port),
             "--strictPort",
         ]
-        vite_proc = _spawn_process(vite_cmd, env=dev_env, workdir=str(frontend_dir))
+        vite_proc = _spawn_process(
+            vite_cmd,
+            env=dev_env,
+            workdir=str(frontend_dir),
+            label="frontend",
+        )
         try:
             _wait_for_http_ready(
                 frontend_url,
@@ -249,6 +265,20 @@ def _resolve_npm_command() -> str | None:
     return None
 
 
+def _resolve_vite_command(frontend_dir: Path) -> list[str] | None:
+    """Resolve the local Vite CLI for this repo, falling back to npm."""
+    bin_dir = frontend_dir / "node_modules" / ".bin"
+    vite_name = "vite.cmd" if os.name == "nt" else "vite"
+    vite_path = bin_dir / vite_name
+    if vite_path.exists():
+        return [str(vite_path)]
+
+    npm_cmd = _resolve_npm_command()
+    if npm_cmd is None:
+        return None
+    return [npm_cmd, "run", "dev", "--"]
+
+
 def _browser_host(host: str) -> str:
     """Translate wildcard bind hosts to a browser-reachable local address."""
     if host in {"0.0.0.0", "::", "[::]"}:
@@ -256,7 +286,18 @@ def _browser_host(host: str) -> str:
     return host
 
 
-def _spawn_process(command: list[str], *, env: dict[str, str], workdir: str) -> subprocess.Popen:
+def _pick_free_port(host: str) -> int:
+    """Pick a free ephemeral TCP port for a local dev sidecar."""
+    bind_host = _browser_host(host)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind((bind_host, 0))
+        sock.listen(1)
+        return int(sock.getsockname()[1])
+
+
+def _spawn_process(
+    command: list[str], *, env: dict[str, str], workdir: str, label: str
+) -> subprocess.Popen:
     """Start a child process without sharing console input on Windows."""
     creationflags = 0
     if os.name == "nt":
@@ -274,20 +315,44 @@ def _spawn_process(command: list[str], *, env: dict[str, str], workdir: str) -> 
         bufsize=1,
         creationflags=creationflags,
     )
-    _stream_process_output(proc)
+    _stream_process_output(proc, label=label)
     return proc
 
 
-def _stream_process_output(proc: subprocess.Popen) -> None:
+def _stream_process_output(proc: subprocess.Popen, *, label: str) -> None:
     """Forward child process output back to the parent stdout."""
     if proc.stdout is None:
         return
 
+    ansi_pattern = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
     def _pump() -> None:
         stream = proc.stdout
         assert stream is not None
+        skip_proxy_trace = False
         try:
             for line in stream:
+                line = line.replace("\x00", "")
+                plain_line = ansi_pattern.sub("", line)
+                if label == "frontend":
+                    stripped = plain_line.strip()
+                    if skip_proxy_trace:
+                        if not stripped or stripped.startswith("Error:") or plain_line.startswith("    "):
+                            continue
+                        skip_proxy_trace = False
+                    if (
+                        "Local:" in plain_line
+                        or "Network:" in plain_line
+                        or "press h + enter to show help" in plain_line
+                        or plain_line.startswith("> fastlit-frontend@")
+                        or plain_line.startswith("> vite")
+                    ):
+                        continue
+                    if "proxy error:" in plain_line:
+                        skip_proxy_trace = True
+                        continue
+                if not line.strip():
+                    continue
                 sys.stdout.write(line)
                 sys.stdout.flush()
         finally:
