@@ -351,6 +351,7 @@ def data_editor(
         is_widget=True,
         no_rerun=not rerun_on_change,
     )
+    session._force_full_render_widget_ids.add(node.id)
 
     # Get edited data from widget store
     stored = session.widget_store.get(node.id)

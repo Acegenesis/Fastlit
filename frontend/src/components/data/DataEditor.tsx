@@ -470,12 +470,17 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
   const [localRows, setLocalRows] = useState<GridRowModel[]>(() => normalizeRows(rows, index));
   const [localIndex, setLocalIndex] = useState<any[]>(() => (Array.isArray(index) ? [...index] : []));
   const [draftValues, setDraftValues] = useState<Record<string, string>>({});
+  const localRowsRef = useRef<GridRowModel[]>(normalizeRows(rows, index));
+  const localIndexRef = useRef<any[]>(Array.isArray(index) ? [...index] : []);
 
   useEffect(() => {
     const normalized = normalizeRows(rows, index);
     nextRowIdRef.current = normalized.length;
+    localRowsRef.current = normalized;
     setLocalRows(normalized);
-    setLocalIndex(Array.isArray(index) ? [...index] : []);
+    const normalizedIndex = Array.isArray(index) ? [...index] : [];
+    localIndexRef.current = normalizedIndex;
+    setLocalIndex(normalizedIndex);
     setDraftValues({});
   }, [index, rows]);
 
@@ -525,33 +530,31 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
   }, [hasIndex, nodeId, rerunOnChange, sendEvent]);
 
   const setLocalCellValue = useCallback((rowId: string, columnName: string, nextValue: any) => {
-    setLocalRows((current) =>
-      current.map((row) => {
-        if (row.rowId !== rowId) return row;
-        const columnIndex = columnIndexMap[columnName];
-        const cells = [...row.cells];
-        cells[columnIndex] = nextValue;
-        return { ...row, cells };
-      })
-    );
+    const columnIndex = columnIndexMap[columnName];
+    if (columnIndex === undefined) return;
+    const nextRows = localRowsRef.current.map((row) => {
+      if (row.rowId !== rowId) return row;
+      const cells = [...row.cells];
+      cells[columnIndex] = nextValue;
+      return { ...row, cells };
+    });
+    localRowsRef.current = nextRows;
+    setLocalRows(nextRows);
   }, [columnIndexMap]);
 
   const updateCell = useCallback((rowId: string, columnName: string, nextValue: any, commit: boolean) => {
-    let emittedRows: GridRowModel[] = [];
-    setLocalRows((current) => {
-      emittedRows = current.map((row) => {
-        if (row.rowId !== rowId) return row;
-        const columnIndex = columnIndexMap[columnName];
-        const cells = [...row.cells];
-        cells[columnIndex] = nextValue;
-        return { ...row, cells };
-      });
-      return emittedRows;
+    const columnIndex = columnIndexMap[columnName];
+    if (columnIndex === undefined) return;
+    const nextRows = localRowsRef.current.map((row) => {
+      if (row.rowId !== rowId) return row;
+      const cells = [...row.cells];
+      cells[columnIndex] = nextValue;
+      return { ...row, cells };
     });
-    if (emittedRows.length) {
-      emitRows(emittedRows, localIndex, commit);
-    }
-  }, [columnIndexMap, emitRows, localIndex]);
+    localRowsRef.current = nextRows;
+    setLocalRows(nextRows);
+    emitRows(nextRows, localIndexRef.current, commit);
+  }, [columnIndexMap, emitRows]);
 
   const clearLiveCommitTimer = useCallback((cellKey: string) => {
     const timer = liveCommitTimersRef.current.get(cellKey);
@@ -573,36 +576,44 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
   }, [clearLiveCommitTimer, setLocalCellValue, updateCell]);
 
   const deleteRow = useCallback((rowId: string) => {
-    let removedIndex = -1;
-    let nextRows: GridRowModel[] = [];
-    setLocalRows((current) => {
-      removedIndex = current.findIndex((row) => row.rowId === rowId);
-      nextRows = current.filter((row) => row.rowId !== rowId);
-      return nextRows;
-    });
+    const currentRows = localRowsRef.current;
+    const removedIndex = currentRows.findIndex((row) => row.rowId === rowId);
     if (removedIndex >= 0) {
-      const nextIndex = hasIndex ? localIndex.filter((_, idx) => idx !== removedIndex) : localIndex;
-      if (hasIndex) setLocalIndex(nextIndex);
+      const nextRows = currentRows.filter((row) => row.rowId !== rowId);
+      const currentIndex = localIndexRef.current;
+      const nextIndex = hasIndex ? currentIndex.filter((_, idx) => idx !== removedIndex) : currentIndex;
+      localRowsRef.current = nextRows;
+      setLocalRows(nextRows);
+      if (hasIndex) {
+        localIndexRef.current = nextIndex;
+        setLocalIndex(nextIndex);
+      }
       emitRows(nextRows, nextIndex, true);
     }
-  }, [emitRows, hasIndex, localIndex]);
+  }, [emitRows, hasIndex]);
 
   const addRow = useCallback(() => {
+    const currentRows = localRowsRef.current;
+    const currentIndex = localIndexRef.current;
     const nextRowId = `new-${nextRowIdRef.current}`;
     nextRowIdRef.current += 1;
     const cells = resolvedColumns.map((column) => createDefaultCellValue(column));
     const nextRow: GridRowModel = {
       rowId: nextRowId,
-      originalPosition: localRows.length,
-      indexValue: hasIndex ? nextIndexValue(localIndex) : undefined,
+      originalPosition: currentRows.length,
+      indexValue: hasIndex ? nextIndexValue(currentIndex) : undefined,
       cells,
     };
-    const nextRows = [...localRows, nextRow];
-    const nextIndex = hasIndex ? [...localIndex, nextRow.indexValue] : localIndex;
+    const nextRows = [...currentRows, nextRow];
+    const nextIndex = hasIndex ? [...currentIndex, nextRow.indexValue] : currentIndex;
+    localRowsRef.current = nextRows;
     setLocalRows(nextRows);
-    if (hasIndex) setLocalIndex(nextIndex);
+    if (hasIndex) {
+      localIndexRef.current = nextIndex;
+      setLocalIndex(nextIndex);
+    }
     emitRows(nextRows, nextIndex, true);
-  }, [emitRows, hasIndex, localIndex, localRows, resolvedColumns]);
+  }, [emitRows, hasIndex, resolvedColumns]);
 
   const startResize = useCallback((event: React.MouseEvent<HTMLDivElement>, column: GridResolvedColumn) => {
     if (!column.resizable) return;
