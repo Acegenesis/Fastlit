@@ -15,7 +15,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
-from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.routing import Route, WebSocketRoute, Mount
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket
@@ -254,6 +254,16 @@ def set_static_dir(path: str) -> None:
 
 async def homepage(request):
     """Serve the frontend SPA entry point."""
+    if _env_flag("FASTLIT_DEV_MODE", default=False):
+        dev_server_url = os.environ.get("FASTLIT_DEV_SERVER_URL", "").strip().rstrip("/")
+        if dev_server_url:
+            path = request.url.path or "/"
+            query = request.url.query
+            target = f"{dev_server_url}{path}"
+            if query:
+                target = f"{target}?{query}"
+            return RedirectResponse(target, status_code=307)
+
     index_path = os.path.join(_static_dir, "index.html")
     if os.path.exists(index_path):
         return FileResponse(index_path, media_type="text/html")

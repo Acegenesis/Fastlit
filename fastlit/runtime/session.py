@@ -9,6 +9,7 @@ from typing import Any
 
 from fastlit.runtime.context import clear_current_session, set_current_session
 from fastlit.runtime.diff import diff_trees
+from fastlit.runtime.navigation_slug import slugify_page_token
 from fastlit.runtime.protocol import PatchOp, RenderFull, RenderPatch
 from fastlit.runtime.script_runner import run_script
 from fastlit.runtime.tree import UINode, UITree
@@ -95,9 +96,7 @@ class Session:
 
     @staticmethod
     def _normalize_page_token(value: str) -> str:
-        token = str(value).strip().strip("/").lower()
-        token = token.replace("_", "-").replace(" ", "-")
-        return token
+        return slugify_page_token(value)
 
     def _switch_to_page_index(self, idx: int, nav_id: str | None) -> None:
         """Apply selected page index and switch script when required."""

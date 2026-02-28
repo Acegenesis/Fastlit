@@ -4819,15 +4819,15 @@ st.write(f"Welcome, {st.user.name}!")
     with st.container(border=True):
         st.subheader("`st.user`")
         with st.expander("📖 Documentation", expanded=False):
-            st.markdown("""
+            st.markdown(r"""
             Lazy proxy that reads OIDC claims from the current session.
 
             | Property | OIDC claim | Type |
             |---|---|---|
             | `st.user.is_logged_in` | — | `bool` |
-            | `st.user.email` | `email` | `str \| None` |
-            | `st.user.name` | `name` / `preferred_username` | `str \| None` |
-            | `st.user.sub` | `sub` | `str \| None` |
+            | `st.user.email` | `email` | `str \\| None` |
+            | `st.user.name` | `name` / `preferred_username` | `str \\| None` |
+            | `st.user.sub` | `sub` | `str \\| None` |
             | `st.user.<claim>` | any | `Any` |
 
             All claims from the ID token are accessible as attributes.

@@ -66,11 +66,27 @@ Run:
 fastlit run app.py
 ```
 
-Development mode (hot reload):
+Development mode (fullstack dev: backend reload + frontend HMR):
 
 ```bash
 fastlit run app.py --dev
 ```
+
+With explicit frontend dev server options:
+
+```bash
+fastlit run app.py --dev --frontend-port 5173 --frontend-host 127.0.0.1
+```
+
+In `--dev` mode, Fastlit now:
+- starts the Python backend with autoreload
+- starts the Vite frontend dev server with HMR
+- redirects SPA page requests to the Vite server
+
+Notes:
+- Python changes trigger backend reload
+- `frontend/src/*`, `frontend/index.html`, and CSS changes use Vite HMR/reload
+- `st.components.v1.declare_component(url=...)` keeps its separate dev-server workflow
 
 ## Demo app
 
@@ -247,4 +263,11 @@ Then run demo:
 
 ```bash
 fastlit run examples/all_components_demo.py --dev
+```
+
+For fullstack dev mode, make sure frontend dependencies are installed first:
+
+```bash
+cd frontend
+npm install
 ```

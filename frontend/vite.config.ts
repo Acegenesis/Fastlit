@@ -1,9 +1,66 @@
-import { defineConfig } from "vite";
+import fs from "fs";
+import { defineConfig, normalizePath, type PluginOption } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
+const backendTarget =
+  process.env.FASTLIT_DEV_BACKEND_URL || "http://127.0.0.1:8501";
+const pythonWatchDirs = (process.env.FASTLIT_DEV_WATCH_DIRS || "")
+  .split(path.delimiter)
+  .map((dir) => dir.trim())
+  .filter(Boolean)
+  .map((dir) => normalizePath(path.resolve(dir)))
+  .filter((dir) => fs.existsSync(dir));
+
+function fastlitPythonReloadPlugin(): PluginOption {
+  return {
+    name: "fastlit-python-full-reload",
+    apply: "serve",
+    configureServer(server) {
+      if (pythonWatchDirs.length === 0) {
+        return;
+      }
+
+      server.watcher.add(pythonWatchDirs);
+
+      let reloadTimer: ReturnType<typeof setTimeout> | null = null;
+      let changedFile = "";
+
+      const scheduleReload = (file: string) => {
+        const normalizedFile = normalizePath(path.resolve(file));
+        if (!normalizedFile.endsWith(".py")) {
+          return;
+        }
+        const matchesWatchedDir = pythonWatchDirs.some(
+          (dir) => normalizedFile === dir || normalizedFile.startsWith(`${dir}/`)
+        );
+        if (!matchesWatchedDir) {
+          return;
+        }
+
+        changedFile = normalizedFile;
+        if (reloadTimer) {
+          clearTimeout(reloadTimer);
+        }
+        reloadTimer = setTimeout(() => {
+          reloadTimer = null;
+          server.config.logger.info(
+            `fastlit python reload ${path.relative(server.config.root, changedFile)}`,
+            { clear: true, timestamp: true }
+          );
+          server.ws.send({ type: "full-reload", path: "*" });
+        }, 400);
+      };
+
+      server.watcher.on("change", scheduleReload);
+      server.watcher.on("add", scheduleReload);
+      server.watcher.on("unlink", scheduleReload);
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), fastlitPythonReloadPlugin()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -85,8 +142,20 @@ export default defineConfig({
   server: {
     proxy: {
       "/ws": {
-        target: "ws://localhost:8501",
+        target: backendTarget.replace(/^http/, "ws"),
         ws: true,
+      },
+      "/_fastlit": {
+        target: backendTarget,
+        changeOrigin: true,
+      },
+      "/_components": {
+        target: backendTarget,
+        changeOrigin: true,
+      },
+      "/auth": {
+        target: backendTarget,
+        changeOrigin: true,
       },
     },
   },

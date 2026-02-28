@@ -19,9 +19,13 @@ type OnError = (msg: ErrorMessage) => void;
 type OnRuntimeEvent = (msg: RuntimeEventMessage) => void;
 type OnStatusChange = (status: "connected" | "disconnected" | "connecting") => void;
 
-const BASE_DELAY = 2000;
-const MAX_DELAY = 30000;
+// Dev mode: reconnect quickly after backend restart (uvicorn reload).
+// Prod mode: conservative backoff to avoid hammering a struggling server.
+const BASE_DELAY = import.meta.env.DEV ? 300 : 2000;
+const MAX_DELAY = import.meta.env.DEV ? 5000 : 30000;
 const MAX_INTERNED_NODES = 500;
+const DEV_RELOAD_GUARD_MS = 1500;
+const DEV_RELOAD_STORAGE_KEY = "fastlit:dev-backend-reload-ts";
 const internedNodes = new Map<string, any>();
 
 function setInternedNode(token: string, node: any): void {
@@ -91,6 +95,8 @@ export class FastlitWS {
   private onStatusChangeCb: OnStatusChange | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
+  private hasConnectedOnce = false;
+  private manualDisconnect = false;
 
   constructor(url?: string) {
     // Default: connect to same host on /ws
@@ -124,11 +130,13 @@ export class FastlitWS {
   }
 
   connect(): void {
+    this.manualDisconnect = false;
     this.onStatusChangeCb?.("connecting");
     this.ws = new WebSocket(this.url);
 
     this.ws.onopen = () => {
       this.reconnectAttempts = 0; // reset backoff on successful connection
+      this.hasConnectedOnce = true;
       internedNodes.clear();
       this.onStatusChangeCb?.("connected");
     };
@@ -179,7 +187,12 @@ export class FastlitWS {
     };
 
     this.ws.onclose = () => {
+      const shouldReload = this.shouldReloadPageAfterDisconnect();
       this.onStatusChangeCb?.("disconnected");
+      if (shouldReload) {
+        window.setTimeout(() => window.location.reload(), 150);
+        return;
+      }
       this.scheduleReconnect();
     };
 
@@ -197,6 +210,21 @@ export class FastlitWS {
       this.reconnectTimer = null;
       this.connect();
     }, delay);
+  }
+
+  private shouldReloadPageAfterDisconnect(): boolean {
+    if (!import.meta.env.DEV) return false;
+    if (this.manualDisconnect) return false;
+    if (!this.hasConnectedOnce) return false;
+    try {
+      const now = Date.now();
+      const previous = Number(window.sessionStorage.getItem(DEV_RELOAD_STORAGE_KEY) ?? "0");
+      if (now - previous < DEV_RELOAD_GUARD_MS) return false;
+      window.sessionStorage.setItem(DEV_RELOAD_STORAGE_KEY, String(now));
+    } catch {
+      // Best effort only. If storage is unavailable, still reload once.
+    }
+    return true;
   }
 
   send(msg: WidgetEvent): void {
@@ -226,6 +254,7 @@ export class FastlitWS {
   }
 
   disconnect(): void {
+    this.manualDisconnect = true;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
