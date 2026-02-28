@@ -125,6 +125,7 @@ def dataframe(
 
     node = _emit_node("dataframe", props, key=key, is_widget=True)
     session = get_current_session()
+    session._force_full_render_widget_ids.add(node.id)
     rows_selected = _normalize_selection_rows(
         session.widget_store.get(node.id), selection_mode
     )

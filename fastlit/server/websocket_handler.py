@@ -38,6 +38,21 @@ _SENSITIVE_QUERY_PARAM_KEYS = {
 _MAX_WS_MESSAGE_BYTES = int(
     os.environ.get("FASTLIT_MAX_WS_MESSAGE_BYTES", str(16 * 1024 * 1024))
 )
+
+
+def _should_run_full_session_for_events(
+    session: Session,
+    rerun_event_ids: list[str],
+    *,
+    has_non_fragment_event: bool,
+) -> bool:
+    """Return True when a batch must execute a full session rerun."""
+    return has_non_fragment_event or any(
+        event_id in session._force_full_render_widget_ids
+        for event_id in rerun_event_ids
+    )
+
+
 _MAX_SESSIONS = int(os.environ.get("FASTLIT_MAX_SESSIONS", "0"))  # 0 = unlimited
 _MAX_CONCURRENT_RUNS = max(1, int(os.environ.get("FASTLIT_MAX_CONCURRENT_RUNS", "4")))
 _RUN_TIMEOUT_SECONDS = float(os.environ.get("FASTLIT_RUN_TIMEOUT_SECONDS", "60"))
@@ -1009,7 +1024,11 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
             try:
                 t2 = time.perf_counter()
                 did_full_run = False
-                if has_non_fragment_event:
+                if _should_run_full_session_for_events(
+                    session,
+                    rerun_event_ids,
+                    has_non_fragment_event=has_non_fragment_event,
+                ):
                     result = await _run_session_op_with_runtime_events(
                         session.run,
                         session=session,
@@ -1053,11 +1072,12 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
                         session=session,
                         websocket=websocket,
                         node_cache=node_cache,
-                    )
+                        )
                     did_full_run = True
 
                 t3 = time.perf_counter()
                 metrics.record_run((t3 - t2) * 1000)
+                result = session.coerce_widget_event_result(result, rerun_event_ids)
                 payload = result.to_dict()
                 if _MAX_TREE_NODES > 0 and payload.get("type") == "render_full":
                     node_count = _count_nodes(payload.get("tree"))
