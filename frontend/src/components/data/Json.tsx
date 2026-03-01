@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface JsonProps {
   data: any;
@@ -63,11 +64,12 @@ function highlightMatch(text: string, query: string): React.ReactNode {
   );
 }
 
-async function copyText(text: string) {
+async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
+    return true;
   } catch {
-    // Best effort only.
+    return false;
   }
 }
 
@@ -147,23 +149,11 @@ const JsonNode: React.FC<JsonNodeProps> = ({ value, depth, nodeKey, path, expans
   const isArray = Array.isArray(value);
   const indentStyle = { paddingLeft: `${depth * 16}px` };
 
-  const tools = (
-    <div className="ml-auto flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-      <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => copyText(path)}>
-        <Copy className="h-3.5 w-3.5" />
-      </Button>
-      <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => copyText(safeStringify(value))}>
-        <span className="text-[10px] font-semibold">V</span>
-      </Button>
-    </div>
-  );
-
   if (!expandable) {
     return (
       <div className={cn("group flex min-w-0 items-start gap-2 py-0.5 text-sm", selfMatch && "rounded bg-amber-50/70")} style={indentStyle}>
         {nodeKey !== undefined ? <span className="shrink-0 text-violet-600">{highlightMatch(`"${nodeKey}"`, search)}:</span> : null}
         <span className={cn("min-w-0 break-words", valueColorClass(value))}>{highlightMatch(valueSummary(value), search)}</span>
-        {tools}
       </div>
     );
   }
@@ -190,7 +180,6 @@ const JsonNode: React.FC<JsonNodeProps> = ({ value, depth, nodeKey, path, expans
           {nodeKey !== undefined ? <span className="shrink-0 text-violet-600">{highlightMatch(`"${nodeKey}"`, search)}:</span> : null}
           <span className="font-medium text-slate-700">{isArray ? "Array" : "Object"}</span>
           <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500">{valueSummary(value)}</span>
-          {tools}
         </div>
         <CollapsibleContent>
           <div className="mt-1 border-l border-slate-200/80">
@@ -227,6 +216,20 @@ export const Json: React.FC<NodeComponentProps> = ({ props }) => {
   const rootLabel = Array.isArray(data) ? "Array" : data && typeof data === "object" ? "Object" : "Value";
   const rootMeta = valueSummary(data);
   const resultCount = useMemo(() => countMatches(data, search), [data, search]);
+  const handleCopyJson = async () => {
+    const ok = await copyText(serialized);
+    if (ok) {
+      toast("JSON copied to clipboard", {
+        icon: <span className="text-lg">✅</span>,
+        duration: 2500,
+      });
+      return;
+    }
+    toast("Unable to copy JSON", {
+      icon: <span className="text-lg">⚠️</span>,
+      duration: 3000,
+    });
+  };
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -267,7 +270,7 @@ export const Json: React.FC<NodeComponentProps> = ({ props }) => {
             <FoldVertical className="h-4 w-4" />
             Collapse
           </Button>
-          <Button type="button" variant="outline" size="sm" className="h-8 gap-1" onClick={() => copyText(serialized)}>
+          <Button type="button" variant="outline" size="sm" className="h-8 gap-1" onClick={handleCopyJson}>
             <Copy className="h-4 w-4" />
             Copy JSON
           </Button>
