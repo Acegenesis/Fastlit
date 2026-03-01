@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { GridToolbar } from "./grid/GridToolbar";
 import { GridEmptyState } from "./grid/GridEmptyState";
+import { normalizeGridColumnType } from "./grid/columnTypes";
 import { renderGridCell } from "./grid/renderers";
 import { useGridColumns } from "./grid/useGridColumns";
 import { useGridViewState } from "./grid/useGridViewState";
@@ -152,7 +153,7 @@ function normalizeColumns(columns: Column[], columnConfig: Record<string, Column
     const cfg = columnConfig[column.name] ?? {};
     return {
       name: column.name,
-      type: String(cfg.type ?? column.type ?? "string").toLowerCase(),
+      type: normalizeGridColumnType(String(cfg.type ?? column.type ?? "text")),
       label: cfg.label ?? column.name,
       help: cfg.help,
       hidden: cfg.hidden,
