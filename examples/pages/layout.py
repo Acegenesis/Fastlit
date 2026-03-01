@@ -380,28 +380,27 @@ with st.expander("📖 Documentation", expanded=False):
     **Parameters:**
     - `pages` (Sequence[str | st.Page] | None): Optional page names or page definitions
     
-    **Returns:** `str` in string mode, `st.Page` in Page mode
-    
-    If omitted, Fastlit auto-discovers `pages/*.py` next to your entry script.
-    """)
+        **Returns:** `str` in string mode, `st.Page` in Page mode
+        
+        If omitted, Fastlit auto-discovers `pages/*.py` next to your entry script.
+        """)
 
-st.markdown(
-    "Returns `str` in string mode and `st.Page` in Page mode. "
-    "The main sidebar of this demo already uses `st.navigation()` with no explicit page list."
-)
+    st.markdown(
+        "Returns `str` in string mode and `st.Page` in Page mode. "
+        "With auto-discovered `pages/`, the selected page is rendered implicitly by the entry script."
+    )
 
-st.code('''# Auto-discover pages/*.py next to app.py
-current = st.navigation()
-current.run()''', language="python")
+    st.code('''# Auto-discover pages/*.py next to app.py
+    st.navigation()''', language="python")
 
 with st.container(border=True):
-    st.info(
-        "File-based navigation is active in the sidebar for this app. "
-        "Add a file in `pages/` and Fastlit will pick it up automatically."
-    )
-    st.caption(
-        "`current_page.run()` is the page outlet that lets `app.py` behave like a global layout."
-    )
+        st.info(
+            "File-based navigation is active in the sidebar for this app. "
+            "Add a file in `pages/` and Fastlit will pick it up automatically."
+        )
+        st.caption(
+            "With auto-discovered `pages/`, `app.py` behaves like a global layout without an explicit page outlet."
+        )
 
 st.code('''current = st.navigation(["Home", "Data", "Settings"], key="nav_string_mode")
 st.write(f"Current page: {current}")''', language="python")

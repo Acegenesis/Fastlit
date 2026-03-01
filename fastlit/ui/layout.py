@@ -539,7 +539,10 @@ class Page:
             script_path = (base_dir / script_path).resolve()
         else:
             script_path = script_path.resolve()
-        session.run_inline_page_script(str(script_path))
+        script_path_str = str(script_path)
+        if script_path_str in getattr(session, "_inline_rendered_scripts", set()):
+            return
+        session.run_inline_page_script(script_path_str)
 
 
 def switch_page(page: str | Page) -> None:
@@ -574,14 +577,16 @@ def navigation(
     sibling ``pages/`` directory next to the app entry script. Page files can
     define sidebar metadata with ``PAGE_CONFIG`` or constants such as
     ``PAGE_TITLE``, ``PAGE_ICON``, ``PAGE_ORDER``, ``PAGE_DEFAULT``,
-    ``PAGE_HIDDEN``, and ``PAGE_URL_PATH``.
+    ``PAGE_HIDDEN``, and ``PAGE_URL_PATH``. In that auto-discovery mode, the
+    selected page is rendered implicitly inside the entry script layout.
 
     Returns the selected page label (str pages) or Page object (Page pages).
     When Page objects are used, call ``selected_page.run()`` to render the page
     inline inside the current script and keep a global layout around it.
     """
     session = get_current_session()
-    if pages is None:
+    auto_discovered_pages = pages is None
+    if auto_discovered_pages:
         discovered = discover_pages(getattr(session, "entry_script_path", session.script_path))
         if not discovered:
             raise ValueError(
@@ -664,6 +669,17 @@ def navigation(
     node.props["index"] = selected_idx
 
     selected_script = page_scripts.get(selected_idx)
+    if (
+        auto_discovered_pages
+        and selected_script is not None
+        and session.script_path == getattr(session, "entry_script_path", session.script_path)
+        and selected_script not in getattr(session, "_inline_rendered_scripts", set())
+    ):
+        current_container = session.current_tree.current_container
+        session.run_inline_page_script(
+            selected_script,
+            root_level=current_container.type == "sidebar",
+        )
     if (
         selected_script is not None
         and selected_script != session.script_path

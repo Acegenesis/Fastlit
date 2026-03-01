@@ -81,6 +81,7 @@ class Session:
         self._page_default_index: int = 0
         self._inline_page_rendered: bool = False
         self._inline_page_script_path: str | None = None
+        self._inline_rendered_scripts: set[str] = set()
         # OIDC claims attached by the WS handler from the session cookie.
         self.user_claims: dict = {}
         # Widgets that should force a full tree render after an event.
@@ -158,14 +159,21 @@ class Session:
             return
         self._switch_to_page_index(self._selected_page_index(), nav_id)
 
-    def run_inline_page_script(self, script_path: str) -> None:
+    def run_inline_page_script(self, script_path: str, *, root_level: bool = False) -> None:
         """Render a page script inline inside the current entry-script layout."""
         previous_inline_script = self._inline_page_script_path
+        previous_stack: list[UINode] | None = None
         self._inline_page_rendered = True
         self._inline_page_script_path = script_path
+        self._inline_rendered_scripts.add(script_path)
+        if root_level and self.current_tree is not None:
+            previous_stack = list(self.current_tree._container_stack)
+            self.current_tree._container_stack = [self.current_tree.root]
         try:
             run_script(script_path, self)
         finally:
+            if previous_stack is not None and self.current_tree is not None:
+                self.current_tree._container_stack = previous_stack
             self._inline_page_script_path = previous_inline_script
 
     def run(self) -> RenderFull | RenderPatch:
@@ -181,6 +189,7 @@ class Session:
             self._current_fragment_id = None
             self._inline_page_rendered = False
             self._inline_page_script_path = None
+            self._inline_rendered_scripts.clear()
 
             new_tree = UITree()
             self.current_tree = new_tree
