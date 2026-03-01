@@ -51,6 +51,11 @@ interface ColumnConfig {
   yMax?: number | null;
 }
 
+interface SelectedCell {
+  row: number;
+  column: string;
+}
+
 interface DataFrameProps {
   columns: Column[];
   rows: any[][];
@@ -65,15 +70,65 @@ interface DataFrameProps {
   sourceId?: string;
   windowSize?: number;
   selectable?: boolean;
-  selectionMode?: "single-row" | "multi-row";
+  selectionMode?: string | string[];
   selectedRows?: number[];
+  selectedColumns?: string[];
+  selectedCells?: SelectedCell[];
   columnConfig?: Record<string, ColumnConfig>;
+  indexConfig?: ColumnConfig;
+  indexLabel?: string;
   columnOrder?: string[];
   rowHeight?: number;
   placeholder?: string;
   toolbar?: boolean;
   downloadable?: boolean;
   persistView?: boolean;
+}
+
+const ROW_SELECTION_MODES = new Set(["single-row", "multi-row"]);
+const COLUMN_SELECTION_MODES = new Set(["single-column", "multi-column"]);
+const CELL_SELECTION_MODES = new Set(["single-cell", "multi-cell"]);
+
+function normalizeSelectionModes(selectionMode: string | string[] | undefined): string[] {
+  const raw = Array.isArray(selectionMode) ? selectionMode : selectionMode ? [selectionMode] : [];
+  return raw.filter(Boolean);
+}
+
+function normalizeSelectedCells(value: unknown): SelectedCell[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const cells: SelectedCell[] = [];
+  for (const item of value) {
+    const row = typeof (item as SelectedCell)?.row === "number" ? (item as SelectedCell).row : NaN;
+    const column = typeof (item as SelectedCell)?.column === "string" ? (item as SelectedCell).column : "";
+    if (!Number.isInteger(row) || row < 0 || !column) continue;
+    const key = `${row}:${column}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    cells.push({ row, column });
+  }
+  cells.sort((left, right) => left.row - right.row || left.column.localeCompare(right.column));
+  return cells;
+}
+
+function normalizeSelectionPayload(payload: {
+  rows?: number[];
+  columns?: string[];
+  cells?: SelectedCell[];
+}, selectionModes: string[]) {
+  const rowMode = selectionModes.find((mode) => ROW_SELECTION_MODES.has(mode));
+  const columnMode = selectionModes.find((mode) => COLUMN_SELECTION_MODES.has(mode));
+  const cellMode = selectionModes.find((mode) => CELL_SELECTION_MODES.has(mode));
+
+  const rows = Array.from(new Set((payload.rows ?? []).filter((value) => Number.isInteger(value) && value >= 0))).sort((left, right) => left - right);
+  const columns = Array.from(new Set((payload.columns ?? []).map((value) => String(value)).filter(Boolean)));
+  const cells = normalizeSelectedCells(payload.cells ?? []);
+
+  return {
+    rows: rowMode === "single-row" ? rows.slice(0, 1) : rowMode ? rows : [],
+    columns: columnMode === "single-column" ? columns.slice(0, 1) : columnMode ? columns : [],
+    cells: cellMode === "single-cell" ? cells.slice(0, 1) : cellMode ? cells : [],
+  };
 }
 
 function schemaSignature(columns: GridColumn[]): string {
@@ -166,7 +221,11 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     selectable = false,
     selectionMode = "multi-row",
     selectedRows = [],
+    selectedColumns = [],
+    selectedCells = [],
     columnConfig = {},
+    indexConfig = {},
+    indexLabel,
     columnOrder = [],
     rowHeight,
     placeholder,
@@ -186,6 +245,10 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
   const [serverTotalRows, setServerTotalRows] = useState<number>(typeof totalRows === "number" ? totalRows : rows.length);
   const [loadingWindow, setLoadingWindow] = useState(false);
   const [selectedRowPositions, setSelectedRowPositions] = useState<number[]>(Array.isArray(selectedRows) ? [...selectedRows] : []);
+  const [selectedColumnNames, setSelectedColumnNames] = useState<string[]>(Array.isArray(selectedColumns) ? [...selectedColumns] : []);
+  const [selectedCellValues, setSelectedCellValues] = useState<SelectedCell[]>(normalizeSelectedCells(selectedCells));
+  const [columnSelectionAnchor, setColumnSelectionAnchor] = useState<string | null>(null);
+  const [cellSelectionAnchor, setCellSelectionAnchor] = useState<SelectedCell | null>(null);
   const fetchAbortRef = useRef<AbortController | null>(null);
   const baseColumns = useMemo(() => normalizeColumns(columns, columnConfig), [columnConfig, columns]);
   const initialColumnOrder = useMemo(
@@ -200,7 +263,14 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     initialColumnOrder,
   });
 
-  const selectionColumnVisible = selectable && selectionMode !== "single-row";
+  const selectionModes = useMemo(() => normalizeSelectionModes(selectionMode), [selectionMode]);
+  const rowSelectionMode = selectionModes.find((mode) => ROW_SELECTION_MODES.has(mode));
+  const columnSelectionMode = selectionModes.find((mode) => COLUMN_SELECTION_MODES.has(mode));
+  const cellSelectionMode = selectionModes.find((mode) => CELL_SELECTION_MODES.has(mode));
+  const allowsRowSelection = selectable && !!rowSelectionMode;
+  const allowsColumnSelection = selectable && !!columnSelectionMode;
+  const allowsCellSelection = selectable && !!cellSelectionMode;
+  const selectionColumnVisible = allowsRowSelection && rowSelectionMode !== "single-row";
   const hasIndex = Array.isArray(index) && index.length > 0;
   const isServerPaged = !!sourceId && (typeof totalRows === "number" ? totalRows : rows.length) > rows.length;
   const effectiveRowHeight = resolveRowHeight(rowHeight);
@@ -216,6 +286,14 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
   useEffect(() => {
     setSelectedRowPositions(Array.isArray(selectedRows) ? [...selectedRows] : []);
   }, [selectedRows]);
+
+  useEffect(() => {
+    setSelectedColumnNames(Array.isArray(selectedColumns) ? [...selectedColumns] : []);
+  }, [selectedColumns]);
+
+  useEffect(() => {
+    setSelectedCellValues(normalizeSelectedCells(selectedCells));
+  }, [selectedCells]);
 
   const baseRowModels = useMemo(() => normalizeRows(rows, index, positions), [index, positions, rows]);
   const currentWindowModels = useMemo(
@@ -242,6 +320,11 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
   const rowVirtualizer = useGridVirtualRows({ rowCount: displayRows.length, parentRef, rowHeight: effectiveRowHeight });
   const shouldVirtualize = isServerPaged || displayRows.length > 100;
   const selectedSet = useMemo(() => new Set(selectedRowPositions), [selectedRowPositions]);
+  const selectedColumnSet = useMemo(() => new Set(selectedColumnNames), [selectedColumnNames]);
+  const selectedCellSet = useMemo(
+    () => new Set(selectedCellValues.map((cell) => `${cell.row}:${cell.column}`)),
+    [selectedCellValues]
+  );
 
   useEffect(() => {
     if (!persistView || !parentRef.current) return;
@@ -335,25 +418,147 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
       });
   }, [isServerPaged, queryString, sourceId, windowSize]);
 
-  const emitSelection = useCallback((positionsToSelect: number[]) => {
-    const normalized = Array.from(new Set(positionsToSelect))
-      .filter((value) => Number.isInteger(value) && value >= 0)
-      .sort((left, right) => left - right);
-    setSelectedRowPositions(normalized);
-    sendEvent(nodeId, normalized.join(","));
-  }, [nodeId, sendEvent]);
+  const emitSelection = useCallback((payload: {
+    rows?: number[];
+    columns?: string[];
+    cells?: SelectedCell[];
+  }) => {
+    const normalized = normalizeSelectionPayload(payload, selectionModes);
+    setSelectedRowPositions(normalized.rows);
+    setSelectedColumnNames(normalized.columns);
+    setSelectedCellValues(normalized.cells);
+    sendEvent(nodeId, {
+      selection: {
+        rows: normalized.rows,
+        columns: normalized.columns,
+        cells: normalized.cells,
+      },
+    });
+  }, [nodeId, selectionModes, sendEvent]);
 
-  const toggleSelection = useCallback((rowPosition: number) => {
-    if (!selectable) return;
-    if (selectionMode === "single-row") {
-      emitSelection([rowPosition]);
+  const toggleRowSelection = useCallback((rowPosition: number) => {
+    if (!allowsRowSelection) return;
+    if (rowSelectionMode === "single-row") {
+      emitSelection({
+        rows: [rowPosition],
+        columns: selectedColumnNames,
+        cells: selectedCellValues,
+      });
       return;
     }
     const next = selectedSet.has(rowPosition)
       ? selectedRowPositions.filter((value) => value !== rowPosition)
       : [...selectedRowPositions, rowPosition];
-    emitSelection(next);
-  }, [emitSelection, selectable, selectedRowPositions, selectedSet, selectionMode]);
+    emitSelection({
+      rows: next,
+      columns: selectedColumnNames,
+      cells: selectedCellValues,
+    });
+  }, [
+    allowsRowSelection,
+    emitSelection,
+    rowSelectionMode,
+    selectedCellValues,
+    selectedColumnNames,
+    selectedRowPositions,
+    selectedSet,
+  ]);
+
+  const toggleColumnSelection = useCallback((columnName: string, event: React.MouseEvent<HTMLDivElement>) => {
+    if (!allowsColumnSelection) return;
+    if (columnSelectionMode === "single-column") {
+      setColumnSelectionAnchor(columnName);
+      emitSelection({
+        rows: selectedRowPositions,
+        columns: [columnName],
+        cells: selectedCellValues,
+      });
+      return;
+    }
+    const orderedNames = resolvedColumns.map((column) => column.name);
+    let next = [...selectedColumnNames];
+    if (event.shiftKey && columnSelectionAnchor) {
+      const start = orderedNames.indexOf(columnSelectionAnchor);
+      const end = orderedNames.indexOf(columnName);
+      if (start >= 0 && end >= 0) {
+        const [from, to] = start <= end ? [start, end] : [end, start];
+        next = orderedNames.slice(from, to + 1);
+      }
+    } else if (event.metaKey || event.ctrlKey) {
+      next = selectedColumnSet.has(columnName)
+        ? selectedColumnNames.filter((value) => value !== columnName)
+        : [...selectedColumnNames, columnName];
+    } else {
+      next = [columnName];
+    }
+    setColumnSelectionAnchor(columnName);
+    emitSelection({
+      rows: selectedRowPositions,
+      columns: next,
+      cells: selectedCellValues,
+    });
+  }, [
+    allowsColumnSelection,
+    columnSelectionAnchor,
+    columnSelectionMode,
+    emitSelection,
+    resolvedColumns,
+    selectedCellValues,
+    selectedColumnNames,
+    selectedColumnSet,
+    selectedRowPositions,
+  ]);
+
+  const toggleCellSelection = useCallback((rowPosition: number, columnName: string, event: React.MouseEvent<HTMLDivElement>) => {
+    if (!allowsCellSelection) return;
+    const target: SelectedCell = { row: rowPosition, column: columnName };
+    let next = [target];
+
+    if (cellSelectionMode === "multi-cell" && event.shiftKey && cellSelectionAnchor) {
+      const visiblePositions = displayRows.map((row) => row.originalPosition);
+      const rowStart = visiblePositions.indexOf(cellSelectionAnchor.row);
+      const rowEnd = visiblePositions.indexOf(rowPosition);
+      const colStart = resolvedColumns.findIndex((column) => column.name === cellSelectionAnchor.column);
+      const colEnd = resolvedColumns.findIndex((column) => column.name === columnName);
+      if (rowStart >= 0 && rowEnd >= 0 && colStart >= 0 && colEnd >= 0) {
+        const [fromRow, toRow] = rowStart <= rowEnd ? [rowStart, rowEnd] : [rowEnd, rowStart];
+        const [fromCol, toCol] = colStart <= colEnd ? [colStart, colEnd] : [colEnd, colStart];
+        next = [];
+        for (let rowIdx = fromRow; rowIdx <= toRow; rowIdx += 1) {
+          const currentRow = displayRows[rowIdx];
+          if (!currentRow) continue;
+          for (let colIdx = fromCol; colIdx <= toCol; colIdx += 1) {
+            const currentColumn = resolvedColumns[colIdx];
+            if (!currentColumn) continue;
+            next.push({ row: currentRow.originalPosition, column: currentColumn.name });
+          }
+        }
+      }
+    } else if (cellSelectionMode === "multi-cell" && (event.metaKey || event.ctrlKey)) {
+      const key = `${rowPosition}:${columnName}`;
+      next = selectedCellSet.has(key)
+        ? selectedCellValues.filter((cell) => `${cell.row}:${cell.column}` !== key)
+        : [...selectedCellValues, target];
+    }
+
+    setCellSelectionAnchor(target);
+    emitSelection({
+      rows: selectedRowPositions,
+      columns: selectedColumnNames,
+      cells: next,
+    });
+  }, [
+    allowsCellSelection,
+    cellSelectionAnchor,
+    cellSelectionMode,
+    displayRows,
+    emitSelection,
+    resolvedColumns,
+    selectedCellSet,
+    selectedCellValues,
+    selectedColumnNames,
+    selectedRowPositions,
+  ]);
 
   const startResize = useCallback((event: React.MouseEvent<HTMLDivElement>, column: GridResolvedColumn) => {
     if (!column.resizable) return;
@@ -390,6 +595,20 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     };
   }, [updateViewState]);
 
+  const sortSignature = JSON.stringify(viewState.sorts);
+  const previousSortSignatureRef = useRef(sortSignature);
+  useEffect(() => {
+    if (previousSortSignatureRef.current === sortSignature) return;
+    previousSortSignatureRef.current = sortSignature;
+    if (!selectable) return;
+    if (!allowsRowSelection && !allowsCellSelection) return;
+    emitSelection({
+      rows: [],
+      columns: selectedColumnNames,
+      cells: [],
+    });
+  }, [allowsCellSelection, allowsRowSelection, emitSelection, selectable, selectedColumnNames, sortSignature]);
+
   const handleDownload = useCallback(async () => {
     if (!displayRows.length && !isServerPaged) return;
     if (!isServerPaged || !sourceId) {
@@ -413,7 +632,7 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
   }, [displayRows, isServerPaged, isStatic, queryString, resolvedColumns, serverTotalRows, sourceId]);
 
   if (!resolvedColumns.length) {
-    return <GridEmptyState message={placeholder || (isStatic ? "Empty table" : "Empty DataFrame")} />;
+    return <GridEmptyState message={isStatic ? "Empty table" : "Empty DataFrame"} />;
   }
 
   const contentWidth = totalWidth + (selectionColumnVisible ? SELECTION_WIDTH : 0) + readOnlyIndexColumn(hasIndex);
@@ -425,19 +644,32 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
         key={row.rowId}
         className={cn("left-0 top-0 flex w-full border-b border-slate-100", background, selectable && "cursor-pointer", shouldVirtualize && "absolute")}
         style={layoutStyle}
-        onClick={() => toggleSelection(row.originalPosition)}
+        onClick={() => {
+          if (allowsCellSelection) return;
+          toggleRowSelection(row.originalPosition);
+        }}
       >
         {selectionColumnVisible ? (
           <div className="sticky left-0 z-20 flex items-center justify-center border-r border-slate-100 bg-inherit" style={{ width: SELECTION_WIDTH, minWidth: SELECTION_WIDTH }} onClick={(event) => event.stopPropagation()}>
-            <Checkbox checked={isSelected} onCheckedChange={() => toggleSelection(row.originalPosition)} />
+            <Checkbox checked={isSelected} onCheckedChange={() => toggleRowSelection(row.originalPosition)} />
           </div>
         ) : null}
         {hasIndex ? (
-          <div className="sticky z-10 flex items-center border-r border-slate-100 bg-inherit px-4 font-mono text-xs text-slate-500" style={{ width: INDEX_WIDTH, minWidth: INDEX_WIDTH, left: selectionColumnVisible ? SELECTION_WIDTH : 0 }}>
+          <div
+            className="sticky z-10 flex items-center border-r border-slate-100 bg-inherit px-4 font-mono text-xs text-slate-500"
+            style={{ width: INDEX_WIDTH, minWidth: INDEX_WIDTH, left: selectionColumnVisible ? SELECTION_WIDTH : 0 }}
+            onClick={(event) => {
+              event.stopPropagation();
+              toggleRowSelection(row.originalPosition);
+            }}
+          >
             {String(row.indexValue ?? row.originalPosition)}
           </div>
         ) : null}
         {resolvedColumns.map((column) => {
+          const cellKey = `${row.originalPosition}:${column.name}`;
+          const isColumnSelected = selectedColumnSet.has(column.name);
+          const isCellSelected = selectedCellSet.has(cellKey);
           const style: React.CSSProperties = { width: column.widthPx, minWidth: column.widthPx };
           if (column.pinned === "left") {
             style.position = "sticky";
@@ -451,8 +683,25 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
             style.background = isSelected ? "rgb(240 249 255 / 0.96)" : rowIndex % 2 === 0 ? "rgba(255,255,255,0.96)" : "rgba(248,250,252,0.96)";
           }
           return (
-            <div key={`${row.rowId}-${column.name}`} className="flex min-w-0 items-center border-r border-slate-100 px-4 py-2 text-sm last:border-r-0" style={style} title={String(row.cells[column.originalIndex] ?? "")}>
-              {renderGridCell(column, row.cells[column.originalIndex], row.cells, resolvedColumns, { compact: true })}
+            <div
+              key={`${row.rowId}-${column.name}`}
+              className={cn(
+                "flex min-w-0 items-center border-r border-slate-100 px-4 py-2 text-sm last:border-r-0",
+                isCellSelected && "ring-1 ring-inset ring-sky-500 bg-sky-100/80",
+                !isCellSelected && isColumnSelected && "bg-sky-50/80"
+              )}
+              style={style}
+              title={String(row.cells[column.originalIndex] ?? "")}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (allowsCellSelection) {
+                  toggleCellSelection(row.originalPosition, column.name, event);
+                  return;
+                }
+                toggleRowSelection(row.originalPosition);
+              }}
+            >
+              {renderGridCell(column, row.cells[column.originalIndex], row.cells, resolvedColumns, { compact: true, placeholder })}
             </div>
           );
         })}
@@ -490,11 +739,12 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
           ) : null}
           {hasIndex ? (
             <div className="sticky z-20 flex items-center border-r border-slate-200/80 bg-slate-100/95 px-3 text-[11px] text-slate-500" style={{ width: INDEX_WIDTH, minWidth: INDEX_WIDTH, left: selectionColumnVisible ? SELECTION_WIDTH : 0 }}>
-              Index
+              {indexLabel || indexConfig.label || "Index"}
             </div>
           ) : null}
           {resolvedColumns.map((column) => {
             const isSorted = viewState.sorts.find((item) => item.column === column.name);
+            const isColumnSelected = selectedColumnSet.has(column.name);
             const style: React.CSSProperties = { width: column.widthPx, minWidth: column.widthPx };
             if (column.pinned === "left") {
               style.position = "sticky";
@@ -510,10 +760,21 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
             return (
               <div
                 key={column.name}
-                className="relative flex items-center gap-2 border-r border-slate-200/80 px-3 last:border-r-0"
+                className={cn(
+                  "relative flex items-center gap-2 border-r border-slate-200/80 px-3 last:border-r-0",
+                  isColumnSelected && "bg-sky-100/80 text-sky-700"
+                )}
                 style={style}
                 title={column.help ?? column.name}
-                onClick={(event) => !isStatic && updateViewState((current) => ({ ...current, sorts: toggleGridSort(current.sorts, column.name, event.shiftKey) }))}
+                onClick={(event) => {
+                  if (allowsColumnSelection) {
+                    toggleColumnSelection(column.name, event);
+                    return;
+                  }
+                  if (!isStatic) {
+                    updateViewState((current) => ({ ...current, sorts: toggleGridSort(current.sorts, column.name, event.shiftKey) }));
+                  }
+                }}
               >
                 <span className="truncate">{column.label}</span>
                 {isSorted ? <span className="text-[10px] text-sky-600">{isSorted.direction === "asc" ? "ASC" : "DESC"}</span> : null}
@@ -530,7 +791,7 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
 
       {!displayRows.length ? (
         <div className="p-4">
-          <GridEmptyState message={placeholder || "No rows match the current view."} />
+          <GridEmptyState message="No rows match the current view." />
         </div>
       ) : (
         <div

@@ -26,10 +26,6 @@ export function useGridColumns({
       ? viewState.columnOrder.filter((name) => byName.has(name))
       : columns.map((column) => column.name);
 
-    for (const column of columns) {
-      if (!orderedNames.includes(column.name)) orderedNames.push(column.name);
-    }
-
     const hidden = new Set(viewState.hiddenColumns);
     const sampleRows = rows.slice(0, 50);
     const resolved: GridResolvedColumn[] = orderedNames

@@ -5,16 +5,88 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from fastlit.ui.base import _emit_node
 
 
-@dataclass
-class DataframeSelection:
-    """Selected row positions from st.dataframe(on_select=...)."""
+class _AttrDict(dict):
+    """Dict-like object with attribute access."""
 
-    rows: list[int]
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return self[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
+
+
+class DataframeSelection(_AttrDict):
+    """Selection payload returned by st.dataframe(on_select=...)."""
+
+    def __init__(
+        self,
+        *,
+        rows: list[int] | None = None,
+        columns: list[str] | None = None,
+        cells: list[tuple[int, str]] | None = None,
+    ) -> None:
+        super().__init__(
+            rows=list(rows or []),
+            columns=list(columns or []),
+            cells=list(cells or []),
+        )
+
+
+class DataframeState(_AttrDict):
+    """Selection state object compatible with Streamlit's dataframe event state."""
+
+    def __init__(self, selection: DataframeSelection) -> None:
+        super().__init__(selection=selection)
+
+    @property
+    def rows(self) -> list[int]:
+        return self.selection.rows
+
+    @property
+    def columns(self) -> list[str]:
+        return self.selection.columns
+
+    @property
+    def cells(self) -> list[tuple[int, str]]:
+        return self.selection.cells
+
+
+class DataframeElement:
+    """Streamlit-like dataframe element handle supporting add_rows()."""
+
+    def __init__(
+        self,
+        *,
+        node: Any,
+        hide_index: bool,
+    ) -> None:
+        self._node = node
+        self._hide_index = hide_index
+
+    def add_rows(self, data: Any) -> "DataframeElement":
+        columns, rows, index = _serialize_dataframe(data, self._hide_index)
+        existing_columns = self._node.props.get("columns", [])
+        if _schema_version(existing_columns) != _schema_version(columns):
+            raise ValueError("add_rows() requires matching dataframe columns")
+
+        existing_rows = self._node.props.setdefault("rows", [])
+        existing_rows.extend(rows)
+        self._node.props["rows"] = existing_rows
+        self._node.props["totalRows"] = len(existing_rows)
+        self._node.props["truncated"] = False
+        self._node.props.pop("sourceId", None)
+        self._node.props.pop("windowSize", None)
+        if not self._hide_index:
+            existing_index = list(self._node.props.get("index", []))
+            existing_index.extend(index or [])
+            self._node.props["index"] = existing_index
+        self._node.invalidate_caches()
+        return self
 
 
 def dataframe(
@@ -32,10 +104,10 @@ def dataframe(
     downloadable: bool = True,
     persist_view: bool = True,
     max_rows: int | None = None,
-    on_select: str | Callable[[DataframeSelection], None] | None = None,
-    selection_mode: str = "multi-row",
+    on_select: str | Callable[[DataframeState], None] | None = "ignore",
+    selection_mode: str | Iterable[str] = "multi-row",
     key: str | None = None,
-) -> DataframeSelection | None:
+) -> DataframeElement | DataframeState:
     """Display a DataFrame with virtualized scrolling.
 
     Args:
@@ -47,14 +119,14 @@ def dataframe(
         column_order: Ordered list of columns to display.
         column_config: Dict of column configurations.
         row_height: Fixed row height in pixels.
-        placeholder: Placeholder text when the dataset is empty.
+        placeholder: Placeholder text rendered for missing cell values.
         toolbar: If True, show the grid toolbar.
         downloadable: If True, expose CSV export for the current view.
         persist_view: If True, persist the grid view state in sessionStorage.
         max_rows: Maximum number of rows to serialize for display.
             If None, uses FASTLIT_MAX_DF_ROWS (default: 50_000).
-        on_select: None (default), "rerun", or a callable callback.
-        selection_mode: "single-row" or "multi-row" (used when on_select is set).
+        on_select: "ignore" (default), "rerun", or a callable callback.
+        selection_mode: Selection mode(s) used when on_select is enabled.
         key: Optional key for stable identity.
 
     Example:
@@ -62,10 +134,10 @@ def dataframe(
         >>> df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
         >>> st.dataframe(df)
     """
-    if selection_mode not in {"single-row", "multi-row"}:
-        raise ValueError("selection_mode must be 'single-row' or 'multi-row'")
-    if on_select is not None and on_select != "rerun" and not callable(on_select):
-        raise ValueError("on_select must be None, 'rerun', or a callable")
+    data = _coerce_tabular_data(data)
+    selection_modes = _normalize_selection_modes(selection_mode)
+    if on_select is not None and on_select not in {"ignore", "rerun"} and not callable(on_select):
+        raise ValueError("on_select must be 'ignore', 'rerun', or a callable")
 
     hide_index_value = bool(hide_index)
     width_value, use_container_width_value = _resolve_width(width, use_container_width)
@@ -77,8 +149,16 @@ def dataframe(
     columns, rows, index, total_rows, truncated = _serialize_dataframe_preview(
         data, hide_index_value, resolved_max_rows
     )
+    columns, index_names = _coerce_index_metadata(columns, data)
     normalized_column_order = _normalize_column_order(columns, column_order)
-    serialized_column_config = _serialize_column_config(column_config)
+    serialized_column_config, index_config = _serialize_column_config(
+        column_config,
+        columns=columns,
+        index_names=index_names,
+    )
+    if index_config.get("hidden"):
+        hide_index_value = True
+        index = None
     source_id = _maybe_register_server_source(
         data=data,
         columns=columns,
@@ -108,42 +188,59 @@ def dataframe(
         props["columnOrder"] = normalized_column_order
     if serialized_column_config:
         props["columnConfig"] = serialized_column_config
+    if index_config:
+        props["indexConfig"] = index_config
     if not hide_index_value and index is not None:
         props["index"] = index
+        if index_names:
+            props["indexLabel"] = _format_index_label(index_names)
     if source_id is not None:
         props["sourceId"] = source_id
         props["windowSize"] = _default_dataframe_window_size()
 
-    if on_select is None:
-        _emit_node("dataframe", props, key=key)
-        return None
+    selection_enabled = on_select not in {None, "ignore"}
+    if not selection_enabled:
+        node = _emit_node("dataframe", props, key=key)
+        return DataframeElement(node=node, hide_index=hide_index_value)
 
     from fastlit.runtime.context import get_current_session
 
     props["selectable"] = True
-    props["selectionMode"] = selection_mode
+    props["selectionMode"] = selection_modes if len(selection_modes) > 1 else selection_modes[0]
 
-    node = _emit_node("dataframe", props, key=key, is_widget=True)
+    node = _emit_node(
+        "dataframe",
+        props,
+        key=key,
+        is_widget=True,
+        no_rerun=on_select == "ignore",
+    )
     session = get_current_session()
     session._force_full_render_widget_ids.add(node.id)
-    rows_selected = _normalize_selection_rows(
-        session.widget_store.get(node.id), selection_mode
+    selection = _normalize_selection_state(
+        session.widget_store.get(node.id),
+        selection_modes,
     )
-    node.props["selectedRows"] = rows_selected
-    selection = DataframeSelection(rows=rows_selected)
+    node.props["selectedRows"] = selection.rows
+    node.props["selectedColumns"] = selection.columns
+    node.props["selectedCells"] = [
+        {"row": row, "column": column}
+        for row, column in selection.cells
+    ]
+    state = DataframeState(selection)
 
     if callable(on_select):
         prev_key = f"_dfsel_prev_{node.id}"
         if prev_key not in session.widget_store:
-            session.widget_store[prev_key] = rows_selected
-        elif session.widget_store.get(prev_key) != rows_selected:
-            session.widget_store[prev_key] = rows_selected
+            session.widget_store[prev_key] = dict(state)
+        elif session.widget_store.get(prev_key) != dict(state):
+            session.widget_store[prev_key] = dict(state)
             try:
-                on_select(selection)
+                on_select(state)
             except TypeError:
                 on_select()
 
-    return selection
+    return state
 
 
 def _default_max_dataframe_rows() -> int:
@@ -155,18 +252,44 @@ def _default_max_dataframe_rows() -> int:
     return max(1, value)
 
 
-def _normalize_selection_rows(
-    stored: Any,
-    selection_mode: str,
-) -> list[int]:
-    """Normalize frontend selection payload to a sorted list of row positions."""
-    raw = stored
-    if isinstance(stored, dict):
-        raw = stored.get("rows", [])
+_ROW_SELECTION_MODES = {"single-row", "multi-row"}
+_COLUMN_SELECTION_MODES = {"single-column", "multi-column"}
+_CELL_SELECTION_MODES = {"single-cell", "multi-cell"}
+_SELECTION_MODES = _ROW_SELECTION_MODES | _COLUMN_SELECTION_MODES | _CELL_SELECTION_MODES
 
+
+def _normalize_selection_modes(selection_mode: str | Iterable[str]) -> tuple[str, ...]:
+    if isinstance(selection_mode, str):
+        normalized = (selection_mode,)
+    else:
+        normalized = tuple(str(item) for item in selection_mode)
+    if not normalized:
+        raise ValueError("selection_mode must contain at least one selection mode")
+    invalid = [mode for mode in normalized if mode not in _SELECTION_MODES]
+    if invalid:
+        raise ValueError(
+            "selection_mode contains unsupported values: "
+            + ", ".join(sorted(invalid))
+        )
+    for family in (_ROW_SELECTION_MODES, _COLUMN_SELECTION_MODES, _CELL_SELECTION_MODES):
+        chosen = [mode for mode in normalized if mode in family]
+        if len(chosen) > 1:
+            raise ValueError(
+                "selection_mode cannot mix single and multi variants of the same family"
+            )
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for mode in normalized:
+        if mode in seen:
+            continue
+        seen.add(mode)
+        deduped.append(mode)
+    return tuple(deduped)
+
+
+def _normalize_selection_indices(raw: Any) -> list[int]:
     rows: list[int] = []
     seen: set[int] = set()
-    candidates: list[Any]
     if isinstance(raw, str):
         candidates = [part.strip() for part in raw.split(",") if part.strip()]
     elif isinstance(raw, (list, tuple, set)):
@@ -187,11 +310,93 @@ def _normalize_selection_rows(
             continue
         seen.add(idx)
         rows.append(idx)
-
     rows.sort()
-    if selection_mode == "single-row":
-        return rows[:1]
     return rows
+
+
+def _normalize_selection_columns(raw: Any) -> list[str]:
+    if isinstance(raw, str):
+        candidates = [part.strip() for part in raw.split(",") if part.strip()]
+    elif isinstance(raw, (list, tuple, set)):
+        candidates = list(raw)
+    else:
+        candidates = [raw]
+    seen: set[str] = set()
+    columns: list[str] = []
+    for item in candidates:
+        if item is None:
+            continue
+        column = str(item)
+        if not column or column in seen:
+            continue
+        seen.add(column)
+        columns.append(column)
+    return columns
+
+
+def _normalize_selection_cells(raw: Any) -> list[tuple[int, str]]:
+    if isinstance(raw, dict) and "cells" in raw:
+        raw = raw.get("cells")
+    if not isinstance(raw, (list, tuple, set)):
+        raw = [raw]
+    cells: list[tuple[int, str]] = []
+    seen: set[tuple[int, str]] = set()
+    for item in raw:
+        row_value: Any = None
+        column_value: Any = None
+        if isinstance(item, dict):
+            row_value = item.get("row")
+            column_value = item.get("column")
+        elif isinstance(item, (list, tuple)) and len(item) >= 2:
+            row_value, column_value = item[0], item[1]
+        if isinstance(row_value, str) and row_value.isdigit():
+            row_value = int(row_value)
+        if not isinstance(row_value, int) or row_value < 0 or column_value is None:
+            continue
+        cell = (row_value, str(column_value))
+        if cell in seen:
+            continue
+        seen.add(cell)
+        cells.append(cell)
+    cells.sort(key=lambda item: (item[0], item[1]))
+    return cells
+
+
+def _normalize_selection_state(
+    stored: Any,
+    selection_modes: tuple[str, ...],
+) -> DataframeSelection:
+    raw = stored
+    if isinstance(stored, dict) and "selection" in stored:
+        raw = stored.get("selection", {})
+
+    rows: list[int]
+    columns: list[str]
+    cells: list[tuple[int, str]]
+    if isinstance(raw, dict):
+        rows = _normalize_selection_indices(raw.get("rows", []))
+        columns = _normalize_selection_columns(raw.get("columns", []))
+        cells = _normalize_selection_cells(raw.get("cells", []))
+    else:
+        rows = _normalize_selection_indices(raw)
+        columns = []
+        cells = []
+
+    if "single-row" in selection_modes:
+        rows = rows[:1]
+    if "single-column" in selection_modes:
+        columns = columns[:1]
+    if "single-cell" in selection_modes:
+        cells = cells[:1]
+
+    if not any(mode in _ROW_SELECTION_MODES for mode in selection_modes):
+        rows = []
+    if not any(mode in _COLUMN_SELECTION_MODES for mode in selection_modes):
+        columns = []
+    if not any(mode in _CELL_SELECTION_MODES for mode in selection_modes):
+        cells = []
+
+    return DataframeSelection(rows=rows, columns=columns, cells=cells)
 
 
 def _default_dataframe_window_size() -> int:
@@ -221,13 +426,68 @@ def _resolve_width(
     return width_value, use_container_width_value
 
 
-def _serialize_column_config(column_config: dict | None) -> dict[str, Any] | None:
+def _format_index_label(index_names: list[str]) -> str:
+    compact = [name for name in index_names if name]
+    if not compact:
+        return "Index"
+    if len(compact) == 1:
+        return compact[0]
+    return " / ".join(compact)
+
+
+def _coerce_index_metadata(
+    columns: list[dict[str, Any]],
+    data: Any,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    try:
+        import pandas as pd
+
+        raw = _coerce_tabular_data(data)
+        if isinstance(raw, pd.DataFrame):
+            index_names = ["" if name is None else str(name) for name in raw.index.names]
+            return columns, index_names
+    except ImportError:
+        pass
+    return columns, []
+
+
+def _serialize_column_config(
+    column_config: dict | None,
+    *,
+    columns: list[dict[str, Any]],
+    index_names: list[str],
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     if not column_config:
-        return None
-    return {
-        str(key): value.to_dict() if hasattr(value, "to_dict") else value
-        for key, value in column_config.items()
-    }
+        return None, {}
+
+    serialized: dict[str, Any] = {}
+    index_config: dict[str, Any] = {}
+    column_names = [str(col.get("name", "")) for col in columns]
+
+    for key, value in column_config.items():
+        payload = value.to_dict() if hasattr(value, "to_dict") else dict(value)
+        target_name: str | None = None
+
+        if key == "_index":
+            target_name = None
+            index_config = payload
+        elif isinstance(key, int):
+            if 0 <= key < len(column_names):
+                target_name = column_names[key]
+        else:
+            for idx, column in enumerate(columns):
+                source_key = column.get("_sourceKey", column.get("name"))
+                if key == source_key or str(key) == str(column.get("name", "")):
+                    target_name = column_names[idx]
+                    break
+
+        if target_name:
+            serialized[target_name] = payload
+
+    if index_names and "label" not in index_config:
+        index_config["label"] = _format_index_label(index_names)
+
+    return serialized or None, index_config
 
 
 def _invoke_callback(
@@ -289,6 +549,7 @@ def data_editor(
     from fastlit.runtime.context import get_current_session
 
     session = get_current_session()
+    data = _coerce_tabular_data(data)
     hide_index_value = bool(hide_index)
     rerun_on_change = True
     width_value, use_container_width_value = _resolve_width(width, use_container_width)
@@ -314,6 +575,16 @@ def data_editor(
         disabled_cols = [c["name"] for c in columns]
     elif isinstance(disabled, list):
         disabled_cols = disabled
+
+    columns, index_names = _coerce_index_metadata(columns, data)
+    serialized_column_config, index_config = _serialize_column_config(
+        column_config,
+        columns=columns,
+        index_names=index_names,
+    )
+    if index_config.get("hidden"):
+        hide_index_value = True
+        index = None
 
     props = {
         "columns": columns,
@@ -341,8 +612,10 @@ def data_editor(
     if not hide_index_value and index is not None:
         props["index"] = index
 
-    if column_config:
-        props["columnConfig"] = _serialize_column_config(column_config)
+    if serialized_column_config:
+        props["columnConfig"] = serialized_column_config
+    if index_config:
+        props["indexConfig"] = index_config
 
     node = _emit_node(
         "data_editor",
@@ -393,21 +666,23 @@ def _normalize_column_order(
     columns: list[dict[str, Any]],
     column_order: list[str] | None,
 ) -> list[str] | None:
-    """Return a normalized display order without dropping unspecified columns."""
+    """Return a normalized display order, preserving omissions."""
     if not column_order:
         return None
 
-    available = [str(col.get("name", "")) for col in columns]
     seen: set[str] = set()
     ordered: list[str] = []
-    for name in column_order:
-        if name in available and name not in seen:
-            ordered.append(name)
-            seen.add(name)
-
-    for name in available:
-        if name not in seen:
-            ordered.append(name)
+    for requested in column_order:
+        resolved_name: str | None = None
+        for column in columns:
+            current_name = str(column.get("name", ""))
+            source_key = column.get("_sourceKey", column.get("name"))
+            if requested == source_key or str(requested) == current_name:
+                resolved_name = current_name
+                break
+        if resolved_name and resolved_name not in seen:
+            ordered.append(resolved_name)
+            seen.add(resolved_name)
 
     return ordered or None
 
@@ -579,6 +854,7 @@ def table(
         row_height: Fixed row height in pixels.
         key: Optional key for stable identity.
     """
+    data = _coerce_tabular_data(data)
     columns, rows, index = _serialize_dataframe(data, hide_index=True)
     total_rows = len(rows)
     rows, _, truncated = _truncate_rows(rows, None, _default_max_dataframe_rows())
@@ -598,6 +874,63 @@ def table(
     _emit_node("table", props, key=key)
 
 
+def _coerce_tabular_data(data: Any) -> Any:
+    """Best-effort coercion for dataframe-like inputs supported by Streamlit."""
+    try:
+        import pandas as pd
+        try:
+            from pandas.io.formats.style import Styler
+        except Exception:
+            Styler = None
+
+        if Styler is not None and isinstance(data, Styler):
+            return data.data
+        if isinstance(data, pd.Series):
+            return data.to_frame()
+        if isinstance(data, pd.Index):
+            return data.to_frame(index=False)
+    except ImportError:
+        pass
+
+    if hasattr(data, "to_pandas") and callable(getattr(data, "to_pandas")):
+        try:
+            converted = data.to_pandas()
+            if converted is not None:
+                return converted
+        except Exception:
+            pass
+
+    if hasattr(data, "to_arrow") and callable(getattr(data, "to_arrow")):
+        try:
+            arrow_value = data.to_arrow()
+            if hasattr(arrow_value, "to_pandas"):
+                return arrow_value.to_pandas()
+        except Exception:
+            pass
+
+    if hasattr(data, "__dataframe__"):
+        try:
+            import pandas as pd
+
+            return pd.api.interchange.from_dataframe(data)
+        except Exception:
+            pass
+
+    if hasattr(data, "description") and hasattr(data, "fetchall"):
+        try:
+            description = getattr(data, "description", None) or []
+            rows = list(data.fetchall())
+            columns = [
+                desc[0] if isinstance(desc, (list, tuple)) and desc else str(idx)
+                for idx, desc in enumerate(description)
+            ]
+            return [dict(zip(columns, row)) for row in rows]
+        except Exception:
+            pass
+
+    return data
+
+
 def _serialize_dataframe(
     data: Any,
     hide_index: bool = False,
@@ -610,6 +943,8 @@ def _serialize_dataframe(
         - rows: List of row arrays (each row is a list of values)
         - index: List of index values (or None if hidden)
     """
+    data = _coerce_tabular_data(data)
+
     # Try pandas DataFrame
     try:
         import pandas as pd
@@ -644,6 +979,7 @@ def _serialize_dataframe_preview(
     max_rows: int,
 ) -> tuple[list[dict], list[list], list | None, int, bool]:
     """Serialize data for display with an upper row bound."""
+    data = _coerce_tabular_data(data)
     try:
         import pandas as pd
 
@@ -704,9 +1040,10 @@ def _maybe_register_server_source(
                 safe_offset = max(0, min(query.offset, len(view)))
                 safe_end = min(len(view), safe_offset + query.limit)
                 sliced = view.iloc[safe_offset:safe_end]
+                raw_keys = [col.get("_sourceKey", col.get("name")) for col in columns]
                 out_rows = [
                     [_to_json_safe(v) for v in row]
-                    for row in sliced[[str(col.get("name", "")) for col in columns]].itertuples(index=False, name=None)
+                    for row in sliced[raw_keys].itertuples(index=False, name=None)
                 ]
                 out_index = None if hide_index else [_to_json_safe(v) for v in sliced.index.tolist()]
                 out_positions = [_to_json_safe(v) for v in sliced["__fastlit_position__"].tolist()]
@@ -788,6 +1125,12 @@ def _truncate_rows(
     return new_rows, new_index, True
 
 
+def _display_column_name(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
 def _serialize_pandas(
     df: Any,  # pandas.DataFrame
     hide_index: bool,
@@ -806,7 +1149,13 @@ def _serialize_pandas(
     for col in view.columns:
         dtype = str(view[col].dtype)
         col_type = _dtype_to_type(dtype)
-        columns.append({"name": str(col), "type": col_type})
+        columns.append(
+            {
+                "name": _display_column_name(col),
+                "type": col_type,
+                "_sourceKey": col,
+            }
+        )
 
     # Serialize row-by-row without materializing the full dataframe first.
     rows: list[list[Any]] = []
@@ -816,7 +1165,10 @@ def _serialize_pandas(
     # Index
     index = None
     if not hide_index:
-        index = [_to_json_safe(v) for v in view.index.tolist()]
+        if hasattr(view.index, "tolist"):
+            index = [_to_json_safe(v) for v in view.index.tolist()]
+        else:
+            index = [_to_json_safe(v) for v in list(view.index)]
 
     return columns, rows, index, total_rows, truncated
 
@@ -979,15 +1331,21 @@ def _query_pandas_dataframe(
         return df
 
     view = df
-    column_names = [str(col.get("name", "")) for col in columns if str(col.get("name", ""))]
+    column_map = {
+        str(col.get("name", "")): col.get("_sourceKey", col.get("name"))
+        for col in columns
+        if str(col.get("name", ""))
+    }
+    column_names = list(column_map.keys())
     search_value = (search or "").strip()
     if search_value:
         mask = pd.Series(False, index=view.index)
         lowered_search = search_value.lower()
         for col in column_names:
-            if col not in view.columns:
+            raw_key = column_map.get(col, col)
+            if raw_key not in view.columns:
                 continue
-            series = view[col]
+            series = view[raw_key]
             mask = mask | series.map(
                 lambda value: lowered_search in _searchable_text(value)
             )
@@ -995,10 +1353,11 @@ def _query_pandas_dataframe(
 
     for flt in filters:
         column_name = getattr(flt, "column", None)
+        raw_key = column_map.get(str(column_name), column_name)
         op = getattr(flt, "op", "")
-        if not column_name or column_name not in view.columns:
+        if not column_name or raw_key not in view.columns:
             continue
-        series = view[column_name]
+        series = view[raw_key]
         mask = series.map(lambda value: _matches_filter(value, op, getattr(flt, "value", None)))
         view = view[mask]
 
@@ -1008,9 +1367,10 @@ def _query_pandas_dataframe(
         for sort in sorts:
             column_name = getattr(sort, "column", None)
             direction = getattr(sort, "direction", "asc")
-            if not column_name or column_name not in view.columns:
+            raw_key = column_map.get(str(column_name), column_name)
+            if not column_name or raw_key not in view.columns:
                 continue
-            by.append(column_name)
+            by.append(raw_key)
             ascending.append(direction != "desc")
         if by:
             try:

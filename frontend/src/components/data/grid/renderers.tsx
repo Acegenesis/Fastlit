@@ -91,10 +91,15 @@ export function renderGridCell(
   value: any,
   rowValues: any[],
   allColumns: GridResolvedColumn[],
-  opts?: { compact?: boolean; onOpenJson?: (columnName: string, value: any) => void },
+  opts?: { compact?: boolean; placeholder?: string; onOpenJson?: (columnName: string, value: any) => void },
 ) {
   const type = String(column.type ?? "string").toLowerCase();
   const compact = !!opts?.compact;
+  const placeholder = opts?.placeholder?.trim() || "—";
+
+  if (value === null || value === undefined) {
+    return <span className="text-slate-400">{placeholder}</span>;
+  }
 
   if (type === "progress") {
     const progress = Number(value);
