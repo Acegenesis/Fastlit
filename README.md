@@ -78,6 +78,88 @@ With explicit frontend dev server options:
 fastlit run app.py --dev --frontend-port 5173 --frontend-host 127.0.0.1
 ```
 
+## File-based pages
+
+Fastlit supports file-based multi-page apps out of the box.
+
+This mode is optional. If a sibling `pages/` directory exists next to your
+entry script, Fastlit treats your app as a file-based multi-page app.
+
+Project layout:
+
+```text
+app.py
+pages/
+  index.py
+  charts.py
+  status_feedback.py
+```
+
+`app.py`:
+
+```python
+import fastlit as st
+
+st.set_page_config(page_title="My App", layout="wide")
+st.sidebar.navigation()
+```
+
+`pages/charts.py`:
+
+```python
+import fastlit as st
+
+PAGE_CONFIG = {
+    "title": "Charts",
+    "icon": "📈",
+    "order": 20,
+}
+
+st.title("Charts")
+st.write("Auto-discovered from pages/charts.py")
+```
+
+### How it works
+
+1. `app.py` stays your entry script and global layout.
+2. Fastlit scans `pages/*.py` automatically.
+3. The filename becomes the route slug by default.
+4. `st.sidebar.navigation()` builds the sidebar navigation.
+5. In auto-discovery mode, the selected page is rendered implicitly inside `app.py`.
+
+Example:
+
+```python
+import fastlit as st
+
+st.set_page_config(page_title="My App", layout="wide")
+
+st.sidebar.title("My App")
+st.sidebar.navigation()
+
+st.caption("This footer stays visible on every page.")
+```
+
+In that example:
+- `app.py` is the shared shell
+- `pages/index.py` is the default page
+- `pages/charts.py` becomes `/charts`
+- `pages/status_feedback.py` becomes `/status_feedback`
+
+Supported page metadata:
+- `PAGE_CONFIG = {"title": "...", "icon": "...", "order": 10, "default": True, "hidden": False, "url_path": "..."}`
+- Or individual constants: `PAGE_TITLE`, `PAGE_ICON`, `PAGE_ORDER`, `PAGE_DEFAULT`, `PAGE_HIDDEN`, `PAGE_URL_PATH`
+
+By default, the route slug is the filename. For example, `pages/status_feedback.py` maps to `/status_feedback`.
+When Fastlit auto-discovers a sibling `pages/` directory, the selected page is rendered implicitly inside `app.py`.
+If you build your own `st.Page(...)` list manually, you can still use `selected_page.run()` for explicit page outlets.
+
+### When to use it
+
+- Use a single `app.py` if your app is small and linear.
+- Use `app.py` + `pages/` if your app is growing and you want one file per screen.
+- Use manual `st.Page(...)` definitions if you want full control over page registration.
+
 In `--dev` mode, Fastlit now:
 - starts the Python backend with autoreload
 - starts the Vite frontend dev server with HMR
@@ -92,12 +174,12 @@ Notes:
 
 The full showcase is in:
 
-- `examples/all_components_demo.py`
+- `examples/app.py`
 
 Run it:
 
 ```bash
-fastlit run examples/all_components_demo.py --dev
+fastlit run examples/app.py --dev
 ```
 
 ## API reference
@@ -262,7 +344,7 @@ npm run build
 Then run demo:
 
 ```bash
-fastlit run examples/all_components_demo.py --dev
+fastlit run examples/app.py --dev
 ```
 
 For fullstack dev mode, make sure frontend dependencies are installed first:

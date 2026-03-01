@@ -48,6 +48,7 @@ class Session:
     def __init__(self, script_path: str) -> None:
         self.session_id: str = uuid.uuid4().hex
         self.script_path: str = script_path
+        self.entry_script_path: str = script_path
         self.widget_store: dict[str, Any] = {}
         self.session_state: SessionState = SessionState()
         self.query_params: dict[str, str] = {}
@@ -77,6 +78,10 @@ class Session:
         self._page_labels: list[str] = []
         self._page_url_paths: list[str] = []
         self._page_scripts: dict[int, str] = {}
+        self._page_default_index: int = 0
+        self._inline_page_rendered: bool = False
+        self._inline_page_script_path: str | None = None
+        self._inline_rendered_scripts: set[str] = set()
         # OIDC claims attached by the WS handler from the session cookie.
         self.user_claims: dict = {}
         # Widgets that should force a full tree render after an event.
@@ -91,21 +96,42 @@ class Session:
         labels: list[str],
         url_paths: list[str],
         page_scripts: dict[int, str],
+        default_index: int = 0,
     ) -> None:
         """Persist navigation metadata for switch_page and page-script routing."""
         self._page_nav_id = nav_id
         self._page_labels = list(labels)
         self._page_url_paths = list(url_paths)
         self._page_scripts = dict(page_scripts)
+        self._page_default_index = int(default_index)
 
     @staticmethod
     def _normalize_page_token(value: str) -> str:
         return slugify_page_token(value)
 
-    def _switch_to_page_index(self, idx: int, nav_id: str | None) -> None:
+    def _selected_page_index(self) -> int:
+        """Return the current navigation index, falling back to the default page."""
+        nav_id = self._page_nav_id
+        if nav_id is None:
+            return self._page_default_index
+        selected = self.widget_store.get(nav_id)
+        if isinstance(selected, int) and selected >= 0:
+            return selected
+        return self._page_default_index
+
+    def _selected_page_script(self) -> str | None:
+        """Return the currently selected page script path, if any."""
+        return self._page_scripts.get(self._selected_page_index())
+
+    def _switch_to_page_index(
+        self, idx: int, nav_id: str | None, *, switch_script: bool = True
+    ) -> None:
         """Apply selected page index and switch script when required."""
         if nav_id:
             self.widget_store[nav_id] = idx
+
+        if not switch_script:
+            return
 
         new_script = self._page_scripts.get(idx)
         if not new_script or new_script == self.script_path:
@@ -126,13 +152,29 @@ class Session:
 
     def _sync_script_path_from_navigation(self) -> None:
         """Before running a script, route to the selected Page script if needed."""
+        if self.script_path == self.entry_script_path:
+            return
         nav_id = self._page_nav_id
         if not nav_id or not self._page_scripts:
             return
-        selected = self.widget_store.get(nav_id)
-        if not isinstance(selected, int):
-            return
-        self._switch_to_page_index(selected, nav_id)
+        self._switch_to_page_index(self._selected_page_index(), nav_id)
+
+    def run_inline_page_script(self, script_path: str, *, root_level: bool = False) -> None:
+        """Render a page script inline inside the current entry-script layout."""
+        previous_inline_script = self._inline_page_script_path
+        previous_stack: list[UINode] | None = None
+        self._inline_page_rendered = True
+        self._inline_page_script_path = script_path
+        self._inline_rendered_scripts.add(script_path)
+        if root_level and self.current_tree is not None:
+            previous_stack = list(self.current_tree._container_stack)
+            self.current_tree._container_stack = [self.current_tree.root]
+        try:
+            run_script(script_path, self)
+        finally:
+            if previous_stack is not None and self.current_tree is not None:
+                self.current_tree._container_stack = previous_stack
+            self._inline_page_script_path = previous_inline_script
 
     def run(self) -> RenderFull | RenderPatch:
         """Execute the script and return either a full render or a patch."""
@@ -145,6 +187,9 @@ class Session:
             self._fragment_registry.clear()
             self._widget_to_fragment.clear()
             self._current_fragment_id = None
+            self._inline_page_rendered = False
+            self._inline_page_script_path = None
+            self._inline_rendered_scripts.clear()
 
             new_tree = UITree()
             self.current_tree = new_tree
@@ -170,6 +215,17 @@ class Session:
                 script_error = exc
             finally:
                 clear_current_session()
+
+            if self.script_path == self.entry_script_path and not self._inline_page_rendered:
+                selected_idx = self._selected_page_index()
+                selected_script = self._selected_page_script()
+                if (
+                    selected_script is not None
+                    and selected_script != self.script_path
+                    and self._page_nav_id is not None
+                ):
+                    self._switch_to_page_index(selected_idx, self._page_nav_id)
+                    continue
 
             self._prune_fragment_state()
             self.rev += 1
@@ -378,12 +434,20 @@ class Session:
 
         # Preferred source: explicit metadata registered by st.navigation([...]).
         if self._page_labels:
+            switch_script = (
+                self.script_path != self.entry_script_path
+                and self._inline_page_script_path is None
+            )
             for idx, label in enumerate(self._page_labels):
                 candidates = {self._normalize_page_token(label)}
                 if idx < len(self._page_url_paths):
                     candidates.add(self._normalize_page_token(self._page_url_paths[idx]))
                 if target in candidates:
-                    self._switch_to_page_index(idx, self._page_nav_id)
+                    self._switch_to_page_index(
+                        idx,
+                        self._page_nav_id,
+                        switch_script=switch_script,
+                    )
                     return
 
         # Fallback: infer from previous tree props.
@@ -403,7 +467,11 @@ class Session:
             if isinstance(url_paths, list) and idx < len(url_paths):
                 candidates.add(self._normalize_page_token(url_paths[idx]))
             if target in candidates:
-                self._switch_to_page_index(idx, nav_node.id)
+                self._switch_to_page_index(
+                    idx,
+                    nav_node.id,
+                    switch_script=self.script_path != self.entry_script_path,
+                )
                 return
 
     @staticmethod

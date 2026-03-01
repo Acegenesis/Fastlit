@@ -26,19 +26,24 @@ function isLikelyNavigationSyncPatch(ops: Array<{ op?: string }> | undefined): b
   return ops.some((op) => op.op === "insertChild" || op.op === "remove" || op.op === "replace");
 }
 
-/** Convert page name to URL slug */
+/** Normalize route tokens while preserving file-based names like `text_elements`. */
 function toSlug(page: string): string {
-  const normalized = page.normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+  const normalized = decodeURIComponent(String(page || ""))
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .replace(/^\/+|\/+$/g, "");
   const asciiOnly = normalized.replace(/[^\x00-\x7F]/g, "");
   const slug = asciiOnly
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9/_-]+/g, "")
+    .replace(/\/{2,}/g, "/");
   return slug || "page";
 }
 
 function canonicalizeSlug(slug: string): string {
-  return toSlug(decodeURIComponent(String(slug || "").replace(/^\/+|\/+$/g, "")));
+  return toSlug(slug);
 }
 
 /** Get current page from URL pathname */
