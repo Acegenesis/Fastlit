@@ -150,6 +150,12 @@ function resolveGridHeight(height: number | string | undefined, rowCount: number
   return Math.min(DEFAULT_HEIGHT, Math.max(chrome + rowHeight, content));
 }
 
+function resolveRowHeight(rowHeight: number | null | undefined): number {
+  return typeof rowHeight === "number" && Number.isFinite(rowHeight) && rowHeight > 0
+    ? rowHeight
+    : DEFAULT_ROW_HEIGHT;
+}
+
 function parseDateValue(value: any): Date | undefined {
   if (typeof value !== "string" || !value.trim()) return undefined;
   try {
@@ -549,7 +555,7 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
     rerunOnChange = true,
     totalRows,
     truncated = false,
-    rowHeight = DEFAULT_ROW_HEIGHT,
+    rowHeight,
     placeholder,
     toolbar = true,
     downloadable = true,
@@ -594,6 +600,7 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
 
   const hasIndex = Array.isArray(index) && index.length > 0;
   const isDynamic = numRows === "dynamic";
+  const effectiveRowHeight = resolveRowHeight(rowHeight);
   const outerStyle = resolveOuterStyle(width, useContainerWidth);
   const { resolvedColumns, columnIndexMap, totalWidth } = useGridColumns({
     columns: baseColumns,
@@ -606,8 +613,8 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
     return applyGridSorts(searched, viewState.sorts, columnIndexMap);
   }, [columnIndexMap, localRows, viewState.filters, viewState.search, viewState.sorts]);
 
-  const containerHeight = resolveGridHeight(height, Math.max(displayRows.length, 1), rowHeight, toolbar);
-  const rowVirtualizer = useGridVirtualRows({ rowCount: displayRows.length, parentRef, rowHeight });
+  const containerHeight = resolveGridHeight(height, Math.max(displayRows.length, 1), effectiveRowHeight, toolbar);
+  const rowVirtualizer = useGridVirtualRows({ rowCount: displayRows.length, parentRef, rowHeight: effectiveRowHeight });
   const shouldVirtualize = displayRows.length > 100;
   const contentWidth = totalWidth + indexColumnWidth(hasIndex) + (isDynamic ? ACTIONS_WIDTH : 0);
 

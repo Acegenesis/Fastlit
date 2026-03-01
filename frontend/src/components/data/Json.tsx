@@ -90,6 +90,25 @@ function countMatches(value: any, query: string): number {
   return count;
 }
 
+function nodeHasMatch(value: any, query: string, nodeKey?: string): boolean {
+  const target = query.trim().toLowerCase();
+  if (!target) return true;
+
+  if (nodeKey?.toLowerCase().includes(target)) return true;
+
+  if (!isExpandable(value)) {
+    return valueSummary(value).toLowerCase().includes(target);
+  }
+
+  if (valueSummary(value).toLowerCase().includes(target)) return true;
+
+  if (Array.isArray(value)) {
+    return value.some((item) => nodeHasMatch(item, query));
+  }
+
+  return Object.entries(value).some(([key, nested]) => nodeHasMatch(nested, query, key));
+}
+
 interface JsonNodeProps {
   value: any;
   depth: number;
@@ -100,14 +119,24 @@ interface JsonNodeProps {
 }
 
 const JsonNode: React.FC<JsonNodeProps> = ({ value, depth, nodeKey, path, expansion, search }) => {
+  const query = search.trim();
+  const queryActive = query.length > 0;
   const selfMatch = useMemo(() => {
-    if (!search) return false;
-    const target = search.toLowerCase();
+    if (!queryActive) return false;
+    const target = query.toLowerCase();
     return (nodeKey?.toLowerCase().includes(target) ?? false) || valueSummary(value).toLowerCase().includes(target);
-  }, [nodeKey, search, value]);
+  }, [nodeKey, query, queryActive, value]);
+  const branchMatch = useMemo(() => nodeHasMatch(value, query, nodeKey), [nodeKey, query, value]);
+
+  if (!branchMatch) {
+    return null;
+  }
 
   const initiallyExpanded =
-    expansion === true || selfMatch || (typeof expansion === "number" && depth < Math.max(0, expansion));
+    queryActive ||
+    expansion === true ||
+    selfMatch ||
+    (typeof expansion === "number" && depth < Math.max(0, expansion));
   const [open, setOpen] = useState(initiallyExpanded);
 
   useEffect(() => {
@@ -142,6 +171,9 @@ const JsonNode: React.FC<JsonNodeProps> = ({ value, depth, nodeKey, path, expans
   const entries = isArray
     ? value.map((item: any, index: number) => [String(index), item] as const)
     : Object.entries(value);
+  const visibleEntries = queryActive
+    ? entries.filter(([entryKey, entryValue]) => nodeHasMatch(entryValue, query, isArray ? undefined : entryKey))
+    : entries;
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -162,7 +194,7 @@ const JsonNode: React.FC<JsonNodeProps> = ({ value, depth, nodeKey, path, expans
         </div>
         <CollapsibleContent>
           <div className="mt-1 border-l border-slate-200/80">
-            {entries.map(([entryKey, entryValue]) => (
+            {visibleEntries.map(([entryKey, entryValue]) => (
               <JsonNode
                 key={`${path}-${entryKey}`}
                 value={entryValue}
@@ -247,11 +279,17 @@ export const Json: React.FC<NodeComponentProps> = ({ props }) => {
           <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search keys and values" className="pl-8" />
         </div>
         <div className="mt-2 text-xs text-slate-500">
-          {search ? `${resultCount} result${resultCount === 1 ? "" : "s"}` : "Search disabled"}
+          {search ? `${resultCount} result${resultCount === 1 ? "" : "s"}` : "Type to search"}
         </div>
       </div>
       <div className="max-h-[560px] overflow-auto bg-[linear-gradient(180deg,#ffffff,#f8fafc)] p-3 font-mono text-sm">
-        <JsonNode key={`json-tree-${treeReset}-${search}`} value={data} depth={0} path="" expansion={viewerExpansion} search={search} />
+        {search && resultCount === 0 ? (
+          <div className="rounded-lg border border-dashed border-slate-200 bg-white/70 px-3 py-6 text-center text-sm text-slate-500">
+            No matches found.
+          </div>
+        ) : (
+          <JsonNode key={`json-tree-${treeReset}-${search}`} value={data} depth={0} path="" expansion={viewerExpansion} search={search} />
+        )}
       </div>
     </div>
   );

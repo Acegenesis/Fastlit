@@ -1994,7 +1994,7 @@ st.table(small_data)''', language="python")
 
         small_data = _pd_table.DataFrame({
             "Feature": ["Fast", "Compatible", "Modern"],
-            "Status": ["Ready", "Ready", "Ready"],
+            "Status": ["✅", "✅", "✅"],
         })
         st.table(small_data)
     
@@ -5137,5 +5137,4 @@ scopes = ["openid", "profile", "email"]""",
 # =============================================================================
 st.divider()
 st.caption("Built with **Fastlit** A Streamlit-compatible, blazing fast Python UI framework 🚀")
-
 

@@ -129,6 +129,12 @@ function resolveGridHeight(height: number | string | undefined, rowCount: number
   return Math.min(DEFAULT_HEIGHT, Math.max(chrome + rowHeight, content));
 }
 
+function resolveRowHeight(rowHeight: number | null | undefined): number {
+  return typeof rowHeight === "number" && Number.isFinite(rowHeight) && rowHeight > 0
+    ? rowHeight
+    : DEFAULT_ROW_HEIGHT;
+}
+
 function resolveOuterStyle(width: number | string | undefined, useContainerWidth: boolean | undefined): React.CSSProperties {
   if (useContainerWidth || width === "stretch" || width === undefined) {
     return { width: "100%", maxWidth: "100%" };
@@ -162,7 +168,7 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     selectedRows = [],
     columnConfig = {},
     columnOrder = [],
-    rowHeight = DEFAULT_ROW_HEIGHT,
+    rowHeight,
     placeholder,
     toolbar = !isStatic,
     downloadable = !isStatic,
@@ -197,6 +203,7 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
   const selectionColumnVisible = selectable && selectionMode !== "single-row";
   const hasIndex = Array.isArray(index) && index.length > 0;
   const isServerPaged = !!sourceId && (typeof totalRows === "number" ? totalRows : rows.length) > rows.length;
+  const effectiveRowHeight = resolveRowHeight(rowHeight);
 
   useEffect(() => {
     setServerOffset(0);
@@ -231,8 +238,8 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
   const displayRows = isServerPaged ? currentWindowModels : filteredLocalRows;
   const effectiveTotalRows = isServerPaged ? serverTotalRows : displayRows.length;
   const outerStyle = resolveOuterStyle(width, useContainerWidth);
-  const containerHeight = resolveGridHeight(height, Math.max(displayRows.length, 1), rowHeight, toolbar && !isStatic);
-  const rowVirtualizer = useGridVirtualRows({ rowCount: displayRows.length, parentRef, rowHeight });
+  const containerHeight = resolveGridHeight(height, Math.max(displayRows.length, 1), effectiveRowHeight, toolbar && !isStatic);
+  const rowVirtualizer = useGridVirtualRows({ rowCount: displayRows.length, parentRef, rowHeight: effectiveRowHeight });
   const shouldVirtualize = isServerPaged || displayRows.length > 100;
   const selectedSet = useMemo(() => new Set(selectedRowPositions), [selectedRowPositions]);
 
