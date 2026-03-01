@@ -457,8 +457,22 @@ const JsonPopoverEditor: React.FC<JsonPopoverEditorProps> = ({ label, value, dis
     setDraft(safeJsonStringify(value));
   }, [value]);
 
+  const closeDiscardingDraft = useCallback(() => {
+    setDraft(safeJsonStringify(value));
+    setOpen(false);
+  }, [value]);
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          closeDiscardingDraft();
+          return;
+        }
+        setOpen(true);
+      }}
+    >
       <PopoverTrigger asChild>
         <Button type="button" variant="outline" size="sm" className="h-8 w-full justify-between overflow-hidden px-2" disabled={disabled}>
           <span className="truncate text-left">{label}</span>
@@ -468,7 +482,7 @@ const JsonPopoverEditor: React.FC<JsonPopoverEditorProps> = ({ label, value, dis
         <div className="space-y-2">
           <Textarea value={draft} onChange={(event) => setDraft(event.target.value)} className="min-h-[180px] font-mono text-xs" />
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)}>
+            <Button type="button" variant="outline" size="sm" onClick={closeDiscardingDraft}>
               Cancel
             </Button>
             <Button
@@ -509,8 +523,22 @@ const ListPopoverEditor: React.FC<ListPopoverEditorProps> = ({ column, value, di
     setDraft(safeJsonStringify(value));
   }, [value]);
 
+  const closeDiscardingDraft = useCallback(() => {
+    setDraft(safeJsonStringify(value));
+    setOpen(false);
+  }, [value]);
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          closeDiscardingDraft();
+          return;
+        }
+        setOpen(true);
+      }}
+    >
       <PopoverTrigger asChild>
         <Button type="button" variant="outline" size="sm" className="h-auto min-h-8 w-full justify-between gap-2 overflow-hidden px-2 py-1" disabled={disabled}>
           <span className="flex min-w-0 flex-1 items-center overflow-hidden text-left">
@@ -533,7 +561,7 @@ const ListPopoverEditor: React.FC<ListPopoverEditorProps> = ({ column, value, di
         <div className="space-y-2">
           <Textarea value={draft} onChange={(event) => setDraft(event.target.value)} className="min-h-[120px] font-mono text-xs" />
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)}>
+            <Button type="button" variant="outline" size="sm" onClick={closeDiscardingDraft}>
               Cancel
             </Button>
             <Button
@@ -632,14 +660,28 @@ const ProgressPopoverEditor: React.FC<ProgressPopoverEditorProps> = ({ column, v
     setDraft(initialValue);
   }, [initialValue]);
 
+  const closeDiscardingDraft = useCallback(() => {
+    setDraft(initialValue);
+    setOpen(false);
+  }, [initialValue]);
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          closeDiscardingDraft();
+          return;
+        }
+        setOpen(true);
+      }}
+    >
       <PopoverTrigger asChild>
         <Button type="button" variant="outline" size="sm" className="h-8 w-full justify-between gap-2 overflow-hidden px-2" disabled={disabled}>
           <span className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <Progress value={draft} className="h-2 flex-1" />
-              <span className="w-6 shrink-0 text-right text-xs text-slate-500">{Math.round(draft)}%</span>
+              <Progress value={initialValue} className="h-2 flex-1" />
+              <span className="w-6 shrink-0 text-right text-xs text-slate-500">{Math.round(initialValue)}%</span>
             </div>
           </span>
         </Button>
@@ -685,7 +727,7 @@ const ProgressPopoverEditor: React.FC<ProgressPopoverEditorProps> = ({ column, v
             <span className="text-sm text-slate-500">%</span>
           </div>
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)}>
+            <Button type="button" variant="outline" size="sm" onClick={closeDiscardingDraft}>
               Cancel
             </Button>
             <Button
@@ -731,10 +773,26 @@ const TimePopoverEditor: React.FC<TimePopoverEditorProps> = ({ column, value, di
   const secondStep = includeSeconds ? Math.max(1, Math.min(60, stepSeconds < 60 ? stepSeconds : 1)) : 1;
   const minuteOptions = useMemo(() => buildTimeOptions(60, minuteStep, minute), [minute, minuteStep]);
   const secondOptions = useMemo(() => buildTimeOptions(60, secondStep, second), [second, secondStep]);
-  const displayValue = value ? formatTimeSelection(hour, minute, second, includeSeconds) : "Select time";
+  const displayValue = value ? formatTimeSelection(initialParts.hour, initialParts.minute, initialParts.second, includeSeconds) : "Select time";
+
+  const closeDiscardingDraft = useCallback(() => {
+    setHour(initialParts.hour);
+    setMinute(initialParts.minute);
+    setSecond(initialParts.second);
+    setOpen(false);
+  }, [initialParts.hour, initialParts.minute, initialParts.second]);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          closeDiscardingDraft();
+          return;
+        }
+        setOpen(true);
+      }}
+    >
       <PopoverTrigger asChild>
         <Button type="button" variant="outline" size="sm" className="h-8 w-full justify-between px-2 font-normal" disabled={disabled}>
           <span className="flex min-w-0 items-center gap-2 overflow-hidden">
@@ -773,7 +831,7 @@ const TimePopoverEditor: React.FC<TimePopoverEditorProps> = ({ column, value, di
               Clear
             </Button>
             <div className="flex gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)}>
+              <Button type="button" variant="outline" size="sm" onClick={closeDiscardingDraft}>
                 Cancel
               </Button>
               <Button
@@ -826,8 +884,25 @@ const DatetimePopoverEditor: React.FC<DatetimePopoverEditorProps> = ({ column, v
   const minDate = parseDateValue(column.min);
   const maxDate = parseDateValue(column.max);
 
+  const closeDiscardingDraft = useCallback(() => {
+    setSelectedDate(parsedValue);
+    setHour(initialParts.hour);
+    setMinute(initialParts.minute);
+    setSecond(initialParts.second);
+    setOpen(false);
+  }, [initialParts.hour, initialParts.minute, initialParts.second, parsedValue]);
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          closeDiscardingDraft();
+          return;
+        }
+        setOpen(true);
+      }}
+    >
       <PopoverTrigger asChild>
         <Button type="button" variant="outline" size="sm" className="h-8 w-full justify-between px-2 text-left font-normal" disabled={disabled}>
           <span className="flex min-w-0 items-center gap-2 overflow-hidden">
@@ -877,7 +952,7 @@ const DatetimePopoverEditor: React.FC<DatetimePopoverEditorProps> = ({ column, v
               Clear
             </Button>
             <div className="flex gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)}>
+              <Button type="button" variant="outline" size="sm" onClick={closeDiscardingDraft}>
                 Cancel
               </Button>
               <Button
