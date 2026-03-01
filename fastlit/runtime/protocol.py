@@ -57,6 +57,16 @@ class RenderPatch:
         }
 
 
+@dataclass
+class Redirect:
+    """Browser redirect request."""
+    type: Literal["redirect"] = "redirect"
+    path: str = "/"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"type": self.type, "path": self.path}
+
+
 # --- Client to Server ---
 
 @dataclass
@@ -65,6 +75,7 @@ class WidgetEvent:
     type: Literal["widget_event"] = "widget_event"
     id: str = ""
     value: Any = None
+    path: str | None = None
     no_rerun: bool = False  # If True, store value but don't trigger a script rerun
 
     @staticmethod
@@ -73,5 +84,6 @@ class WidgetEvent:
             type=data.get("type", "widget_event"),
             id=data.get("id", ""),
             value=data.get("value"),
+            path=data.get("path"),
             no_rerun=data.get("noRerun", False),
         )

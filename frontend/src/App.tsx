@@ -39,16 +39,24 @@ function toSlug(page: string): string {
     .replace(/\s+/g, "-")
     .replace(/[^a-z0-9/_-]+/g, "")
     .replace(/\/{2,}/g, "/");
-  return slug || "page";
+  return slug;
 }
 
 function canonicalizeSlug(slug: string): string {
   return toSlug(slug);
 }
 
+function toPathname(slug: string): string {
+  return slug ? `/${slug}` : "/";
+}
+
 /** Get current page from URL pathname */
 function getPageFromUrl(): string {
   return canonicalizeSlug(window.location.pathname.slice(1));
+}
+
+function getCurrentPathname(): string {
+  return window.location.pathname || "/";
 }
 
 // Page cache for instant navigation (LRU, max 20 entries)
@@ -231,7 +239,7 @@ export const App: React.FC = () => {
 
       const page = nav.options[pageIndex];
       const slug = nav.slugs[pageIndex];
-      if (!page || !slug) return;
+      if (!page || slug === undefined) return;
 
       // Skip if already on this page
       if (currentPageRef.current === slug) return;
@@ -242,7 +250,7 @@ export const App: React.FC = () => {
       storeRef.current.set(nav.id, page);
 
       // 2. Update URL (browser)
-      window.history.pushState(null, "", `/${slug}`);
+      window.history.pushState(null, "", toPathname(slug));
 
       // 3. Update content from cache if available
       const cachedContent = pageCacheRef.current.get(slug);
@@ -268,6 +276,7 @@ export const App: React.FC = () => {
           type: "widget_event",
           id: nav.id,
           value: pageIndex,
+          path: getCurrentPathname(),
         });
       } else {
         // No cache - show skeleton and request content from server
@@ -276,6 +285,7 @@ export const App: React.FC = () => {
           type: "widget_event",
           id: nav.id,
           value: pageIndex,
+          path: getCurrentPathname(),
         });
       }
     },
@@ -382,13 +392,13 @@ export const App: React.FC = () => {
 
         // Respect the current URL on page reload; only fall back to server index
         const currentUrlSlug = getPageFromUrl();
-        const urlIdx = currentUrlSlug ? slugs.indexOf(currentUrlSlug) : -1;
+        const urlIdx = slugs.indexOf(currentUrlSlug);
 
         if (urlIdx >= 0) {
           // URL matches a known page — use it (page reload case)
           currentPageRef.current = currentUrlSlug;
-          if (window.location.pathname !== `/${currentUrlSlug}`) {
-            window.history.replaceState(null, "", `/${currentUrlSlug}`);
+          if (window.location.pathname !== toPathname(currentUrlSlug)) {
+            window.history.replaceState(null, "", toPathname(currentUrlSlug));
           }
           // Update widget store so Navigation component shows correct selection
           storeRef.current.set(navNode.id, opts[urlIdx]);
@@ -399,15 +409,24 @@ export const App: React.FC = () => {
               type: "widget_event",
               id: navNode.id,
               value: urlIdx,
+              path: getCurrentPathname(),
             });
           }
+        } else if (currentUrlSlug) {
+          currentPageRef.current = currentUrlSlug;
+          if (
+            typeof responseNavIndex === "number" &&
+            responseNavIndex >= 0 &&
+            responseNavIndex < opts.length
+          ) {
+            storeRef.current.set(navNode.id, opts[responseNavIndex]);
+          }
         } else {
-          // No URL or unknown slug — use server default
           const serverIdx = responseNavIndex ?? 0;
           const initialSlug = slugs[serverIdx];
-          if (initialSlug) {
+          if (initialSlug !== undefined) {
             currentPageRef.current = initialSlug;
-            window.history.replaceState(null, "", `/${initialSlug}`);
+            window.history.replaceState(null, "", toPathname(initialSlug));
           }
         }
       }
@@ -416,11 +435,11 @@ export const App: React.FC = () => {
 
       // Determine which page this response is for
       const responseSlug = (responseNavIndex !== undefined && nav)
-        ? nav.slugs[responseNavIndex]
+        ? (nav.slugs[responseNavIndex] ?? "")
         : null;
 
       // Cache the content for this page (always cache, even if not displaying)
-      if (responseSlug && msg.tree?.children) {
+      if (responseSlug !== null && msg.tree?.children) {
         const mainContent = msg.tree.children.filter((c) => c.type !== "sidebar");
         if (pageCacheIsSafe(mainContent)) {
           setCacheEntry(pageCacheRef.current, responseSlug, mainContent);
@@ -432,7 +451,10 @@ export const App: React.FC = () => {
       // Only display if this response is for the current page
       const currentSlug = currentPageRef.current;
       const isCorrectPage = responseSlug === currentSlug;
-      const shouldDisplay = isCorrectPage || (!nav && !currentSlug);
+      const shouldDisplay =
+        isCorrectPage ||
+        (responseSlug === null && currentSlug === getPageFromUrl()) ||
+        (!nav && !currentSlug);
       if (isFirstLoad) {
         // ALWAYS set the tree on first load so sidebar is initialized and
         // subsequent patches have a base tree to work with.
@@ -560,12 +582,11 @@ export const App: React.FC = () => {
       const nav = sidebarNavRef.current;
       if (!nav) return;
 
-      const idx = nav.slugs.indexOf(slug);
-      if (idx < 0) return;
-
-      // Update sidebar selection
-      storeRef.current.set(nav.id, nav.options[idx]);
       currentPageRef.current = slug;
+      const idx = nav.slugs.indexOf(slug);
+      if (idx >= 0) {
+        storeRef.current.set(nav.id, nav.options[idx]);
+      }
 
       // Show cached content if available
       const cachedContent = pageCacheRef.current.get(slug);
@@ -587,6 +608,7 @@ export const App: React.FC = () => {
           type: "widget_event",
           id: nav.id,
           value: idx,
+          path: getCurrentPathname(),
         });
       } else {
         // No cache - show skeleton and request content from server
@@ -595,6 +617,7 @@ export const App: React.FC = () => {
           type: "widget_event",
           id: nav.id,
           value: idx,
+          path: getCurrentPathname(),
         });
       }
     };

@@ -10,6 +10,7 @@ from typing import Any
 from fastlit.runtime.context import clear_current_session, set_current_session
 from fastlit.runtime.diff import diff_trees
 from fastlit.runtime.navigation_slug import slugify_page_token
+from fastlit.runtime.page_discovery import DiscoveredPage, normalize_request_path, resolve_page, visible_pages
 from fastlit.runtime.protocol import PatchOp, RenderFull, RenderPatch
 from fastlit.runtime.script_runner import run_script
 from fastlit.runtime.tree import UINode, UITree
@@ -52,6 +53,12 @@ class Session:
         self.widget_store: dict[str, Any] = {}
         self.session_state: SessionState = SessionState()
         self.query_params: dict[str, str] = {}
+        self.current_path: str = ""
+        self.route_path: str = ""
+        self.route_params: dict[str, Any] = {}
+        self.route_guard_failure: str | None = None
+        self.layout_stack: list[str] = []
+        self._pending_browser_redirect: str | None = None
         self.current_tree: UITree | None = None
         self._previous_tree: UITree | None = None
         self._previous_tree_index: dict[str, UINode] | None = None
@@ -78,10 +85,14 @@ class Session:
         self._page_labels: list[str] = []
         self._page_url_paths: list[str] = []
         self._page_scripts: dict[int, str] = {}
+        self._all_discovered_pages: list[DiscoveredPage] = []
         self._page_default_index: int = 0
         self._inline_page_rendered: bool = False
         self._inline_page_script_path: str | None = None
         self._inline_rendered_scripts: set[str] = set()
+        self._route_chain: tuple[str, ...] = ()
+        self._route_cursor: int = -1
+        self._route_outlet_stack: list[bool] = []
         # OIDC claims attached by the WS handler from the session cookie.
         self.user_claims: dict = {}
         # Widgets that should force a full tree render after an event.
@@ -97,6 +108,7 @@ class Session:
         url_paths: list[str],
         page_scripts: dict[int, str],
         default_index: int = 0,
+        discovered_pages: list[DiscoveredPage] | None = None,
     ) -> None:
         """Persist navigation metadata for switch_page and page-script routing."""
         self._page_nav_id = nav_id
@@ -104,6 +116,7 @@ class Session:
         self._page_url_paths = list(url_paths)
         self._page_scripts = dict(page_scripts)
         self._page_default_index = int(default_index)
+        self._all_discovered_pages = list(discovered_pages or [])
 
     @staticmethod
     def _normalize_page_token(value: str) -> str:
@@ -122,6 +135,30 @@ class Session:
     def _selected_page_script(self) -> str | None:
         """Return the currently selected page script path, if any."""
         return self._page_scripts.get(self._selected_page_index())
+
+    def _set_route_context(
+        self,
+        *,
+        route_path: str,
+        params: dict[str, Any] | None = None,
+        guard_failure: str | None = None,
+        layout_stack: list[str] | None = None,
+    ) -> None:
+        """Persist resolved route context for st.context."""
+        self.route_path = route_path
+        self.route_params = dict(params or {})
+        self.route_guard_failure = guard_failure
+        self.layout_stack = list(layout_stack or [])
+
+    def set_current_path(self, pathname: str | None) -> None:
+        """Persist the browser pathname for route resolution."""
+        self.current_path = normalize_request_path(pathname)
+
+    def consume_pending_browser_redirect(self) -> str | None:
+        """Return and clear a pending browser redirect, if any."""
+        target = self._pending_browser_redirect
+        self._pending_browser_redirect = None
+        return target
 
     def _switch_to_page_index(
         self, idx: int, nav_id: str | None, *, switch_script: bool = True
@@ -176,10 +213,65 @@ class Session:
                 self.current_tree._container_stack = previous_stack
             self._inline_page_script_path = previous_inline_script
 
+    def run_route_chain(self, script_paths: list[str], *, root_level: bool = False) -> None:
+        """Render a layout/page chain, supporting explicit or implicit outlets."""
+        if not script_paths:
+            return
+
+        previous_chain = self._route_chain
+        previous_cursor = self._route_cursor
+        previous_stack = list(self._route_outlet_stack)
+        previous_container_stack: list[UINode] | None = None
+
+        self._route_chain = tuple(script_paths)
+        self._route_cursor = -1
+        self._route_outlet_stack = []
+
+        if root_level and self.current_tree is not None:
+            previous_container_stack = list(self.current_tree._container_stack)
+            self.current_tree._container_stack = [self.current_tree.root]
+
+        try:
+            self._run_route_chain_step(0)
+        finally:
+            if previous_container_stack is not None and self.current_tree is not None:
+                self.current_tree._container_stack = previous_container_stack
+            self._route_chain = previous_chain
+            self._route_cursor = previous_cursor
+            self._route_outlet_stack = previous_stack
+
+    def _run_route_chain_step(self, index: int) -> None:
+        """Render one script in the current route chain."""
+        if index < 0 or index >= len(self._route_chain):
+            return
+
+        previous_cursor = self._route_cursor
+        self._route_cursor = index
+        self._route_outlet_stack.append(False)
+        try:
+            self.run_inline_page_script(self._route_chain[index])
+            if not self._route_outlet_stack[-1] and index + 1 < len(self._route_chain):
+                self._run_route_chain_step(index + 1)
+        finally:
+            self._route_outlet_stack.pop()
+            self._route_cursor = previous_cursor
+
+    def run_page_outlet(self) -> None:
+        """Render the next pending layout/page in the current route chain."""
+        if not self._route_chain or not self._route_outlet_stack:
+            return
+        if self._route_outlet_stack[-1]:
+            return
+        self._route_outlet_stack[-1] = True
+        next_index = self._route_cursor + 1
+        if next_index < len(self._route_chain):
+            self._run_route_chain_step(next_index)
+
     def run(self) -> RenderFull | RenderPatch:
         """Execute the script and return either a full render or a patch."""
         new_tree: UITree | None = None
         for _attempt in range(max(1, self._MAX_RERUNS)):
+            self._pending_browser_redirect = None
             self._sync_script_path_from_navigation()
             self._deferred_streams.clear()
             self.clear_runtime_events()
@@ -190,6 +282,10 @@ class Session:
             self._inline_page_rendered = False
             self._inline_page_script_path = None
             self._inline_rendered_scripts.clear()
+            self._route_chain = ()
+            self._route_cursor = -1
+            self._route_outlet_stack = []
+            self._set_route_context(route_path="", params={}, guard_failure=None, layout_stack=[])
 
             new_tree = UITree()
             self.current_tree = new_tree
@@ -203,11 +299,17 @@ class Session:
                 continue
             except SwitchPageException as spe:
                 clear_current_session()
-                self._handle_switch_page(spe.page_name)
+                if self._handle_switch_page(spe.page_name):
+                    new_tree = UITree()
+                    self.current_tree = new_tree
+                    break
                 continue
             except _RequireLoginException:
                 clear_current_session()
-                self._handle_switch_page("/auth/login")
+                if self._handle_switch_page("/auth/login"):
+                    new_tree = UITree()
+                    self.current_tree = new_tree
+                    break
                 continue
             except _StopException:
                 pass
@@ -428,9 +530,43 @@ class Session:
             self._previous_tree.invalidate_caches()
             self._previous_tree_index = self._previous_tree.build_index()
 
-    def _handle_switch_page(self, page_name: str) -> None:
-        """Update widget store so the navigation widget selects the given page."""
+    def _handle_switch_page(self, page_name: str) -> bool:
+        """Update navigation state or request a browser redirect."""
+        target_path = normalize_request_path(page_name)
         target = self._normalize_page_token(page_name)
+        raw_target = str(page_name).strip()
+
+        # System endpoints such as auth/login are HTTP routes, not Fastlit pages.
+        if raw_target.startswith("/") and target_path.startswith("auth/"):
+            self._pending_browser_redirect = raw_target
+            return True
+
+        if self._all_discovered_pages:
+            self.set_current_path(target_path)
+            resolved = resolve_page(
+                self._all_discovered_pages,
+                target_path,
+                user_claims=self.user_claims,
+            )
+            visible = visible_pages(self._all_discovered_pages)
+            if resolved is not None and self._page_nav_id is not None:
+                resolved_script = str(resolved.page.path.resolve())
+                visible_idx = next(
+                    (
+                        idx
+                        for idx, page in enumerate(visible)
+                        if str(page.path.resolve()) == resolved_script
+                    ),
+                    -1,
+                )
+                self.widget_store[self._page_nav_id] = visible_idx
+                self._set_route_context(
+                    route_path=resolved.requested_path or resolved.page.url_path,
+                    params=resolved.params,
+                    guard_failure=resolved.guard_failure,
+                    layout_stack=[str(path) for path in resolved.page.layout_paths],
+                )
+                return False
 
         # Preferred source: explicit metadata registered by st.navigation([...]).
         if self._page_labels:
@@ -448,17 +584,17 @@ class Session:
                         self._page_nav_id,
                         switch_script=switch_script,
                     )
-                    return
+                    return False
 
         # Fallback: infer from previous tree props.
         if self._previous_tree is None:
-            return
+            return False
         if self._previous_tree_index is None:
             self._previous_tree_index = self._previous_tree.build_index()
 
         nav_node = self._find_nav_node_in_index(self._previous_tree_index)
         if nav_node is None:
-            return
+            return False
 
         pages = nav_node.props.get("pages", nav_node.props.get("options", []))
         url_paths = nav_node.props.get("urlPaths", [])
@@ -472,7 +608,9 @@ class Session:
                     nav_node.id,
                     switch_script=self.script_path != self.entry_script_path,
                 )
-                return
+                return False
+
+        return False
 
     @staticmethod
     def _find_nav_node_in_index(index: dict[str, UINode]) -> UINode | None:

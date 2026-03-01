@@ -15,7 +15,7 @@ export const PageLink: React.FC<NodeComponentProps> = ({ props }) => {
   const isExternal = page.startsWith("http://") || page.startsWith("https://");
 
   const getInternalPath = (target: string) => {
-    if (!target || target === "/") return "/index";
+    if (!target || target === "/") return "/";
     return target.startsWith("/") ? target : `/${target}`;
   };
 

@@ -142,7 +142,7 @@ st.caption("This footer stays visible on every page.")
 
 In that example:
 - `app.py` is the shared shell
-- `pages/index.py` is the default page
+- `pages/index.py` maps to `/`
 - `pages/charts.py` becomes `/charts`
 - `pages/status_feedback.py` becomes `/status_feedback`
 
@@ -153,6 +153,97 @@ Supported page metadata:
 By default, the route slug is the filename. For example, `pages/status_feedback.py` maps to `/status_feedback`.
 When Fastlit auto-discovers a sibling `pages/` directory, the selected page is rendered implicitly inside `app.py`.
 If you build your own `st.Page(...)` list manually, you can still use `selected_page.run()` for explicit page outlets.
+
+### Advanced routing
+
+Fastlit also supports a more structured file-based router:
+
+- root index pages: `pages/index.py` -> `/`
+- parent pages: `pages/admin/index.py` -> `/admin`
+- nested routes from subfolders: `pages/admin/users.py` -> `/admin/users`
+- nested pages grouped automatically in the sidebar
+- sidebar groups remember their open/closed state
+- dynamic segments: `pages/blog/[id].py` -> `/blog/42`
+- catch-all segments: `pages/docs/[...slug].py` -> `/docs/guides/routing`
+- custom `404.py` and `403.py` pages at the root of `pages/`
+- nested layouts from a sibling `layouts/` directory
+- finer nested layouts like `layouts/admin/default.py`
+- per-page guards for auth and roles
+- route helpers like `st.page_path(...)` and param-aware `st.switch_page(...)`
+
+Example project:
+
+```text
+app.py
+layouts/
+  default.py
+  admin.py
+  admin/
+    default.py
+pages/
+  index.py
+  403.py
+  404.py
+  admin/
+    index.py
+    users.py
+    secure.py
+  blog/
+    [id].py
+  docs/
+    [...slug].py
+```
+
+`layouts/default.py`:
+
+```python
+import fastlit as st
+
+st.caption("Default nested layout")
+st.page_outlet()
+```
+
+`layouts/admin.py`:
+
+```python
+import fastlit as st
+
+st.info("Admin layout")
+st.page_outlet()
+```
+
+`pages/admin/secure.py`:
+
+```python
+import fastlit as st
+
+PAGE_CONFIG = {
+    "title": "Admin Secure",
+    "hidden": True,
+    "guard": {
+        "auth": True,
+        "roles": ["admin"],
+    },
+}
+
+st.title("Admin Secure")
+```
+
+Available routing metadata now includes:
+- `guard`: `{"auth": True, "roles": ["admin"]}`
+- `PAGE_GUARD`
+- `PAGE_AUTH` / `PAGE_REQUIRE_LOGIN`
+- `PAGE_ROLES`
+- `PAGE_LAYOUT` / `PAGE_LAYOUTS`
+
+Inside a page or layout, Fastlit exposes route context through `st.context`:
+
+- `st.context.path`
+- `st.context.route_params`
+- `st.context.layout_stack`
+- `st.context.guard_failure`
+
+`st.page_outlet()` renders the next nested layout or page in the current route chain.
 
 ### When to use it
 
