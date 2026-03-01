@@ -7,6 +7,12 @@ import os
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable
 
+from fastlit.runtime.dataframe_arrow import (
+    arrow_transport_available,
+    default_arrow_min_rows,
+    default_arrow_preview_rows,
+    encode_arrow_frame_base64,
+)
 from fastlit.ui.base import _emit_node
 
 
@@ -146,8 +152,22 @@ def dataframe(
         if max_rows is None
         else max(1, int(max_rows))
     )
+    server_paging_enabled = _dataframe_server_paging_enabled()
+    estimated_row_count = _estimate_tabular_row_count(data)
+    use_arrow_transport = (
+        server_paging_enabled
+        and arrow_transport_available()
+        and estimated_row_count is not None
+        and estimated_row_count >= default_arrow_min_rows()
+    )
+    preview_max_rows = resolved_max_rows
+    if use_arrow_transport:
+        preview_max_rows = min(
+            resolved_max_rows,
+            default_arrow_preview_rows(_default_dataframe_window_size()),
+        )
     columns, rows, index, total_rows, truncated = _serialize_dataframe_preview(
-        data, hide_index_value, resolved_max_rows
+        data, hide_index_value, preview_max_rows
     )
     columns, index_names = _coerce_index_metadata(columns, data)
     normalized_column_order = _normalize_column_order(columns, column_order)
@@ -167,6 +187,7 @@ def dataframe(
         hide_index=hide_index_value,
         total_rows=total_rows,
         preview_rows=len(rows),
+        force=use_arrow_transport and total_rows > len(rows),
     )
 
     props = {
@@ -184,13 +205,28 @@ def dataframe(
         "truncated": truncated,
     }
 
+    has_arrow_preview = False
+    if source_id is not None and use_arrow_transport:
+        arrow_data = encode_arrow_frame_base64(
+            columns=columns,
+            rows=rows,
+            index=None if hide_index_value else index,
+            positions=list(range(len(rows))),
+        )
+        if arrow_data is not None:
+            has_arrow_preview = True
+            props["dataTransport"] = "arrow"
+            props["arrowData"] = arrow_data
+            props["rows"] = []
+            props.pop("index", None)
+
     if normalized_column_order:
         props["columnOrder"] = normalized_column_order
     if serialized_column_config:
         props["columnConfig"] = serialized_column_config
     if index_config:
         props["indexConfig"] = index_config
-    if not hide_index_value and index is not None:
+    if not has_arrow_preview and not hide_index_value and index is not None:
         props["index"] = index
         if index_names:
             props["indexLabel"] = _format_index_label(index_names)
@@ -250,6 +286,30 @@ def _default_max_dataframe_rows() -> int:
     except ValueError:
         value = 50000
     return max(1, value)
+
+
+def _dataframe_server_paging_enabled() -> bool:
+    raw = os.environ.get("FASTLIT_ENABLE_DF_SERVER_PAGING", "1")
+    return raw not in {"0", "false", "False"}
+
+
+def _estimate_tabular_row_count(data: Any) -> int | None:
+    """Best-effort row count estimate used to decide the transport mode."""
+    try:
+        return max(0, len(data))
+    except Exception:
+        pass
+
+    if isinstance(data, dict) and data:
+        lengths: list[int] = []
+        for value in data.values():
+            if isinstance(value, list):
+                lengths.append(len(value))
+            else:
+                lengths.append(1)
+        return max(lengths, default=0)
+
+    return None
 
 
 _ROW_SELECTION_MODES = {"single-row", "multi-row"}
@@ -1007,11 +1067,12 @@ def _maybe_register_server_source(
     hide_index: bool,
     total_rows: int,
     preview_rows: int,
+    force: bool = False,
 ) -> str | None:
     """Register a server-side source for large tables to support window fetches."""
-    if total_rows <= preview_rows:
+    if total_rows <= preview_rows and not force:
         return None
-    if os.environ.get("FASTLIT_ENABLE_DF_SERVER_PAGING", "1") in {"0", "false", "False"}:
+    if not _dataframe_server_paging_enabled():
         return None
 
     try:

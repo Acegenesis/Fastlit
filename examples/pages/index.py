@@ -13,20 +13,7 @@ st.title("🚀 Fastlit Complete Demo")
 st.markdown("""
 Welcome to the **complete Fastlit components demo**! This app showcases **every component** 
 with **all available parameters**.
-
-The demo now uses Fastlit's **page system**, so each major category lives on its
-own route and script. That makes it much easier to evolve the demo step by step.
 """)
-
-quick_links = st.columns(4)
-with quick_links[0]:
-    st.page_link("/page_system", label="Page System", icon="🗂️")
-with quick_links[1]:
-    st.page_link("/admin/users", label="Nested Route", icon="🛡️")
-with quick_links[2]:
-    st.page_link("/blog/42", label="Dynamic Route", icon="📝")
-with quick_links[3]:
-    st.page_link("/docs/guides/routing", label="Catch-All", icon="📚")
 
 # Quick stats
 col1, col2, col3, col4 = st.columns(4)
