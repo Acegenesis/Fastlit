@@ -17,5 +17,6 @@ def slugify_page_token(value: str, *, fallback: str = "page") -> str:
     normalized = unicodedata.normalize("NFKD", raw)
     without_marks = "".join(ch for ch in normalized if not unicodedata.combining(ch))
     ascii_only = without_marks.encode("ascii", "ignore").decode("ascii")
-    slug = re.sub(r"[^a-z0-9]+", "-", ascii_only.lower()).strip("-")
+    slug = re.sub(r"\s+", "-", ascii_only.lower())
+    slug = re.sub(r"[^a-z0-9_-]+", "", slug).strip("-_")
     return slug or fallback

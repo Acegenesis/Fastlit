@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 from fastlit.runtime.context import get_current_session
+from fastlit.runtime.page_discovery import discover_pages
 from fastlit.runtime.navigation_slug import slugify_page_token
 from fastlit.runtime.tree import UINode
 from fastlit.ui.base import _make_id, _emit_node
@@ -511,7 +512,10 @@ def _slugify_page(value: str) -> str:
 
 @dataclass
 class Page:
-    """Multi-page app page definition."""
+    """Multi-page app page definition.
+
+    Use ``page.run()`` to render the selected page inside a global layout.
+    """
 
     path: str
     title: str | None = None
@@ -524,6 +528,18 @@ class Page:
             self.title = Path(self.path).stem.replace("_", " ").title()
         if self.url_path is None:
             self.url_path = _slugify_page(self.title or self.path)
+
+    def run(self) -> None:
+        """Render this page inline inside the current app layout."""
+        session = get_current_session()
+        script_path = Path(self.path)
+        base_script = getattr(session, "entry_script_path", session.script_path)
+        base_dir = Path(base_script).resolve().parent if base_script else Path.cwd()
+        if not script_path.is_absolute():
+            script_path = (base_dir / script_path).resolve()
+        else:
+            script_path = script_path.resolve()
+        session.run_inline_page_script(str(script_path))
 
 
 def switch_page(page: str | Page) -> None:
@@ -544,24 +560,52 @@ def switch_page(page: str | Page) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Navigation — st.navigation(pages, *, key=None)
+# Navigation — st.navigation(pages=None, *, key=None)
 # ---------------------------------------------------------------------------
 
 def navigation(
-    pages: Sequence[str | Page],
+    pages: Sequence[str | Page] | None = None,
     *,
     key: str | None = None,
 ) -> str | Page:
     """Display a navigation menu with clickable text links.
 
+    When ``pages`` is omitted, Fastlit auto-discovers ``*.py`` files inside a
+    sibling ``pages/`` directory next to the app entry script. Page files can
+    define sidebar metadata with ``PAGE_CONFIG`` or constants such as
+    ``PAGE_TITLE``, ``PAGE_ICON``, ``PAGE_ORDER``, ``PAGE_DEFAULT``,
+    ``PAGE_HIDDEN``, and ``PAGE_URL_PATH``.
+
     Returns the selected page label (str pages) or Page object (Page pages).
+    When Page objects are used, call ``selected_page.run()`` to render the page
+    inline inside the current script and keep a global layout around it.
     """
-    opts = list(pages)
+    session = get_current_session()
+    if pages is None:
+        discovered = discover_pages(getattr(session, "entry_script_path", session.script_path))
+        if not discovered:
+            raise ValueError(
+                "st.navigation() could not auto-discover any pages. "
+                "Create a sibling 'pages/' directory next to your app entry "
+                "script, or pass an explicit pages list."
+            )
+        opts: list[str | Page] = [
+            Page(
+                path=str(page.path),
+                title=page.title,
+                icon=page.icon,
+                url_path=page.url_path,
+                default=page.default,
+            )
+            for page in discovered
+        ]
+    else:
+        opts = list(pages)
     if not opts:
         return ""
 
-    session = get_current_session()
-    base_dir = Path(session.script_path).resolve().parent if session.script_path else Path.cwd()
+    base_script = getattr(session, "entry_script_path", session.script_path)
+    base_dir = Path(base_script).resolve().parent if base_script else Path.cwd()
     labels: list[str] = []
     icons: list[str | None] = []
     url_paths: list[str] = []
@@ -610,6 +654,7 @@ def navigation(
         labels=labels,
         url_paths=url_paths,
         page_scripts=page_scripts,
+        default_index=default_idx,
     )
 
     selected_idx = default_idx
@@ -619,7 +664,11 @@ def navigation(
     node.props["index"] = selected_idx
 
     selected_script = page_scripts.get(selected_idx)
-    if selected_script is not None and selected_script != session.script_path:
+    if (
+        selected_script is not None
+        and selected_script != session.script_path
+        and session.script_path != getattr(session, "entry_script_path", session.script_path)
+    ):
         # Keep selected index and rerun into the selected page script.
         session._switch_to_page_index(selected_idx, node.id)
         from fastlit.runtime.session import RerunException

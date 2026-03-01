@@ -12,17 +12,26 @@ export const PageLink: React.FC<NodeComponentProps> = ({ props }) => {
     useContainerWidth,
   } = props;
 
+  const isExternal = page.startsWith("http://") || page.startsWith("https://");
+
+  const getInternalPath = (target: string) => {
+    if (!target || target === "/") return "/index";
+    return target.startsWith("/") ? target : `/${target}`;
+  };
+
   const handleClick = () => {
-    if (!disabled) {
-      // For internal navigation, we could emit an event
-      // For now, treat as URL
-      if (page.startsWith("http://") || page.startsWith("https://")) {
-        window.open(page, "_blank", "noopener,noreferrer");
-      } else {
-        // Internal page navigation could be implemented here
-        console.log("Navigate to:", page);
-      }
+    if (disabled) return;
+
+    if (isExternal) {
+      window.open(page, "_blank", "noopener,noreferrer");
+      return;
     }
+
+    const nextPath = getInternalPath(page);
+    if (window.location.pathname === nextPath) return;
+
+    window.history.pushState(null, "", nextPath);
+    window.dispatchEvent(new PopStateEvent("popstate"));
   };
 
   return (

@@ -445,21 +445,28 @@ with st.container(): st.write('Inside container')
 
 **Signature**
 ```python
-st.data_editor(data: 'Any', *, width: 'int | None' = None, height: 'int | None' = None, use_container_width: 'bool' = True, hide_index: 'bool | None' = None, column_order: 'list[str] | None' = None, column_config: 'dict | None' = None, num_rows: 'str' = 'fixed', disabled: 'bool | list[str]' = False, key: 'str | None' = None, on_change: 'Any' = None) -> 'Any'
+st.data_editor(data: 'Any', *, width: 'int | str' = 'stretch', height: 'int | str' = 'auto', use_container_width: 'bool | None' = None, hide_index: 'bool | None' = None, column_order: 'list[str] | None' = None, column_config: 'dict | None' = None, num_rows: 'str' = 'fixed', disabled: 'bool | list[str]' = False, row_height: 'int | None' = None, placeholder: 'str | None' = None, toolbar: 'bool' = True, downloadable: 'bool' = True, persist_view: 'bool' = True, key: 'str | None' = None, on_change: 'Callable | None' = None, args: 'list | tuple | None' = None, kwargs: 'dict | None' = None) -> 'Any'
 ```
 
 **Parameters**
 - `data`: `Any` (default: `required`)
-- `width`: `int | None` (default: `None`)
-- `height`: `int | None` (default: `None`)
-- `use_container_width`: `bool` (default: `True`)
+- `width`: `int | str` (default: `'stretch'`)
+- `height`: `int | str` (default: `'auto'`)
+- `use_container_width`: `bool | None` (default: `None`)
 - `hide_index`: `bool | None` (default: `None`)
 - `column_order`: `list[str] | None` (default: `None`)
 - `column_config`: `dict | None` (default: `None`)
 - `num_rows`: `str` (default: `'fixed'`)
 - `disabled`: `bool | list[str]` (default: `False`)
+- `row_height`: `int | None` (default: `None`)
+- `placeholder`: `str | None` (default: `None`)
+- `toolbar`: `bool` (default: `True`)
+- `downloadable`: `bool` (default: `True`)
+- `persist_view`: `bool` (default: `True`)
 - `key`: `str | None` (default: `None`)
-- `on_change`: `Any` (default: `None`)
+- `on_change`: `Callable | None` (default: `None`)
+- `args`: `list | tuple | None` (default: `None`)
+- `kwargs`: `dict | None` (default: `None`)
 
 **Example**
 ```python
@@ -470,17 +477,25 @@ edited = st.data_editor({"a": [1, 2]})
 
 **Signature**
 ```python
-st.dataframe(data: 'Any', *, height: 'int | None' = None, use_container_width: 'bool' = True, hide_index: 'bool' = False, max_rows: 'int | None' = None, on_select: 'str | Callable[[DataframeSelection], None] | None' = None, selection_mode: 'str' = 'multi-row', key: 'str | None' = None) -> 'DataframeSelection | None'
+st.dataframe(data: 'Any', *, width: 'int | str' = 'stretch', height: 'int | str' = 'auto', use_container_width: 'bool | None' = None, hide_index: 'bool | None' = None, column_order: 'list[str] | None' = None, column_config: 'dict | None' = None, row_height: 'int | None' = None, placeholder: 'str | None' = None, toolbar: 'bool' = True, downloadable: 'bool' = True, persist_view: 'bool' = True, max_rows: 'int | None' = None, on_select: 'str | Callable[[DataframeState], None] | None' = 'ignore', selection_mode: 'str | Iterable[str]' = 'multi-row', key: 'str | None' = None) -> 'DataframeElement | DataframeState'
 ```
 
 **Parameters**
 - `data`: `Any` (default: `required`)
-- `height`: `int | None` (default: `None`)
-- `use_container_width`: `bool` (default: `True`)
-- `hide_index`: `bool` (default: `False`)
+- `width`: `int | str` (default: `'stretch'`)
+- `height`: `int | str` (default: `'auto'`)
+- `use_container_width`: `bool | None` (default: `None`)
+- `hide_index`: `bool | None` (default: `None`)
+- `column_order`: `list[str] | None` (default: `None`)
+- `column_config`: `dict | None` (default: `None`)
+- `row_height`: `int | None` (default: `None`)
+- `placeholder`: `str | None` (default: `None`)
+- `toolbar`: `bool` (default: `True`)
+- `downloadable`: `bool` (default: `True`)
+- `persist_view`: `bool` (default: `True`)
 - `max_rows`: `int | None` (default: `None`)
-- `on_select`: `str | Callable[[DataframeSelection], None] | None` (default: `None`)
-- `selection_mode`: `str` (default: `'multi-row'`)
+- `on_select`: `str | Callable[[DataframeState], None] | None` (default: `'ignore'`)
+- `selection_mode`: `str | Iterable[str]` (default: `'multi-row'`)
 - `key`: `str | None` (default: `None`)
 
 **Example**
@@ -887,12 +902,13 @@ st.info("FYI")
 
 **Signature**
 ```python
-st.json(body: 'Any', *, expanded: 'bool | int' = True) -> 'None'
+st.json(body: 'Any', *, expanded: 'bool | int' = True, width: 'int | str' = 'stretch') -> 'None'
 ```
 
 **Parameters**
 - `body`: `Any` (default: `required`)
 - `expanded`: `bool | int` (default: `True`)
+- `width`: `int | str` (default: `'stretch'`)
 
 **Example**
 ```python
@@ -1037,7 +1053,7 @@ st.markdown("**bold** and `code`")
 
 **Signature**
 ```python
-st.metric(label: 'str', value: 'Any', delta: 'Any | None' = None, delta_color: 'str' = 'normal', help: 'str | None' = None, label_visibility: 'str' = 'visible', border: 'bool' = False) -> 'None'
+st.metric(label: 'str', value: 'Any', delta: 'Any | None' = None, delta_color: 'str' = 'normal', help: 'str | None' = None, label_visibility: 'str' = 'visible', border: 'bool' = False, width: 'int | str' = 'stretch', height: 'int | str' = 'content', chart_data: 'Any | None' = None, chart_type: 'str' = 'line', delta_arrow: 'str' = 'auto', format: 'str | None' = None) -> 'None'
 ```
 
 **Parameters**
@@ -1048,6 +1064,12 @@ st.metric(label: 'str', value: 'Any', delta: 'Any | None' = None, delta_color: '
 - `help`: `str | None` (default: `None`)
 - `label_visibility`: `str` (default: `'visible'`)
 - `border`: `bool` (default: `False`)
+- `width`: `int | str` (default: `'stretch'`)
+- `height`: `int | str` (default: `'content'`)
+- `chart_data`: `Any | None` (default: `None`)
+- `chart_type`: `str` (default: `'line'`)
+- `delta_arrow`: `str` (default: `'auto'`)
+- `format`: `str | None` (default: `None`)
 
 **Example**
 ```python
@@ -1087,16 +1109,18 @@ tags = st.multiselect("Tags", ["a", "b", "c"])
 
 **Signature**
 ```python
-st.navigation(pages: 'Sequence[str | Page]', *, key: 'str | None' = None) -> 'str | Page'
+st.navigation(pages: 'Sequence[str | Page] | None' = None, *, key: 'str | None' = None) -> 'str | Page'
 ```
 
 **Parameters**
-- `pages`: `Sequence[str | Page]` (default: `required`)
+- `pages`: `Sequence[str | Page] | None` (default: `None`)
 - `key`: `str | None` (default: `None`)
 
 **Example**
 ```python
-page = st.navigation(["Home", "Data"])
+page = st.navigation()
+if isinstance(page, st.Page):
+    page.run()
 ```
 
 ## `st.number_input`
@@ -1683,18 +1707,22 @@ st.switch_page(page: 'str | Page') -> 'None'
 
 **Example**
 ```python
-st.switch_page("Home")
+st.switch_page("charts")
 ```
 
 ## `st.table`
 
 **Signature**
 ```python
-st.table(data: 'Any', *, key: 'str | None' = None) -> 'None'
+st.table(data: 'Any', *, width: 'int | str' = 'stretch', height: 'int | str' = 'auto', placeholder: 'str | None' = None, row_height: 'int | None' = None, key: 'str | None' = None) -> 'None'
 ```
 
 **Parameters**
 - `data`: `Any` (default: `required`)
+- `width`: `int | str` (default: `'stretch'`)
+- `height`: `int | str` (default: `'auto'`)
+- `placeholder`: `str | None` (default: `None`)
+- `row_height`: `int | None` (default: `None`)
 - `key`: `str | None` (default: `None`)
 
 **Example**

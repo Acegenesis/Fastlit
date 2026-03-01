@@ -78,6 +78,52 @@ With explicit frontend dev server options:
 fastlit run app.py --dev --frontend-port 5173 --frontend-host 127.0.0.1
 ```
 
+## File-based pages
+
+Fastlit supports file-based multi-page apps out of the box.
+
+Project layout:
+
+```text
+app.py
+pages/
+  index.py
+  charts.py
+  status_feedback.py
+```
+
+`app.py`:
+
+```python
+import fastlit as st
+
+st.set_page_config(page_title="My App", layout="wide")
+current_page = st.sidebar.navigation()
+current_page.run()
+```
+
+`pages/charts.py`:
+
+```python
+import fastlit as st
+
+PAGE_CONFIG = {
+    "title": "Charts",
+    "icon": "📈",
+    "order": 20,
+}
+
+st.title("Charts")
+st.write("Auto-discovered from pages/charts.py")
+```
+
+Supported page metadata:
+- `PAGE_CONFIG = {"title": "...", "icon": "...", "order": 10, "default": True, "hidden": False, "url_path": "..."}`
+- Or individual constants: `PAGE_TITLE`, `PAGE_ICON`, `PAGE_ORDER`, `PAGE_DEFAULT`, `PAGE_HIDDEN`, `PAGE_URL_PATH`
+
+By default, the route slug is the filename. For example, `pages/status_feedback.py` maps to `/status_feedback`.
+`current_page.run()` renders the selected page inside your current script, so `app.py` can act as a global layout.
+
 In `--dev` mode, Fastlit now:
 - starts the Python backend with autoreload
 - starts the Vite frontend dev server with HMR
@@ -92,12 +138,12 @@ Notes:
 
 The full showcase is in:
 
-- `examples/all_components_demo.py`
+- `examples/app.py`
 
 Run it:
 
 ```bash
-fastlit run examples/all_components_demo.py --dev
+fastlit run examples/app.py --dev
 ```
 
 ## API reference
@@ -262,7 +308,7 @@ npm run build
 Then run demo:
 
 ```bash
-fastlit run examples/all_components_demo.py --dev
+fastlit run examples/app.py --dev
 ```
 
 For fullstack dev mode, make sure frontend dependencies are installed first:
