@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import math
 import re
+from dataclasses import asdict, is_dataclass
+from decimal import Decimal
 from typing import Any
 
 from fastlit.ui.base import _emit_node
@@ -256,7 +259,7 @@ def metric(
     help: str | None = None,
     label_visibility: str = "visible",
     border: bool = False,
-    width: int | str = "content",
+    width: int | str = "stretch",
     height: int | str = "content",
     chart_data: Any | None = None,
     chart_type: str = "line",
@@ -281,7 +284,7 @@ def metric(
         format: Optional numeric format string applied to value and delta.
     """
     display_value = _format_metric_value(value, format)
-    display_delta = _format_metric_value(delta, format) if delta is not None else None
+    display_delta = _format_metric_value(delta, format) if delta not in {None, ""} else None
     _emit_node(
         "metric",
         {
@@ -302,12 +305,13 @@ def metric(
     )
 
 
-def json(body: Any, *, expanded: bool | int = True) -> None:
+def json(body: Any, *, expanded: bool | int = True, width: int | str = "stretch") -> None:
     """Display JSON data with syntax highlighting.
 
     Args:
         body: The JSON data (dict, list, or JSON string).
         expanded: If True, expand all. If int, expand to that depth.
+        width: "stretch" (default) or a fixed pixel width.
     """
     import json as json_module
 
@@ -322,21 +326,36 @@ def json(body: Any, *, expanded: bool | int = True) -> None:
     else:
         data = body
 
+    normalized_expanded = _normalize_json_expansion(expanded)
     data = _json_safe_value(data)
 
     _emit_node(
         "json",
         {
             "data": data,
-            "expanded": expanded,
+            "expanded": normalized_expanded,
+            "width": width,
         },
     )
+
+
+def _normalize_json_expansion(expanded: bool | int) -> bool | int:
+    if isinstance(expanded, bool):
+        return expanded
+    if not isinstance(expanded, int):
+        raise TypeError("expanded must be a boolean or non-negative integer")
+    if expanded < 0:
+        raise ValueError("expanded must be non-negative")
+    return False if expanded == 0 else expanded
 
 
 def _json_safe_value(value: Any) -> Any:
     """Best-effort conversion to JSON-friendly nested data."""
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
+
+    if isinstance(value, Decimal):
+        return float(value)
 
     try:
         import pandas as pd
@@ -363,6 +382,9 @@ def _json_safe_value(value: Any) -> Any:
 
     if isinstance(value, (list, tuple, set)):
         return [_json_safe_value(item) for item in value]
+
+    if is_dataclass(value):
+        return _json_safe_value(asdict(value))
 
     if hasattr(value, "__dict__") and not isinstance(value, type):
         try:
@@ -398,20 +420,107 @@ def _json_safe_value(value: Any) -> Any:
 def _coerce_metric_number(value: Any) -> float | int | None:
     if isinstance(value, bool) or value is None:
         return None
+    if isinstance(value, Decimal):
+        return float(value)
     if isinstance(value, (int, float)):
         return value
     return None
 
 
+def _normalize_scientific_exponent(text: str) -> str:
+    return re.sub(r"E([+-])?0*(\d+)", lambda match: f"E{'-' if match.group(1) == '-' else ''}{match.group(2)}", text)
+
+
+def _format_metric_bytes(value: float) -> str:
+    units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    magnitude = abs(float(value))
+    idx = 0
+    while magnitude >= 1024 and idx < len(units) - 1:
+        magnitude /= 1024
+        idx += 1
+    rendered = f"{magnitude:.1f}".rstrip("0").rstrip(".")
+    sign = "-" if value < 0 else ""
+    return f"{sign}{rendered}{units[idx]}"
+
+
+def _format_metric_compact(value: float) -> str:
+    units = ["", "K", "M", "B", "T", "Q"]
+    magnitude = abs(float(value))
+    idx = 0
+    while magnitude >= 1000 and idx < len(units) - 1:
+        magnitude /= 1000
+        idx += 1
+    rendered = f"{magnitude:.1f}".rstrip("0").rstrip(".")
+    sign = "-" if value < 0 else ""
+    return f"{sign}{rendered}{units[idx]}"
+
+
+def _format_metric_engineering(value: float) -> str:
+    if value == 0:
+        return "0"
+    exponent = int(math.floor(math.log10(abs(value))))
+    engineering_exp = exponent - (exponent % 3)
+    scaled = value / (10 ** engineering_exp)
+    return _normalize_scientific_exponent(f"{scaled:.3f}E{engineering_exp:+03d}")
+
+
+def _format_metric_named(value: float | int, fmt: str) -> str:
+    fmt = fmt.lower()
+    if fmt == "plain":
+        return str(value)
+    if fmt == "localized":
+        return f"{value:,}"
+    if fmt == "percent":
+        return f"{float(value) * 100:,.2f}%"
+    if fmt == "dollar":
+        return f"${float(value):,.2f}"
+    if fmt == "euro":
+        return f"€{float(value):,.2f}"
+    if fmt == "yen":
+        return f"¥{round(float(value)):,.0f}"
+    if fmt == "accounting":
+        if float(value) < 0:
+            return f"({abs(float(value)):,.2f})"
+        return f"{float(value):,.2f}"
+    if fmt == "bytes":
+        return _format_metric_bytes(float(value))
+    if fmt == "compact":
+        return _format_metric_compact(float(value))
+    if fmt == "scientific":
+        return _normalize_scientific_exponent(f"{float(value):.3E}")
+    if fmt == "engineering":
+        return _format_metric_engineering(float(value))
+    raise ValueError("unsupported named metric format")
+
+
 def _format_metric_value(value: Any, fmt: str | None) -> str:
     if value is None:
-        return "-"
+        return "—"
     if not fmt:
         return str(value)
 
     numeric = _coerce_metric_number(value)
     if numeric is None:
         return str(value)
+
+    named_formats = {
+        "plain",
+        "localized",
+        "percent",
+        "dollar",
+        "euro",
+        "yen",
+        "accounting",
+        "bytes",
+        "compact",
+        "scientific",
+        "engineering",
+    }
+    if fmt.lower() in named_formats:
+        try:
+            return _format_metric_named(numeric, fmt)
+        except Exception:
+            return str(value)
 
     if "{}" in fmt:
         try:
@@ -443,6 +552,13 @@ def _format_metric_value(value: Any, fmt: str | None) -> str:
 def _normalize_metric_chart_data(data: Any) -> list[float] | None:
     if data is None:
         return None
+
+    try:
+        from fastlit.ui.dataframe import _coerce_tabular_data
+
+        data = _coerce_tabular_data(data)
+    except Exception:
+        pass
 
     try:
         import pandas as pd
@@ -481,9 +597,12 @@ def _normalize_metric_chart_data(data: Any) -> list[float] | None:
             normalized.append(float(number))
         return normalized
 
-    scalar = _coerce_metric_number(data)
-    if scalar is not None:
-        return [float(scalar)]
+    if hasattr(data, "__iter__") and not isinstance(data, (str, bytes)):
+        return _normalize_metric_chart_data(list(data))
+
+    number = _coerce_metric_number(data)
+    if number is not None:
+        return [float(number)]
     return None
 
 

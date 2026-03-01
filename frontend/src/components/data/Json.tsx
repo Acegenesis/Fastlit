@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Copy, FoldVertical, Search, UnfoldVertical } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Copy, FoldVertical, Search, TriangleAlert, UnfoldVertical } from "lucide-react";
 import type { NodeComponentProps } from "../../registry/registry";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -10,6 +10,7 @@ import { toast } from "sonner";
 interface JsonProps {
   data: any;
   expanded?: boolean | number;
+  width?: number | string;
 }
 
 function expansionModeLabel(expanded: boolean | number): string {
@@ -202,7 +203,7 @@ const JsonNode: React.FC<JsonNodeProps> = ({ value, depth, nodeKey, path, expans
 };
 
 export const Json: React.FC<NodeComponentProps> = ({ props }) => {
-  const { data, expanded = true } = props as JsonProps;
+  const { data, expanded = true, width = "stretch" } = props as JsonProps;
   const [viewerExpansion, setViewerExpansion] = useState<boolean | number>(expanded);
   const [treeReset, setTreeReset] = useState(0);
   const [search, setSearch] = useState("");
@@ -216,23 +217,33 @@ export const Json: React.FC<NodeComponentProps> = ({ props }) => {
   const rootLabel = Array.isArray(data) ? "Array" : data && typeof data === "object" ? "Object" : "Value";
   const rootMeta = valueSummary(data);
   const resultCount = useMemo(() => countMatches(data, search), [data, search]);
+  const containerStyle = useMemo<React.CSSProperties>(() => {
+    if (width === "stretch" || width === undefined) {
+      return { width: "100%", maxWidth: "100%" };
+    }
+    if (typeof width === "number" && Number.isFinite(width)) {
+      return { width, maxWidth: "100%" };
+    }
+    return { width: "auto", maxWidth: "100%" };
+  }, [width]);
+
   const handleCopyJson = async () => {
     const ok = await copyText(serialized);
     if (ok) {
       toast("JSON copied to clipboard", {
-        icon: <span className="text-lg">✅</span>,
+        icon: <Check className="h-4 w-4 text-emerald-600" />,
         duration: 2500,
       });
       return;
     }
     toast("Unable to copy JSON", {
-      icon: <span className="text-lg">⚠️</span>,
+      icon: <TriangleAlert className="h-4 w-4 text-amber-600" />,
       duration: 3000,
     });
   };
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" style={containerStyle}>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
