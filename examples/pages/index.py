@@ -18,24 +18,6 @@ The demo now uses Fastlit's **page system**, so each major category lives on its
 own route and script. That makes it much easier to evolve the demo step by step.
 """)
 
-st.info(
-    "Use the dedicated pages in the sidebar, or jump directly into a few key "
-    "sections below."
-)
-
-jump_1, jump_2, jump_3 = st.columns(3)
-with jump_1:
-    st.page_link("/new_in_fastlit", label="New in Fastlit", icon="🆕")
-    st.page_link("/input_widgets", label="Input Widgets", icon="🎛️")
-with jump_2:
-    st.page_link("/data_display", label="Data Display", icon="📊")
-    st.page_link("/charts", label="Charts", icon="📈")
-with jump_3:
-    st.page_link("/streaming_fragments", label="Streaming & Fragments", icon="🔄")
-    st.page_link("/custom_components", label="Custom Components", icon="🧩")
-
-st.divider()
-
 # Quick stats
 col1, col2, col3, col4 = st.columns(4)
 with col1:
