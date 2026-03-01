@@ -170,6 +170,7 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
   } = props as DataFrameProps;
 
   const parentRef = useRef<HTMLDivElement>(null);
+  const headerScrollRef = useRef<HTMLDivElement>(null);
   const scrollPersistTimerRef = useRef<number | null>(null);
   const resizeStateRef = useRef<{ columnName: string; startX: number; startWidth: number } | null>(null);
   const [serverOffset, setServerOffset] = useState(0);
@@ -239,6 +240,9 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     if (!persistView || !parentRef.current) return;
     parentRef.current.scrollTop = viewState.scrollTop;
     parentRef.current.scrollLeft = viewState.scrollLeft;
+    if (headerScrollRef.current) {
+      headerScrollRef.current.scrollLeft = viewState.scrollLeft;
+    }
   }, [persistView, viewState.scrollLeft, viewState.scrollTop]);
 
   const persistScrollState = useCallback((top: number, left: number) => {
@@ -470,49 +474,51 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
         />
       ) : null}
 
-      <div className="flex border-b border-slate-200/80 bg-slate-50/90 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500" style={{ height: HEADER_HEIGHT }}>
-        {selectionColumnVisible ? (
-          <div className="sticky left-0 z-30 flex items-center justify-center border-r border-slate-200/80 bg-slate-100/95" style={{ width: SELECTION_WIDTH, minWidth: SELECTION_WIDTH }}>
-            Sel
-          </div>
-        ) : null}
-        {hasIndex ? (
-          <div className="sticky z-20 flex items-center border-r border-slate-200/80 bg-slate-100/95 px-3 text-[11px] text-slate-500" style={{ width: INDEX_WIDTH, minWidth: INDEX_WIDTH, left: selectionColumnVisible ? SELECTION_WIDTH : 0 }}>
-            Index
-          </div>
-        ) : null}
-        {resolvedColumns.map((column) => {
-          const isSorted = viewState.sorts.find((item) => item.column === column.name);
-          const style: React.CSSProperties = { width: column.widthPx, minWidth: column.widthPx };
-          if (column.pinned === "left") {
-            style.position = "sticky";
-            style.left = (column.leftOffset ?? 0) + (selectionColumnVisible ? SELECTION_WIDTH : 0) + readOnlyIndexColumn(hasIndex);
-            style.zIndex = 20;
-            style.background = "rgba(248, 250, 252, 0.98)";
-          } else if (column.pinned === "right") {
-            style.position = "sticky";
-            style.right = column.rightOffset ?? 0;
-            style.zIndex = 20;
-            style.background = "rgba(248, 250, 252, 0.98)";
-          }
-          return (
-            <div
-              key={column.name}
-              className="relative flex items-center gap-2 border-r border-slate-200/80 px-3 last:border-r-0"
-              style={style}
-              title={column.help ?? column.name}
-              onClick={(event) => !isStatic && updateViewState((current) => ({ ...current, sorts: toggleGridSort(current.sorts, column.name, event.shiftKey) }))}
-            >
-              <span className="truncate">{column.label}</span>
-              {isSorted ? <span className="text-[10px] text-sky-600">{isSorted.direction === "asc" ? "ASC" : "DESC"}</span> : null}
-              {column.resizable ? (
-                <div role="separator" aria-orientation="vertical" className="absolute right-0 top-0 h-full w-3 cursor-col-resize" onMouseDown={(event) => startResize(event, column)}>
-                  <div className="absolute right-1 top-2 bottom-2 w-px rounded-full bg-slate-300 hover:bg-sky-500" />
-                </div>
-              ) : null}
+      <div ref={headerScrollRef} className="overflow-hidden">
+        <div className="flex border-b border-slate-200/80 bg-slate-50/90 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500" style={{ height: HEADER_HEIGHT, width: contentWidth }}>
+          {selectionColumnVisible ? (
+            <div className="sticky left-0 z-30 flex items-center justify-center border-r border-slate-200/80 bg-slate-100/95" style={{ width: SELECTION_WIDTH, minWidth: SELECTION_WIDTH }}>
+              Sel
             </div>
-          );
-        })}
+          ) : null}
+          {hasIndex ? (
+            <div className="sticky z-20 flex items-center border-r border-slate-200/80 bg-slate-100/95 px-3 text-[11px] text-slate-500" style={{ width: INDEX_WIDTH, minWidth: INDEX_WIDTH, left: selectionColumnVisible ? SELECTION_WIDTH : 0 }}>
+              Index
+            </div>
+          ) : null}
+          {resolvedColumns.map((column) => {
+            const isSorted = viewState.sorts.find((item) => item.column === column.name);
+            const style: React.CSSProperties = { width: column.widthPx, minWidth: column.widthPx };
+            if (column.pinned === "left") {
+              style.position = "sticky";
+              style.left = (column.leftOffset ?? 0) + (selectionColumnVisible ? SELECTION_WIDTH : 0) + readOnlyIndexColumn(hasIndex);
+              style.zIndex = 20;
+              style.background = "rgba(248, 250, 252, 0.98)";
+            } else if (column.pinned === "right") {
+              style.position = "sticky";
+              style.right = column.rightOffset ?? 0;
+              style.zIndex = 20;
+              style.background = "rgba(248, 250, 252, 0.98)";
+            }
+            return (
+              <div
+                key={column.name}
+                className="relative flex items-center gap-2 border-r border-slate-200/80 px-3 last:border-r-0"
+                style={style}
+                title={column.help ?? column.name}
+                onClick={(event) => !isStatic && updateViewState((current) => ({ ...current, sorts: toggleGridSort(current.sorts, column.name, event.shiftKey) }))}
+              >
+                <span className="truncate">{column.label}</span>
+                {isSorted ? <span className="text-[10px] text-sky-600">{isSorted.direction === "asc" ? "ASC" : "DESC"}</span> : null}
+                {column.resizable ? (
+                  <div role="separator" aria-orientation="vertical" className="absolute right-0 top-0 h-full w-3 cursor-col-resize" onMouseDown={(event) => startResize(event, column)}>
+                    <div className="absolute right-1 top-2 bottom-2 w-px rounded-full bg-slate-300 hover:bg-sky-500" />
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {!displayRows.length ? (
@@ -526,6 +532,9 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
           style={{ height: containerHeight - HEADER_HEIGHT - (toolbar && !isStatic ? TOOLBAR_HEIGHT : 0) }}
           onScroll={(event) => {
             const target = event.currentTarget;
+            if (headerScrollRef.current) {
+              headerScrollRef.current.scrollLeft = target.scrollLeft;
+            }
             persistScrollState(target.scrollTop, target.scrollLeft);
           }}
         >

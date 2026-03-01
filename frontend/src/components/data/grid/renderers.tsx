@@ -153,18 +153,19 @@ export function renderGridCell(
 
   if (type === "list" || type === "multiselect") {
     const items = normalizeListLikeValue(value);
+    const visibleCount = compact ? 2 : 5;
     return (
-      <div className="flex min-w-0 flex-wrap items-center gap-1 py-1">
+      <div className={cn("flex min-w-0 items-center gap-1 py-1", compact ? "flex-nowrap overflow-hidden" : "flex-wrap")}>
         {items.length === 0 ? (
           <span className="text-slate-400">[]</span>
         ) : (
-          items.slice(0, compact ? 3 : 5).map((item, idx) => (
+          items.slice(0, visibleCount).map((item, idx) => (
             <Badge key={`${idx}-${String(item)}`} variant="secondary" className="max-w-[96px] truncate">
               {String(item)}
             </Badge>
           ))
         )}
-        {items.length > (compact ? 3 : 5) ? <Badge variant="outline">+{items.length - (compact ? 3 : 5)}</Badge> : null}
+        {items.length > visibleCount ? <Badge variant="outline">+{items.length - visibleCount}</Badge> : null}
       </div>
     );
   }

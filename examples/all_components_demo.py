@@ -1958,6 +1958,7 @@ st.column_config.JSONColumn("Payload")''', language="python")
                 "Avatar": st.column_config.ImageColumn("Avatar"),
                 "Link": st.column_config.LinkColumn("URL", display_text="Open", resizable=True),
             },
+            height=400,
             num_rows="dynamic",
             key="cc_demo_editor",
         )

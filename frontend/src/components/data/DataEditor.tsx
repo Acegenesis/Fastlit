@@ -1,13 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CalendarIcon, ChevronDown, Plus, Trash2 } from "lucide-react";
+import { CalendarIcon, ChevronDown, ExternalLink, Image as ImageIcon, Link as LinkIcon, Plus, Trash2 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import type { NodeComponentProps } from "../../registry/registry";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Progress } from "@/components/ui/progress";
+import { Slider as SliderControl } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { GridToolbar } from "./grid/GridToolbar";
@@ -121,7 +124,7 @@ function schemaSignature(columns: GridColumn[]): string {
 
 function normalizeRows(rows: any[][], indexValues?: any[]): GridRowModel[] {
   return Array.isArray(rows)
-    ? rows.map((row, idx) => ({
+    ? Array.from(rows).map((row, idx) => ({
         rowId: String(idx),
         originalPosition: idx,
         indexValue: indexValues?.[idx],
@@ -287,7 +290,6 @@ const JsonPopoverEditor: React.FC<JsonPopoverEditorProps> = ({ label, value, dis
       <PopoverTrigger asChild>
         <Button type="button" variant="outline" size="sm" className="h-8 w-full justify-between overflow-hidden px-2" disabled={disabled}>
           <span className="truncate text-left">{label}</span>
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[28rem] max-w-[90vw] p-3" align="start">
@@ -319,15 +321,17 @@ const JsonPopoverEditor: React.FC<JsonPopoverEditorProps> = ({ label, value, dis
 };
 
 interface ListPopoverEditorProps {
-  label: string;
+  column: GridResolvedColumn;
   value: any;
   disabled: boolean;
   onCommit: (next: any[]) => void;
 }
 
-const ListPopoverEditor: React.FC<ListPopoverEditorProps> = ({ label, value, disabled, onCommit }) => {
+const ListPopoverEditor: React.FC<ListPopoverEditorProps> = ({ column, value, disabled, onCommit }) => {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(safeJsonStringify(value));
+  const items = useMemo(() => normalizeListLikeValue(value), [value]);
+  const isChartColumn = ["line_chart", "bar_chart", "area_chart"].includes(column.type);
 
   useEffect(() => {
     setDraft(safeJsonStringify(value));
@@ -336,9 +340,21 @@ const ListPopoverEditor: React.FC<ListPopoverEditorProps> = ({ label, value, dis
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button type="button" variant="outline" size="sm" className="h-8 w-full justify-between overflow-hidden px-2" disabled={disabled}>
-          <span className="truncate text-left">{label}</span>
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+        <Button type="button" variant="outline" size="sm" className="h-auto min-h-8 w-full justify-between gap-2 overflow-hidden px-2 py-1" disabled={disabled}>
+          <span className="flex min-w-0 flex-1 items-center overflow-hidden text-left">
+            {items.length ? (
+              <span
+                className={cn(
+                  "min-w-0 flex-1 overflow-hidden",
+                  isChartColumn && "[&_svg]:!h-[30px] [&_svg]:!w-[92px]"
+                )}
+              >
+                {renderGridCell(column, value, [], [column], { compact: true })}
+              </span>
+            ) : (
+              <span className="truncate text-left text-slate-400">Edit list</span>
+            )}
+          </span>
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[24rem] max-w-[90vw] p-3" align="start">
@@ -366,32 +382,30 @@ const ListPopoverEditor: React.FC<ListPopoverEditorProps> = ({ label, value, dis
 };
 
 interface MultiselectPopoverEditorProps {
+  column: GridResolvedColumn;
   value: any;
   options: string[];
   disabled: boolean;
   onCommit: (next: string[]) => void;
 }
 
-const MultiselectPopoverEditor: React.FC<MultiselectPopoverEditorProps> = ({ value, options, disabled, onCommit }) => {
+const MultiselectPopoverEditor: React.FC<MultiselectPopoverEditorProps> = ({ column, value, options, disabled, onCommit }) => {
   const [open, setOpen] = useState(false);
   const selected = useMemo(() => new Set(normalizeListLikeValue(value).map((item) => String(item))), [value]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button type="button" variant="outline" size="sm" className="h-8 w-full justify-between overflow-hidden px-2" disabled={disabled}>
-          <span className="flex min-w-0 flex-wrap items-center gap-1 overflow-hidden">
-            {selected.size
-              ? Array.from(selected)
-                  .slice(0, 3)
-                  .map((item) => (
-                    <Badge key={item} variant="secondary" className="truncate">
-                      {item}
-                    </Badge>
-                  ))
-              : <span className="text-slate-400">Select</span>}
+        <Button type="button" variant="outline" size="sm" className="h-auto min-h-8 w-full justify-between gap-2 overflow-hidden px-2 py-1" disabled={disabled}>
+          <span className="flex min-w-0 flex-1 items-center overflow-hidden">
+            {selected.size ? (
+              <span className="min-w-0 flex-1 overflow-hidden">
+                {renderGridCell(column, value, [], [column], { compact: true })}
+              </span>
+            ) : (
+              <span className="text-slate-400">Select</span>
+            )}
           </span>
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-64 p-3" align="start">
@@ -426,6 +440,99 @@ const MultiselectPopoverEditor: React.FC<MultiselectPopoverEditorProps> = ({ val
   );
 };
 
+interface ProgressPopoverEditorProps {
+  column: GridResolvedColumn;
+  value: any;
+  disabled: boolean;
+  onCommit: (next: number) => void;
+}
+
+const ProgressPopoverEditor: React.FC<ProgressPopoverEditorProps> = ({ column, value, disabled, onCommit }) => {
+  const [open, setOpen] = useState(false);
+  const initialValue = useMemo(() => {
+    const parsed = Number(value);
+    const base = Number.isFinite(parsed) ? parsed : 0;
+    return clampNumber(base, column);
+  }, [column, value]);
+  const [draft, setDraft] = useState(initialValue);
+
+  useEffect(() => {
+    setDraft(initialValue);
+  }, [initialValue]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button type="button" variant="outline" size="sm" className="h-8 w-full justify-between gap-2 overflow-hidden px-2" disabled={disabled}>
+          <span className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <Progress value={draft} className="h-2 flex-1" />
+              <span className="w-6 shrink-0 text-right text-xs text-slate-500">{Math.round(draft)}%</span>
+            </div>
+          </span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 p-3" align="start">
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium text-slate-700">{column.label}</span>
+              <span className="font-mono text-slate-500">{Math.round(draft)}%</span>
+            </div>
+            <Progress value={draft} className="h-2.5" />
+          </div>
+          <SliderControl
+            value={[draft]}
+            min={Number(column.min ?? 0)}
+            max={Number(column.max ?? 100)}
+            step={Number(column.step ?? 1)}
+            onValueChange={(values) => {
+              const next = values[0];
+              if (typeof next === "number" && Number.isFinite(next)) {
+                setDraft(clampNumber(next, column));
+              }
+            }}
+          />
+          <div className="flex items-center gap-2">
+            <Input
+              value={String(draft)}
+              type="number"
+              className="h-8"
+              min={column.min ?? undefined}
+              max={column.max ?? undefined}
+              step={column.step ?? undefined}
+              onChange={(event) => {
+                const next = Number(event.target.value);
+                if (Number.isFinite(next)) {
+                  setDraft(clampNumber(next, column));
+                } else if (event.target.value === "") {
+                  setDraft(0);
+                }
+              }}
+            />
+            <span className="text-sm text-slate-500">%</span>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                onCommit(draft);
+                setOpen(false);
+              }}
+            >
+              Apply
+            </Button>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+};
+
 export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEvent }) => {
   const {
     columns = [],
@@ -450,6 +557,7 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
   } = props as DataEditorProps;
 
   const parentRef = useRef<HTMLDivElement>(null);
+  const headerScrollRef = useRef<HTMLDivElement>(null);
   const scrollPersistTimerRef = useRef<number | null>(null);
   const resizeStateRef = useRef<{ columnName: string; startX: number; startWidth: number } | null>(null);
   const liveCommitTimersRef = useRef<Map<string, number>>(new Map());
@@ -507,6 +615,9 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
     if (!persistView || !parentRef.current) return;
     parentRef.current.scrollTop = viewState.scrollTop;
     parentRef.current.scrollLeft = viewState.scrollLeft;
+    if (headerScrollRef.current) {
+      headerScrollRef.current.scrollLeft = viewState.scrollLeft;
+    }
   }, [persistView, viewState.scrollLeft, viewState.scrollTop]);
 
   const persistScrollState = useCallback((top: number, left: number) => {
@@ -681,6 +792,15 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
     const value = row.cells[column.originalIndex];
     const disabled = !editable || disabledColumns.includes(column.name) || !!column.disabled;
     const draft = draftValues[cellKey] ?? serializeEditorValue(value, column.type);
+    const handleDraftChange = (nextValue: string) => {
+      setDraftValues((current) => ({ ...current, [cellKey]: nextValue }));
+      const parsed = parseCellValue(nextValue, column, value);
+      if (rerunOnChange) {
+        scheduleLiveCommit(row, column, parsed);
+      } else {
+        updateCell(row.rowId, column.name, parsed, false);
+      }
+    };
 
     if (disabled) {
       return renderGridCell(column, value, row.cells, resolvedColumns, { compact: true });
@@ -742,6 +862,7 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
     if (column.type === "multiselect") {
       return (
         <MultiselectPopoverEditor
+          column={column}
           value={value}
           options={Array.isArray(column.options) ? column.options : []}
           disabled={disabled}
@@ -762,10 +883,9 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
     }
 
     if (["list", "line_chart", "bar_chart", "area_chart"].includes(column.type)) {
-      const label = Array.isArray(value) && value.length ? `${value.length} items` : "Edit list";
       return (
         <ListPopoverEditor
-          label={label}
+          column={column}
           value={value}
           disabled={disabled}
           onCommit={(next) => updateCell(row.rowId, column.name, next, true)}
@@ -773,13 +893,101 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
       );
     }
 
-    const inputType = column.type === "number" || column.type === "integer" || column.type === "progress"
+    if (column.type === "progress") {
+      return (
+        <ProgressPopoverEditor
+          column={column}
+          value={value}
+          disabled={disabled}
+          onCommit={(next) => updateCell(row.rowId, column.name, next, true)}
+        />
+      );
+    }
+
+    if (column.type === "image") {
+      const src = String(value ?? "").trim();
+      return (
+        <div className="flex w-full min-w-0 items-center gap-2">
+          <Avatar className="h-8 w-8 shrink-0 rounded-md">
+            {src ? <AvatarImage src={src} alt="" /> : null}
+            <AvatarFallback className="rounded-md bg-slate-100 text-slate-400">
+              <ImageIcon className="h-4 w-4" />
+            </AvatarFallback>
+          </Avatar>
+          <Input
+            value={draft}
+            type="url"
+            className="h-8 min-w-0"
+            placeholder="https://image..."
+            onChange={(event) => handleDraftChange(event.target.value)}
+            onBlur={() => commitDraft(row, column)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commitDraft(row, column);
+              } else if (event.key === "Escape") {
+                clearLiveCommitTimer(cellKey);
+                setDraftValues((current) => {
+                  const next = { ...current };
+                  delete next[cellKey];
+                  return next;
+                });
+              }
+            }}
+          />
+        </div>
+      );
+    }
+
+    if (column.type === "link") {
+      const href = String(value ?? "").trim();
+      return (
+        <div className="flex w-full min-w-0 items-center gap-2">
+          {href ? (
+            <Button type="button" variant="outline" size="icon" className="h-8 w-8 shrink-0" asChild>
+              <a href={href} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            </Button>
+          ) : (
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-slate-400">
+              <LinkIcon className="h-3.5 w-3.5" />
+            </div>
+          )}
+          <Input
+            value={draft}
+            type="url"
+            className="h-8 min-w-0"
+            placeholder="https://example.com"
+            onChange={(event) => handleDraftChange(event.target.value)}
+            onBlur={() => commitDraft(row, column)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commitDraft(row, column);
+              } else if (event.key === "Escape") {
+                clearLiveCommitTimer(cellKey);
+                setDraftValues((current) => {
+                  const next = { ...current };
+                  delete next[cellKey];
+                  return next;
+                });
+              }
+            }}
+          />
+        </div>
+      );
+    }
+
+    const inputType = column.type === "number" || column.type === "integer"
       ? "number"
-      : column.type === "time"
-        ? "time"
-        : column.type === "datetime"
-          ? "datetime-local"
-          : "text";
+      : column.type === "image" || column.type === "link"
+        ? "url"
+        : column.type === "time"
+          ? "time"
+          : column.type === "datetime"
+            ? "datetime-local"
+            : "text";
 
     return (
       <Input
@@ -790,16 +998,7 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
         max={column.max ?? undefined}
         step={column.step ?? undefined}
         maxLength={column.maxChars ?? undefined}
-        onChange={(event) => {
-          const nextValue = event.target.value;
-          setDraftValues((current) => ({ ...current, [cellKey]: nextValue }));
-          const parsed = parseCellValue(nextValue, column, value);
-          if (rerunOnChange) {
-            scheduleLiveCommit(row, column, parsed);
-          } else {
-            updateCell(row.rowId, column.name, parsed, false);
-          }
-        }}
+        onChange={(event) => handleDraftChange(event.target.value)}
         onBlur={() => commitDraft(row, column)}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
@@ -886,49 +1085,51 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
         />
       ) : null}
 
-      <div className="flex border-b border-slate-200/80 bg-slate-50/90 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500" style={{ height: HEADER_HEIGHT }}>
-        {hasIndex ? (
-          <div className="sticky z-20 flex items-center border-r border-slate-200/80 bg-slate-100/95 px-3 text-[11px] text-slate-500" style={{ width: INDEX_WIDTH, minWidth: INDEX_WIDTH, left: 0 }}>
-            Index
-          </div>
-        ) : null}
-        {resolvedColumns.map((column) => {
-          const isSorted = viewState.sorts.find((item) => item.column === column.name);
-          const style: React.CSSProperties = { width: column.widthPx, minWidth: column.widthPx };
-          if (column.pinned === "left") {
-            style.position = "sticky";
-            style.left = (column.leftOffset ?? 0) + indexColumnWidth(hasIndex);
-            style.zIndex = 20;
-            style.background = "rgba(248, 250, 252, 0.98)";
-          } else if (column.pinned === "right") {
-            style.position = "sticky";
-            style.right = (column.rightOffset ?? 0) + (isDynamic ? ACTIONS_WIDTH : 0);
-            style.zIndex = 20;
-            style.background = "rgba(248, 250, 252, 0.98)";
-          }
-          return (
-            <div
-              key={column.name}
-              className="relative flex items-center gap-2 border-r border-slate-200/80 px-3 last:border-r-0"
-              style={style}
-              title={column.help ?? column.name}
-              onClick={(event) => updateViewState((current) => ({ ...current, sorts: toggleGridSort(current.sorts, column.name, event.shiftKey) }))}
-            >
-              <span className="truncate">{column.label}</span>
-              {isSorted ? <span className="text-[10px] text-sky-600">{isSorted.direction === "asc" ? "ASC" : "DESC"}</span> : null}
-              {column.resizable ? (
-                <div role="separator" aria-orientation="vertical" className="absolute right-0 top-0 h-full w-3 cursor-col-resize" onMouseDown={(event) => startResize(event, column)}>
-                  <div className="absolute right-1 top-2 bottom-2 w-px rounded-full bg-slate-300 hover:bg-sky-500" />
-                </div>
-              ) : null}
+      <div ref={headerScrollRef} className="overflow-hidden">
+        <div className="flex border-b border-slate-200/80 bg-slate-50/90 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500" style={{ height: HEADER_HEIGHT, width: contentWidth }}>
+          {hasIndex ? (
+            <div className="sticky z-20 flex items-center border-r border-slate-200/80 bg-slate-100/95 px-3 text-[11px] text-slate-500" style={{ width: INDEX_WIDTH, minWidth: INDEX_WIDTH, left: 0 }}>
+              Index
             </div>
-          );
-        })}
-        {isDynamic ? (
-          <div className="sticky right-0 z-20 flex items-center justify-center border-l border-slate-200/80 bg-slate-100/95 px-3 text-[11px] text-slate-500" style={{ width: ACTIONS_WIDTH, minWidth: ACTIONS_WIDTH }}>
-            Row
-          </div>
-        ) : null}
+          ) : null}
+          {resolvedColumns.map((column) => {
+            const isSorted = viewState.sorts.find((item) => item.column === column.name);
+            const style: React.CSSProperties = { width: column.widthPx, minWidth: column.widthPx };
+            if (column.pinned === "left") {
+              style.position = "sticky";
+              style.left = (column.leftOffset ?? 0) + indexColumnWidth(hasIndex);
+              style.zIndex = 20;
+              style.background = "rgba(248, 250, 252, 0.98)";
+            } else if (column.pinned === "right") {
+              style.position = "sticky";
+              style.right = (column.rightOffset ?? 0) + (isDynamic ? ACTIONS_WIDTH : 0);
+              style.zIndex = 20;
+              style.background = "rgba(248, 250, 252, 0.98)";
+            }
+            return (
+              <div
+                key={column.name}
+                className="relative flex items-center gap-2 border-r border-slate-200/80 px-3 last:border-r-0"
+                style={style}
+                title={column.help ?? column.name}
+                onClick={(event) => updateViewState((current) => ({ ...current, sorts: toggleGridSort(current.sorts, column.name, event.shiftKey) }))}
+              >
+                <span className="truncate">{column.label}</span>
+                {isSorted ? <span className="text-[10px] text-sky-600">{isSorted.direction === "asc" ? "ASC" : "DESC"}</span> : null}
+                {column.resizable ? (
+                  <div role="separator" aria-orientation="vertical" className="absolute right-0 top-0 h-full w-3 cursor-col-resize" onMouseDown={(event) => startResize(event, column)}>
+                    <div className="absolute right-1 top-2 bottom-2 w-px rounded-full bg-slate-300 hover:bg-sky-500" />
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+          {isDynamic ? (
+            <div className="sticky right-0 z-20 flex items-center justify-center border-l border-slate-200/80 bg-slate-100/95 px-3 text-[11px] text-slate-500" style={{ width: ACTIONS_WIDTH, minWidth: ACTIONS_WIDTH }}>
+              Row
+            </div>
+          ) : null}
+        </div>
       </div>
 
       {!displayRows.length ? (
@@ -942,6 +1143,9 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
           style={{ height: containerHeight - HEADER_HEIGHT - FOOTER_HEIGHT - (toolbar ? TOOLBAR_HEIGHT : 0) }}
           onScroll={(event) => {
             const target = event.currentTarget;
+            if (headerScrollRef.current) {
+              headerScrollRef.current.scrollLeft = target.scrollLeft;
+            }
             persistScrollState(target.scrollTop, target.scrollLeft);
           }}
         >
