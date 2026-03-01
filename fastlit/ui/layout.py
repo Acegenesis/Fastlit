@@ -11,7 +11,12 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 from fastlit.runtime.context import get_current_session
-from fastlit.runtime.page_discovery import discover_pages
+from fastlit.runtime.page_discovery import (
+    build_navigation_items,
+    discover_pages,
+    resolve_page,
+    visible_pages,
+)
 from fastlit.runtime.navigation_slug import slugify_page_token
 from fastlit.runtime.tree import UINode
 from fastlit.ui.base import _make_id, _emit_node
@@ -545,6 +550,11 @@ class Page:
         session.run_inline_page_script(script_path_str)
 
 
+def page_outlet() -> None:
+    """Render the next pending layout/page in the current route chain."""
+    get_current_session().run_page_outlet()
+
+
 def switch_page(page: str | Page) -> None:
     """Switch to a different page programmatically.
 
@@ -586,6 +596,8 @@ def navigation(
     """
     session = get_current_session()
     auto_discovered_pages = pages is None
+    discovered = []
+    resolved = None
     if auto_discovered_pages:
         discovered = discover_pages(getattr(session, "entry_script_path", session.script_path))
         if not discovered:
@@ -594,6 +606,11 @@ def navigation(
                 "Create a sibling 'pages/' directory next to your app entry "
                 "script, or pass an explicit pages list."
             )
+        resolved = resolve_page(
+            discovered,
+            getattr(session, "current_path", ""),
+            user_claims=getattr(session, "user_claims", {}),
+        )
         opts: list[str | Page] = [
             Page(
                 path=str(page.path),
@@ -602,10 +619,12 @@ def navigation(
                 url_path=page.url_path,
                 default=page.default,
             )
-            for page in discovered
+            for page in visible_pages(discovered)
         ]
+        nav_items = build_navigation_items(discovered)
     else:
         opts = list(pages)
+        nav_items = []
     if not opts:
         return ""
 
@@ -648,6 +667,7 @@ def navigation(
             "pages": labels,
             "icons": icons,
             "urlPaths": url_paths,
+            "items": nav_items,
             "index": default_idx,
         },
         key=key,
@@ -660,24 +680,54 @@ def navigation(
         url_paths=url_paths,
         page_scripts=page_scripts,
         default_index=default_idx,
+        discovered_pages=discovered,
     )
 
     selected_idx = default_idx
-    stored = session.widget_store.get(node.id)
-    if stored is not None and isinstance(stored, int) and 0 <= stored < len(labels):
-        selected_idx = stored
+    selected_script = page_scripts.get(selected_idx)
+    selected_value: str | Page = values[selected_idx]
+
+    if auto_discovered_pages and resolved is not None:
+        resolved_script = str(resolved.page.path.resolve())
+        selected_script = resolved_script
+        selected_idx = next(
+            (idx for idx, script in page_scripts.items() if script == resolved_script),
+            -1,
+        )
+        selected_value = Page(
+            path=resolved_script,
+            title=resolved.page.title,
+            icon=resolved.page.icon,
+            url_path=resolved.page.url_path,
+            default=resolved.page.default,
+        )
+        session._set_route_context(
+            route_path=resolved.requested_path or resolved.page.url_path,
+            params=resolved.params,
+            guard_failure=resolved.guard_failure,
+            layout_stack=[str(path) for path in resolved.page.layout_paths],
+        )
+        if session._page_nav_id is not None:
+            session.widget_store[session._page_nav_id] = selected_idx
+    else:
+        stored = session.widget_store.get(node.id)
+        if stored is not None and isinstance(stored, int) and 0 <= stored < len(labels):
+            selected_idx = stored
+            selected_script = page_scripts.get(selected_idx)
+            selected_value = values[selected_idx]
+
     node.props["index"] = selected_idx
 
-    selected_script = page_scripts.get(selected_idx)
     if (
         auto_discovered_pages
+        and resolved is not None
         and selected_script is not None
         and session.script_path == getattr(session, "entry_script_path", session.script_path)
         and selected_script not in getattr(session, "_inline_rendered_scripts", set())
     ):
         current_container = session.current_tree.current_container
-        session.run_inline_page_script(
-            selected_script,
+        session.run_route_chain(
+            [str(path) for path in (*resolved.page.layout_paths, resolved.page.path)],
             root_level=current_container.type == "sidebar",
         )
     if (
@@ -691,4 +741,4 @@ def navigation(
 
         raise RerunException(scope="full")
 
-    return values[selected_idx]
+    return selected_value

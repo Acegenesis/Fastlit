@@ -51,6 +51,10 @@ function getPageFromUrl(): string {
   return canonicalizeSlug(window.location.pathname.slice(1));
 }
 
+function getCurrentPathname(): string {
+  return window.location.pathname || "/";
+}
+
 // Page cache for instant navigation (LRU, max 20 entries)
 type PageCache = Map<string, UINode[]>;
 const PAGE_CACHE_MAX = 20;
@@ -268,6 +272,7 @@ export const App: React.FC = () => {
           type: "widget_event",
           id: nav.id,
           value: pageIndex,
+          path: getCurrentPathname(),
         });
       } else {
         // No cache - show skeleton and request content from server
@@ -276,6 +281,7 @@ export const App: React.FC = () => {
           type: "widget_event",
           id: nav.id,
           value: pageIndex,
+          path: getCurrentPathname(),
         });
       }
     },
@@ -399,10 +405,19 @@ export const App: React.FC = () => {
               type: "widget_event",
               id: navNode.id,
               value: urlIdx,
+              path: getCurrentPathname(),
             });
           }
+        } else if (currentUrlSlug) {
+          currentPageRef.current = currentUrlSlug;
+          if (
+            typeof responseNavIndex === "number" &&
+            responseNavIndex >= 0 &&
+            responseNavIndex < opts.length
+          ) {
+            storeRef.current.set(navNode.id, opts[responseNavIndex]);
+          }
         } else {
-          // No URL or unknown slug — use server default
           const serverIdx = responseNavIndex ?? 0;
           const initialSlug = slugs[serverIdx];
           if (initialSlug) {
@@ -432,7 +447,10 @@ export const App: React.FC = () => {
       // Only display if this response is for the current page
       const currentSlug = currentPageRef.current;
       const isCorrectPage = responseSlug === currentSlug;
-      const shouldDisplay = isCorrectPage || (!nav && !currentSlug);
+      const shouldDisplay =
+        isCorrectPage ||
+        (!responseSlug && currentSlug === getPageFromUrl()) ||
+        (!nav && !currentSlug);
       if (isFirstLoad) {
         // ALWAYS set the tree on first load so sidebar is initialized and
         // subsequent patches have a base tree to work with.
@@ -560,12 +578,11 @@ export const App: React.FC = () => {
       const nav = sidebarNavRef.current;
       if (!nav) return;
 
-      const idx = nav.slugs.indexOf(slug);
-      if (idx < 0) return;
-
-      // Update sidebar selection
-      storeRef.current.set(nav.id, nav.options[idx]);
       currentPageRef.current = slug;
+      const idx = nav.slugs.indexOf(slug);
+      if (idx >= 0) {
+        storeRef.current.set(nav.id, nav.options[idx]);
+      }
 
       // Show cached content if available
       const cachedContent = pageCacheRef.current.get(slug);
@@ -587,6 +604,7 @@ export const App: React.FC = () => {
           type: "widget_event",
           id: nav.id,
           value: idx,
+          path: getCurrentPathname(),
         });
       } else {
         // No cache - show skeleton and request content from server
@@ -595,6 +613,7 @@ export const App: React.FC = () => {
           type: "widget_event",
           id: nav.id,
           value: idx,
+          path: getCurrentPathname(),
         });
       }
     };

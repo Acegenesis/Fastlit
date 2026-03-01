@@ -3,7 +3,7 @@
 Generated from real Python signatures in `fastlit`.
 Regenerate with: `python scripts/generate_api_reference.py`
 
-Total documented functions: **100**
+Total documented functions: **101**
 
 ## `st.Page`
 
@@ -21,7 +21,7 @@ st.Page(path: 'str', title: 'str | None' = None, icon: 'str | None' = None, url_
 
 **Example**
 ```python
-st.Page("value", title="Example", icon="value", url_path="value", default=False)
+st.Page("pages/charts.py", title="Charts", icon="📈")
 ```
 
 ## `st.altair_chart`
@@ -1118,9 +1118,7 @@ st.navigation(pages: 'Sequence[str | Page] | None' = None, *, key: 'str | None' 
 
 **Example**
 ```python
-page = st.navigation()
-if isinstance(page, st.Page):
-    page.run()
+st.navigation()
 ```
 
 ## `st.number_input`
@@ -1203,6 +1201,21 @@ st.page_link(page: 'str', *, label: 'str | None' = None, icon: 'str | None' = No
 **Example**
 ```python
 st.page_link("value", label="Example", icon="value", help="value", disabled=False, use_container_width=False)
+```
+
+## `st.page_outlet`
+
+**Signature**
+```python
+st.page_outlet() -> 'None'
+```
+
+**Parameters**
+- No parameters.
+
+**Example**
+```python
+st.page_outlet()
 ```
 
 ## `st.pdf`
