@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CalendarIcon, ChevronDown, ExternalLink, Image as ImageIcon, Link as LinkIcon, Plus, Trash2 } from "lucide-react";
-import { format, parseISO } from "date-fns";
+import { CalendarIcon, Clock3, ExternalLink, Image as ImageIcon, Link as LinkIcon, Plus, Trash2 } from "lucide-react";
+import { format, parse, parseISO } from "date-fns";
 import type { NodeComponentProps } from "../../registry/registry";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { GridToolbar } from "./grid/GridToolbar";
 import { GridEmptyState } from "./grid/GridEmptyState";
+import { normalizeGridColumnType } from "./grid/columnTypes";
 import { renderGridCell } from "./grid/renderers";
 import { useGridColumns } from "./grid/useGridColumns";
 import { useGridViewState } from "./grid/useGridViewState";
@@ -92,7 +93,7 @@ function normalizeColumns(columns: Column[], columnConfig: Record<string, Column
     const cfg = columnConfig[column.name] ?? {};
     return {
       name: column.name,
-      type: String(cfg.type ?? column.type ?? "string").toLowerCase(),
+      type: normalizeGridColumnType(String(cfg.type ?? column.type ?? "text")),
       label: cfg.label ?? column.name,
       help: cfg.help,
       hidden: cfg.hidden,
@@ -158,8 +159,21 @@ function resolveRowHeight(rowHeight: number | null | undefined): number {
 
 function parseDateValue(value: any): Date | undefined {
   if (typeof value !== "string" || !value.trim()) return undefined;
+  const trimmed = value.trim();
   try {
-    return parseISO(value);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      return parse(trimmed, "yyyy-MM-dd", new Date());
+    }
+    if (/^\d{2}:\d{2}$/.test(trimmed)) {
+      return parse(`1970-01-01T${trimmed}:00`, "yyyy-MM-dd'T'HH:mm:ss", new Date());
+    }
+    if (/^\d{2}:\d{2}:\d{2}$/.test(trimmed)) {
+      return parse(`1970-01-01T${trimmed}`, "yyyy-MM-dd'T'HH:mm:ss", new Date());
+    }
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(trimmed)) {
+      return parse(trimmed, "yyyy-MM-dd'T'HH:mm", new Date());
+    }
+    return parseISO(trimmed);
   } catch {
     return undefined;
   }
@@ -175,10 +189,161 @@ function formatDateLabel(value: any): string {
   }
 }
 
+function formatDatetimeLabel(value: any): string {
+  const parsed = parseDateValue(value);
+  if (!parsed) return "Select date & time";
+  try {
+    return format(parsed, "yyyy-MM-dd HH:mm");
+  } catch {
+    return String(value);
+  }
+}
+
+function padTimeUnit(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function normalizeTimeStep(step: number | string | null | undefined): number {
+  const parsed = Number(step);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 60;
+  return Math.max(1, Math.floor(parsed));
+}
+
+function shouldShowSeconds(step: number, value: any): boolean {
+  if (step < 60 || step % 60 !== 0) return true;
+  return typeof value === "string" && /^\d{2}:\d{2}:\d{2}$/.test(value.trim());
+}
+
+function parseTimeParts(value: any, includeSeconds: boolean): { hour: string; minute: string; second: string } {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    const timeMatch = trimmed.match(/(\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (timeMatch) {
+      return {
+        hour: timeMatch[1] ?? "00",
+        minute: timeMatch[2] ?? "00",
+        second: includeSeconds ? timeMatch[3] ?? "00" : "00",
+      };
+    }
+  }
+
+  const parsed = parseDateValue(value);
+  if (!parsed) {
+    return { hour: "00", minute: "00", second: "00" };
+  }
+
+  return {
+    hour: format(parsed, "HH"),
+    minute: format(parsed, "mm"),
+    second: includeSeconds ? format(parsed, "ss") : "00",
+  };
+}
+
+function buildTimeOptions(limit: number, step: number, currentValue: string): string[] {
+  const safeStep = Math.max(1, step);
+  const values = new Set<string>();
+  for (let value = 0; value < limit; value += safeStep) {
+    values.add(padTimeUnit(value));
+  }
+  values.add(currentValue || "00");
+  return Array.from(values).sort();
+}
+
+function formatTimeSelection(hour: string, minute: string, second: string, includeSeconds: boolean): string {
+  return includeSeconds
+    ? `${hour}:${minute}:${second}`
+    : `${hour}:${minute}`;
+}
+
+interface TimeSelectorProps {
+  hour: string;
+  minute: string;
+  second?: string;
+  minuteOptions: string[];
+  secondOptions?: string[];
+  includeSeconds: boolean;
+  onHourChange: (value: string) => void;
+  onMinuteChange: (value: string) => void;
+  onSecondChange?: (value: string) => void;
+}
+
+const TimeSelectors: React.FC<TimeSelectorProps> = ({
+  hour,
+  minute,
+  second = "00",
+  minuteOptions,
+  secondOptions = [],
+  includeSeconds,
+  onHourChange,
+  onMinuteChange,
+  onSecondChange,
+}) => (
+  <div className={cn("grid gap-2", includeSeconds ? "grid-cols-3" : "grid-cols-2")}>
+    <Select value={hour} onValueChange={onHourChange}>
+      <SelectTrigger className="h-9">
+        <SelectValue placeholder="Hour" />
+      </SelectTrigger>
+      <SelectContent>
+        {Array.from({ length: 24 }, (_, idx) => padTimeUnit(idx)).map((value) => (
+          <SelectItem key={value} value={value}>
+            {value}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+
+    <Select value={minute} onValueChange={onMinuteChange}>
+      <SelectTrigger className="h-9">
+        <SelectValue placeholder="Min" />
+      </SelectTrigger>
+      <SelectContent>
+        {minuteOptions.map((value) => (
+          <SelectItem key={value} value={value}>
+            {value}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+
+    {includeSeconds ? (
+      <Select value={second} onValueChange={(value) => onSecondChange?.(value)}>
+        <SelectTrigger className="h-9">
+          <SelectValue placeholder="Sec" />
+        </SelectTrigger>
+        <SelectContent>
+          {secondOptions.map((value) => (
+            <SelectItem key={value} value={value}>
+              {value}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    ) : null}
+  </div>
+);
+
 function serializeEditorValue(value: any, type: string): string {
+  const normalizedType = normalizeGridColumnType(type);
   if (value === null || value === undefined) return "";
-  if (["list", "line_chart", "bar_chart", "area_chart", "json", "multiselect"].includes(type)) {
+  if (["list", "line_chart", "bar_chart", "area_chart", "json", "multiselect"].includes(normalizedType)) {
     return safeJsonStringify(value);
+  }
+  if (normalizedType === "date") {
+    const parsed = parseDateValue(value);
+    if (parsed) return format(parsed, "yyyy-MM-dd");
+  }
+  if (normalizedType === "time") {
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      const match = trimmed.match(/(\d{2}:\d{2})(:\d{2})?/);
+      if (match) return match[0];
+    }
+    const parsed = parseDateValue(value);
+    if (parsed) return format(parsed, "HH:mm:ss");
+  }
+  if (normalizedType === "datetime") {
+    const parsed = parseDateValue(value);
+    if (parsed) return format(parsed, "yyyy-MM-dd'T'HH:mm");
   }
   return String(value);
 }
@@ -204,6 +369,7 @@ function clampNumber(value: number, column: GridResolvedColumn): number {
 }
 
 function parseCellValue(raw: string, column: GridResolvedColumn, previousValue: any): any {
+  const columnType = normalizeGridColumnType(column.type);
   const trimmed = raw.trim();
   if (column.required && trimmed === "") return previousValue;
   if (column.maxChars && trimmed.length > column.maxChars) return previousValue;
@@ -216,7 +382,7 @@ function parseCellValue(raw: string, column: GridResolvedColumn, previousValue: 
     }
   }
 
-  switch (column.type) {
+  switch (columnType) {
     case "number":
     case "integer":
     case "progress": {
@@ -227,7 +393,6 @@ function parseCellValue(raw: string, column: GridResolvedColumn, previousValue: 
       return column.type === "integer" ? Math.trunc(clamped) : clamped;
     }
     case "checkbox":
-    case "boolean":
       return parseBooleanLike(trimmed);
     case "date":
     case "time":
@@ -260,11 +425,12 @@ function nextIndexValue(current: any[]): any {
 }
 
 function createDefaultCellValue(column: GridResolvedColumn): any {
+  const columnType = normalizeGridColumnType(column.type);
   if (column.default !== undefined && column.default !== null) return column.default;
-  if (["checkbox", "boolean"].includes(column.type)) return false;
-  if (["list", "multiselect", "line_chart", "bar_chart", "area_chart"].includes(column.type)) return [];
-  if (["number", "integer", "progress"].includes(column.type)) return null;
-  if (column.type === "json") return {};
+  if (columnType === "checkbox") return false;
+  if (["list", "multiselect", "line_chart", "bar_chart", "area_chart"].includes(columnType)) return [];
+  if (["number", "integer", "progress"].includes(columnType)) return null;
+  if (columnType === "json") return {};
   return "";
 }
 
@@ -291,8 +457,22 @@ const JsonPopoverEditor: React.FC<JsonPopoverEditorProps> = ({ label, value, dis
     setDraft(safeJsonStringify(value));
   }, [value]);
 
+  const closeDiscardingDraft = useCallback(() => {
+    setDraft(safeJsonStringify(value));
+    setOpen(false);
+  }, [value]);
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          closeDiscardingDraft();
+          return;
+        }
+        setOpen(true);
+      }}
+    >
       <PopoverTrigger asChild>
         <Button type="button" variant="outline" size="sm" className="h-8 w-full justify-between overflow-hidden px-2" disabled={disabled}>
           <span className="truncate text-left">{label}</span>
@@ -302,7 +482,7 @@ const JsonPopoverEditor: React.FC<JsonPopoverEditorProps> = ({ label, value, dis
         <div className="space-y-2">
           <Textarea value={draft} onChange={(event) => setDraft(event.target.value)} className="min-h-[180px] font-mono text-xs" />
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)}>
+            <Button type="button" variant="outline" size="sm" onClick={closeDiscardingDraft}>
               Cancel
             </Button>
             <Button
@@ -343,8 +523,22 @@ const ListPopoverEditor: React.FC<ListPopoverEditorProps> = ({ column, value, di
     setDraft(safeJsonStringify(value));
   }, [value]);
 
+  const closeDiscardingDraft = useCallback(() => {
+    setDraft(safeJsonStringify(value));
+    setOpen(false);
+  }, [value]);
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          closeDiscardingDraft();
+          return;
+        }
+        setOpen(true);
+      }}
+    >
       <PopoverTrigger asChild>
         <Button type="button" variant="outline" size="sm" className="h-auto min-h-8 w-full justify-between gap-2 overflow-hidden px-2 py-1" disabled={disabled}>
           <span className="flex min-w-0 flex-1 items-center overflow-hidden text-left">
@@ -352,7 +546,7 @@ const ListPopoverEditor: React.FC<ListPopoverEditorProps> = ({ column, value, di
               <span
                 className={cn(
                   "min-w-0 flex-1 overflow-hidden",
-                  isChartColumn && "[&_svg]:!h-[30px] [&_svg]:!w-[92px]"
+                  isChartColumn && "[&_svg]:!h-[30px] [&_svg]:!w-full [&_svg]:max-w-full"
                 )}
               >
                 {renderGridCell(column, value, [], [column], { compact: true })}
@@ -367,7 +561,7 @@ const ListPopoverEditor: React.FC<ListPopoverEditorProps> = ({ column, value, di
         <div className="space-y-2">
           <Textarea value={draft} onChange={(event) => setDraft(event.target.value)} className="min-h-[120px] font-mono text-xs" />
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)}>
+            <Button type="button" variant="outline" size="sm" onClick={closeDiscardingDraft}>
               Cancel
             </Button>
             <Button
@@ -466,14 +660,28 @@ const ProgressPopoverEditor: React.FC<ProgressPopoverEditorProps> = ({ column, v
     setDraft(initialValue);
   }, [initialValue]);
 
+  const closeDiscardingDraft = useCallback(() => {
+    setDraft(initialValue);
+    setOpen(false);
+  }, [initialValue]);
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          closeDiscardingDraft();
+          return;
+        }
+        setOpen(true);
+      }}
+    >
       <PopoverTrigger asChild>
         <Button type="button" variant="outline" size="sm" className="h-8 w-full justify-between gap-2 overflow-hidden px-2" disabled={disabled}>
           <span className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <Progress value={draft} className="h-2 flex-1" />
-              <span className="w-6 shrink-0 text-right text-xs text-slate-500">{Math.round(draft)}%</span>
+              <Progress value={initialValue} className="h-2 flex-1" />
+              <span className="w-6 shrink-0 text-right text-xs text-slate-500">{Math.round(initialValue)}%</span>
             </div>
           </span>
         </Button>
@@ -519,7 +727,7 @@ const ProgressPopoverEditor: React.FC<ProgressPopoverEditorProps> = ({ column, v
             <span className="text-sm text-slate-500">%</span>
           </div>
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)}>
+            <Button type="button" variant="outline" size="sm" onClick={closeDiscardingDraft}>
               Cancel
             </Button>
             <Button
@@ -532,6 +740,235 @@ const ProgressPopoverEditor: React.FC<ProgressPopoverEditorProps> = ({ column, v
             >
               Apply
             </Button>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+};
+
+interface TimePopoverEditorProps {
+  column: GridResolvedColumn;
+  value: any;
+  disabled: boolean;
+  onCommit: (next: string | null) => void;
+}
+
+const TimePopoverEditor: React.FC<TimePopoverEditorProps> = ({ column, value, disabled, onCommit }) => {
+  const [open, setOpen] = useState(false);
+  const stepSeconds = useMemo(() => normalizeTimeStep(column.step), [column.step]);
+  const includeSeconds = useMemo(() => shouldShowSeconds(stepSeconds, value), [stepSeconds, value]);
+  const initialParts = useMemo(() => parseTimeParts(value, includeSeconds), [includeSeconds, value]);
+  const [hour, setHour] = useState(initialParts.hour);
+  const [minute, setMinute] = useState(initialParts.minute);
+  const [second, setSecond] = useState(initialParts.second);
+
+  useEffect(() => {
+    setHour(initialParts.hour);
+    setMinute(initialParts.minute);
+    setSecond(initialParts.second);
+  }, [initialParts]);
+
+  const minuteStep = includeSeconds ? 1 : Math.max(1, Math.min(60, Math.floor(stepSeconds / 60) || 1));
+  const secondStep = includeSeconds ? Math.max(1, Math.min(60, stepSeconds < 60 ? stepSeconds : 1)) : 1;
+  const minuteOptions = useMemo(() => buildTimeOptions(60, minuteStep, minute), [minute, minuteStep]);
+  const secondOptions = useMemo(() => buildTimeOptions(60, secondStep, second), [second, secondStep]);
+  const displayValue = value ? formatTimeSelection(initialParts.hour, initialParts.minute, initialParts.second, includeSeconds) : "Select time";
+
+  const closeDiscardingDraft = useCallback(() => {
+    setHour(initialParts.hour);
+    setMinute(initialParts.minute);
+    setSecond(initialParts.second);
+    setOpen(false);
+  }, [initialParts.hour, initialParts.minute, initialParts.second]);
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          closeDiscardingDraft();
+          return;
+        }
+        setOpen(true);
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button type="button" variant="outline" size="sm" className="h-8 w-full justify-between px-2 font-normal" disabled={disabled}>
+          <span className="flex min-w-0 items-center gap-2 overflow-hidden">
+            <Clock3 className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+            <span className={cn("truncate", !value && "text-slate-400")}>{displayValue}</span>
+          </span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[18rem] p-3" align="start">
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-slate-700">{column.label}</p>
+            <p className="text-xs text-slate-500">Choose a time using Fastlit's styled controls.</p>
+          </div>
+          <TimeSelectors
+            hour={hour}
+            minute={minute}
+            second={second}
+            minuteOptions={minuteOptions}
+            secondOptions={secondOptions}
+            includeSeconds={includeSeconds}
+            onHourChange={setHour}
+            onMinuteChange={setMinute}
+            onSecondChange={setSecond}
+          />
+          <div className="flex justify-between gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                onCommit(null);
+                setOpen(false);
+              }}
+            >
+              Clear
+            </Button>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={closeDiscardingDraft}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => {
+                  onCommit(formatTimeSelection(hour, minute, second, includeSeconds));
+                  setOpen(false);
+                }}
+              >
+                Apply
+              </Button>
+            </div>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+};
+
+interface DatetimePopoverEditorProps {
+  column: GridResolvedColumn;
+  value: any;
+  disabled: boolean;
+  onCommit: (next: string | null) => void;
+}
+
+const DatetimePopoverEditor: React.FC<DatetimePopoverEditorProps> = ({ column, value, disabled, onCommit }) => {
+  const [open, setOpen] = useState(false);
+  const stepSeconds = useMemo(() => normalizeTimeStep(column.step), [column.step]);
+  const includeSeconds = useMemo(() => shouldShowSeconds(stepSeconds, value), [stepSeconds, value]);
+  const parsedValue = useMemo(() => parseDateValue(value), [value]);
+  const initialParts = useMemo(() => parseTimeParts(value, includeSeconds), [includeSeconds, value]);
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(parsedValue);
+  const [hour, setHour] = useState(initialParts.hour);
+  const [minute, setMinute] = useState(initialParts.minute);
+  const [second, setSecond] = useState(initialParts.second);
+
+  useEffect(() => {
+    setSelectedDate(parsedValue);
+    setHour(initialParts.hour);
+    setMinute(initialParts.minute);
+    setSecond(initialParts.second);
+  }, [initialParts, parsedValue]);
+
+  const minuteStep = includeSeconds ? 1 : Math.max(1, Math.min(60, Math.floor(stepSeconds / 60) || 1));
+  const secondStep = includeSeconds ? Math.max(1, Math.min(60, stepSeconds < 60 ? stepSeconds : 1)) : 1;
+  const minuteOptions = useMemo(() => buildTimeOptions(60, minuteStep, minute), [minute, minuteStep]);
+  const secondOptions = useMemo(() => buildTimeOptions(60, secondStep, second), [second, secondStep]);
+  const minDate = parseDateValue(column.min);
+  const maxDate = parseDateValue(column.max);
+
+  const closeDiscardingDraft = useCallback(() => {
+    setSelectedDate(parsedValue);
+    setHour(initialParts.hour);
+    setMinute(initialParts.minute);
+    setSecond(initialParts.second);
+    setOpen(false);
+  }, [initialParts.hour, initialParts.minute, initialParts.second, parsedValue]);
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          closeDiscardingDraft();
+          return;
+        }
+        setOpen(true);
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button type="button" variant="outline" size="sm" className="h-8 w-full justify-between px-2 text-left font-normal" disabled={disabled}>
+          <span className="flex min-w-0 items-center gap-2 overflow-hidden">
+            <CalendarIcon className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+            <span className={cn("truncate", !value && "text-slate-400")}>{formatDatetimeLabel(value)}</span>
+          </span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[22rem] p-3" align="start">
+        <div className="space-y-3">
+          <Calendar
+            mode="single"
+            selected={selectedDate}
+            onSelect={setSelectedDate}
+            disabled={(date) =>
+              (!!minDate && date < minDate) ||
+              (!!maxDate && date > maxDate)
+            }
+          />
+          <div className="space-y-2 border-t border-slate-100 pt-3">
+            <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+              <Clock3 className="h-4 w-4 text-slate-400" />
+              <span>Time</span>
+            </div>
+            <TimeSelectors
+              hour={hour}
+              minute={minute}
+              second={second}
+              minuteOptions={minuteOptions}
+              secondOptions={secondOptions}
+              includeSeconds={includeSeconds}
+              onHourChange={setHour}
+              onMinuteChange={setMinute}
+              onSecondChange={setSecond}
+            />
+          </div>
+          <div className="flex justify-between gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                onCommit(null);
+                setOpen(false);
+              }}
+            >
+              Clear
+            </Button>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={closeDiscardingDraft}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => {
+                  if (!selectedDate) return;
+                  const datePart = format(selectedDate, "yyyy-MM-dd");
+                  const timePart = formatTimeSelection(hour, minute, second, includeSeconds);
+                  onCommit(`${datePart}T${timePart}`);
+                  setOpen(false);
+                }}
+              >
+                Apply
+              </Button>
+            </div>
           </div>
         </div>
       </PopoverContent>
@@ -798,7 +1235,11 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
     const cellKey = draftKey(row.rowId, column.name);
     const value = row.cells[column.originalIndex];
     const disabled = !editable || disabledColumns.includes(column.name) || !!column.disabled;
-    const draft = draftValues[cellKey] ?? serializeEditorValue(value, column.type);
+    const columnType = normalizeGridColumnType(column.type);
+    const draft = draftValues[cellKey] ?? serializeEditorValue(value, columnType);
+    const commitImmediateValue = (nextValue: any) => {
+      updateCell(row.rowId, column.name, nextValue, rerunOnChange);
+    };
     const handleDraftChange = (nextValue: string) => {
       setDraftValues((current) => ({ ...current, [cellKey]: nextValue }));
       const parsed = parseCellValue(nextValue, column, value);
@@ -813,22 +1254,22 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
       return renderGridCell(column, value, row.cells, resolvedColumns, { compact: true });
     }
 
-    if (["checkbox", "boolean"].includes(column.type)) {
+    if (columnType === "checkbox") {
       return (
         <Checkbox
           checked={parseBooleanLike(value)}
-          onCheckedChange={(checked) => updateCell(row.rowId, column.name, Boolean(checked), true)}
+          onCheckedChange={(checked) => commitImmediateValue(Boolean(checked))}
         />
       );
     }
 
-    if (column.type === "selectbox") {
+    if (columnType === "selectbox") {
       const options = Array.isArray(column.options) ? column.options : [];
       const currentValue = value === null || value === undefined || value === "" ? EMPTY_SELECT_VALUE : String(value);
       return (
         <Select
           value={currentValue}
-          onValueChange={(next) => updateCell(row.rowId, column.name, next === EMPTY_SELECT_VALUE ? null : next, true)}
+          onValueChange={(next) => commitImmediateValue(next === EMPTY_SELECT_VALUE ? null : next)}
         >
           <SelectTrigger className="h-8 w-full min-w-0">
             <SelectValue placeholder="Select" />
@@ -845,8 +1286,10 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
       );
     }
 
-    if (column.type === "date") {
+    if (columnType === "date") {
       const selectedDate = parseDateValue(value);
+      const minDate = parseDateValue(column.min);
+      const maxDate = parseDateValue(column.max);
       return (
         <Popover>
           <PopoverTrigger asChild>
@@ -859,59 +1302,85 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
             <Calendar
               mode="single"
               selected={selectedDate}
-              onSelect={(date) => updateCell(row.rowId, column.name, date ? format(date, "yyyy-MM-dd") : null, true)}
+              onSelect={(date) => commitImmediateValue(date ? format(date, "yyyy-MM-dd") : null)}
+              disabled={(date) =>
+                (!!minDate && date < minDate) ||
+                (!!maxDate && date > maxDate)
+              }
             />
           </PopoverContent>
         </Popover>
       );
     }
 
-    if (column.type === "multiselect") {
+    if (columnType === "time") {
+      return (
+        <TimePopoverEditor
+          column={column}
+          value={value}
+          disabled={disabled}
+          onCommit={commitImmediateValue}
+        />
+      );
+    }
+
+    if (columnType === "datetime") {
+      return (
+        <DatetimePopoverEditor
+          column={column}
+          value={value}
+          disabled={disabled}
+          onCommit={commitImmediateValue}
+        />
+      );
+    }
+
+    if (columnType === "multiselect") {
       return (
         <MultiselectPopoverEditor
           column={column}
           value={value}
           options={Array.isArray(column.options) ? column.options : []}
           disabled={disabled}
-          onCommit={(next) => updateCell(row.rowId, column.name, next, true)}
+          onCommit={commitImmediateValue}
         />
       );
     }
 
-    if (column.type === "json") {
+    if (columnType === "json") {
       return (
         <JsonPopoverEditor
           label={value === null || value === undefined ? "Edit JSON" : "JSON"}
           value={value}
           disabled={disabled}
-          onCommit={(next) => updateCell(row.rowId, column.name, next, true)}
+          onCommit={commitImmediateValue}
         />
       );
     }
 
-    if (["list", "line_chart", "bar_chart", "area_chart"].includes(column.type)) {
+    if (["list", "line_chart", "bar_chart", "area_chart"].includes(columnType)) {
       return (
         <ListPopoverEditor
           column={column}
           value={value}
           disabled={disabled}
-          onCommit={(next) => updateCell(row.rowId, column.name, next, true)}
+          onCommit={commitImmediateValue}
         />
       );
     }
 
-    if (column.type === "progress") {
+    if (columnType === "progress") {
       return (
         <ProgressPopoverEditor
           column={column}
           value={value}
           disabled={disabled}
-          onCommit={(next) => updateCell(row.rowId, column.name, next, true)}
+          onCommit={commitImmediateValue}
         />
       );
     }
 
-    if (column.type === "image") {
+    if (columnType === "image") {
       const src = String(value ?? "").trim();
       return (
         <div className="flex w-full min-w-0 items-center gap-2">
@@ -946,7 +1415,7 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
       );
     }
 
-    if (column.type === "link") {
+    if (columnType === "link") {
       const href = String(value ?? "").trim();
       return (
         <div className="flex w-full min-w-0 items-center gap-2">
@@ -986,15 +1455,11 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
       );
     }
 
-    const inputType = column.type === "number" || column.type === "integer"
+    const inputType = columnType === "number" || columnType === "integer"
       ? "number"
-      : column.type === "image" || column.type === "link"
+      : columnType === "image" || columnType === "link"
         ? "url"
-        : column.type === "time"
-          ? "time"
-          : column.type === "datetime"
-            ? "datetime-local"
-            : "text";
+        : "text";
 
     return (
       <Input

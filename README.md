@@ -43,6 +43,9 @@ pip install "fastlit[auth]"        # httpx (OIDC auth — beta)
 pip install "fastlit[dev]"         # watchfiles
 ```
 
+With `pyarrow` installed, large `st.dataframe` payloads automatically switch to
+Apache Arrow transport for the initial preview window and server-paged fetches.
+
 ## Quick start
 
 Create `app.py`:

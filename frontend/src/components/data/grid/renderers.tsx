@@ -7,16 +7,27 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
+import { normalizeGridColumnType } from "./columnTypes";
 import { normalizeListLikeValue, safeJsonStringify } from "./serialization";
 import type { GridResolvedColumn } from "./types";
 
 function parseDateValue(value: any): Date | undefined {
   if (typeof value !== "string" || !value.trim()) return undefined;
+  const trimmed = value.trim();
   try {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-      return parse(value, "yyyy-MM-dd", new Date());
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      return parse(trimmed, "yyyy-MM-dd", new Date());
     }
-    return parseISO(value);
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(trimmed)) {
+      return parse(trimmed, "yyyy-MM-dd'T'HH:mm", new Date());
+    }
+    if (/^\d{2}:\d{2}$/.test(trimmed)) {
+      return parse(`1970-01-01T${trimmed}:00`, "yyyy-MM-dd'T'HH:mm:ss", new Date());
+    }
+    if (/^\d{2}:\d{2}:\d{2}$/.test(trimmed)) {
+      return parse(`1970-01-01T${trimmed}`, "yyyy-MM-dd'T'HH:mm:ss", new Date());
+    }
+    return parseISO(trimmed);
   } catch {
     return undefined;
   }
@@ -34,33 +45,57 @@ function formatDisplayValue(value: any): string {
   return String(value);
 }
 
-function Sparkline({ data, type }: { data: number[]; type: string }) {
+function Sparkline({
+  data,
+  type,
+  yMin,
+  yMax,
+}: {
+  data: number[];
+  type: string;
+  yMin?: number | null;
+  yMax?: number | null;
+}) {
   if (!data.length) return <span className="text-xs text-slate-400">[]</span>;
-  const width = 92;
+  const logicalWidth = type === "bar_chart" ? Math.max(96, data.length * 24) : 92;
   const height = 30;
   const pad = 2;
-  const min = Math.min(...data);
-  const max = Math.max(...data);
+  const min = typeof yMin === "number" && Number.isFinite(yMin) ? yMin : Math.min(...data);
+  const max = typeof yMax === "number" && Number.isFinite(yMax) ? yMax : Math.max(...data);
   const range = max - min || 1;
   const yFor = (value: number) => height - pad - ((value - min) / range) * (height - pad * 2);
   const xFor = (index: number) =>
-    data.length === 1 ? width / 2 : pad + (index / (data.length - 1)) * (width - pad * 2);
+    data.length === 1 ? logicalWidth / 2 : pad + (index / (data.length - 1)) * (logicalWidth - pad * 2);
 
   if (type === "bar_chart") {
-    const barWidth = Math.max(2, (width - pad * 2) / data.length - 1);
+    const baselineValue = min >= 0 ? 0 : max <= 0 ? max : 0;
+    const zeroY = yFor(baselineValue);
+    const innerWidth = logicalWidth - pad * 2;
+    const slotWidth = innerWidth / data.length;
+    const gap = Math.min(4, Math.max(1, slotWidth * 0.18));
+    const barWidth = Math.max(2, slotWidth - gap);
     return (
-      <svg width={width} height={height}>
-        {data.map((value, idx) => (
-          <rect
-            key={`${idx}-${value}`}
-            x={xFor(idx) - barWidth / 2}
-            y={yFor(value)}
-            width={barWidth}
-            height={height - pad - yFor(value)}
-            fill="#0ea5e9"
-            rx="1"
-          />
-        ))}
+      <svg
+        className="h-[30px] w-full max-w-full"
+        viewBox={`0 0 ${logicalWidth} ${height}`}
+        preserveAspectRatio="none"
+      >
+        {data.map((value, idx) => {
+          const valueY = yFor(value);
+          const rectY = Math.min(valueY, zeroY);
+          const rectHeight = Math.max(1, Math.abs(zeroY - valueY));
+          return (
+            <rect
+              key={`${idx}-${value}`}
+              x={pad + idx * slotWidth + (slotWidth - barWidth) / 2}
+              y={rectY}
+              width={barWidth}
+              height={rectHeight}
+              fill="#0ea5e9"
+              rx="1"
+            />
+          );
+        })}
       </svg>
     );
   }
@@ -72,7 +107,7 @@ function Sparkline({ data, type }: { data: number[]; type: string }) {
   if (type === "area_chart") {
     const areaPath = `${path} L${xFor(data.length - 1)},${height - pad} L${xFor(0)},${height - pad} Z`;
     return (
-      <svg width={width} height={height}>
+      <svg className="h-[30px] w-full max-w-full" viewBox={`0 0 ${logicalWidth} ${height}`} preserveAspectRatio="none">
         <path d={areaPath} fill="rgba(14,165,233,0.16)" stroke="none" />
         <path d={path} fill="none" stroke="#0ea5e9" strokeWidth="1.5" strokeLinejoin="round" />
       </svg>
@@ -80,7 +115,7 @@ function Sparkline({ data, type }: { data: number[]; type: string }) {
   }
 
   return (
-    <svg width={width} height={height}>
+    <svg className="h-[30px] w-full max-w-full" viewBox={`0 0 ${logicalWidth} ${height}`} preserveAspectRatio="none">
       <path d={path} fill="none" stroke="#0ea5e9" strokeWidth="1.5" strokeLinejoin="round" />
     </svg>
   );
@@ -93,7 +128,7 @@ export function renderGridCell(
   allColumns: GridResolvedColumn[],
   opts?: { compact?: boolean; placeholder?: string; onOpenJson?: (columnName: string, value: any) => void },
 ) {
-  const type = String(column.type ?? "string").toLowerCase();
+  const type = normalizeGridColumnType(column.type);
   const compact = !!opts?.compact;
   const placeholder = opts?.placeholder?.trim() || "—";
 
@@ -194,7 +229,7 @@ export function renderGridCell(
 
   if (["line_chart", "bar_chart", "area_chart"].includes(type)) {
     const values = normalizeListLikeValue(value).map((item) => Number(item)).filter((item) => Number.isFinite(item));
-    return <Sparkline data={values} type={type} />;
+    return <Sparkline data={values} type={type} yMin={column.yMin} yMax={column.yMax} />;
   }
 
   if (type === "date") {

@@ -1,4 +1,5 @@
 import type { GridFilter, GridRowModel } from "./types";
+import { normalizeGridColumnType } from "./columnTypes";
 import { normalizeListLikeValue, safeJsonStringify } from "./serialization";
 
 export interface FilterOption {
@@ -15,7 +16,7 @@ export function searchText(value: any): string {
 }
 
 export function filterOptionsForType(type: string): FilterOption[] {
-  switch (type) {
+  switch (normalizeGridColumnType(type)) {
     case "number":
     case "integer":
     case "progress":

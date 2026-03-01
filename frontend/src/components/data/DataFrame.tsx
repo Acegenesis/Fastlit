@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { tableFromIPC } from "apache-arrow";
 import type { NodeComponentProps } from "../../registry/registry";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { GridToolbar } from "./grid/GridToolbar";
 import { GridEmptyState } from "./grid/GridEmptyState";
+import { normalizeGridColumnType } from "./grid/columnTypes";
 import { renderGridCell } from "./grid/renderers";
 import { useGridColumns } from "./grid/useGridColumns";
 import { useGridViewState } from "./grid/useGridViewState";
@@ -20,6 +22,9 @@ const TOOLBAR_HEIGHT = 49;
 const DEFAULT_HEIGHT = 420;
 const SELECTION_WIDTH = 48;
 const INDEX_WIDTH = 72;
+const ARROW_MEDIA_TYPE = "application/vnd.apache.arrow.stream";
+const ARROW_INDEX_COLUMN = "__fastlit_index__";
+const ARROW_POSITION_COLUMN = "__fastlit_position__";
 
 interface Column {
   name: string;
@@ -59,6 +64,8 @@ interface SelectedCell {
 interface DataFrameProps {
   columns: Column[];
   rows: any[][];
+  arrowData?: string;
+  dataTransport?: string;
   index?: any[];
   positions?: number[];
   width?: number | string;
@@ -83,6 +90,12 @@ interface DataFrameProps {
   toolbar?: boolean;
   downloadable?: boolean;
   persistView?: boolean;
+}
+
+interface DecodedFramePayload {
+  rows: any[][];
+  index?: any[];
+  positions?: number[];
 }
 
 const ROW_SELECTION_MODES = new Set(["single-row", "multi-row"]);
@@ -140,7 +153,7 @@ function normalizeColumns(columns: Column[], columnConfig: Record<string, Column
     const cfg = columnConfig[column.name] ?? {};
     return {
       name: column.name,
-      type: String(cfg.type ?? column.type ?? "string").toLowerCase(),
+      type: normalizeGridColumnType(String(cfg.type ?? column.type ?? "text")),
       label: cfg.label ?? column.name,
       help: cfg.help,
       hidden: cfg.hidden,
@@ -177,6 +190,96 @@ function normalizeRows(rows: any[][], indexValues?: any[], positions?: number[])
     : [];
 }
 
+function decodeBase64ToUint8Array(value: string): Uint8Array {
+  const binary = window.atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let idx = 0; idx < binary.length; idx += 1) {
+    bytes[idx] = binary.charCodeAt(idx);
+  }
+  return bytes;
+}
+
+function normalizeArrowValue(value: any): any {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "bigint") {
+    const asNumber = Number(value);
+    return Number.isSafeInteger(asNumber) ? asNumber : value.toString();
+  }
+  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Uint8Array) return Array.from(value);
+  if (Array.isArray(value)) return value.map((item) => normalizeArrowValue(item));
+  if (value instanceof Map) {
+    return Object.fromEntries(
+      Array.from(value.entries()).map(([key, item]) => [String(key), normalizeArrowValue(item)])
+    );
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, any>).map(([key, item]) => [key, normalizeArrowValue(item)])
+    );
+  }
+  return value;
+}
+
+function decodeArrowPayload(buffer: Uint8Array, columns: Column[]): DecodedFramePayload {
+  const table = tableFromIPC(buffer);
+  const rowCount = table.numRows ?? 0;
+  const vectors = new Map<string, any>();
+  table.schema.fields.forEach((field, index) => {
+    vectors.set(field.name, table.getChildAt(index));
+  });
+
+  const rows = Array.from({ length: rowCount }, (_, rowIndex) =>
+    columns.map((column) => normalizeArrowValue(vectors.get(column.name)?.get(rowIndex)))
+  );
+
+  const indexVector = vectors.get(ARROW_INDEX_COLUMN);
+  const positionVector = vectors.get(ARROW_POSITION_COLUMN);
+  const indexValues = indexVector
+    ? Array.from({ length: rowCount }, (_, rowIndex) => normalizeArrowValue(indexVector.get(rowIndex)))
+    : undefined;
+  const positions = positionVector
+    ? Array.from({ length: rowCount }, (_, rowIndex) => {
+        const raw = normalizeArrowValue(positionVector.get(rowIndex));
+        const numeric = Number(raw);
+        return Number.isFinite(numeric) ? numeric : rowIndex;
+      })
+    : undefined;
+
+  return {
+    rows,
+    index: indexValues,
+    positions,
+  };
+}
+
+function parseHeaderNumber(value: string | null, fallback: number): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+async function parseDataframeResponse(
+  response: Response,
+  columns: Column[],
+  fallbackOffset: number,
+  fallbackLimit: number
+): Promise<any> {
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+  if (contentType.includes(ARROW_MEDIA_TYPE)) {
+    const payload = decodeArrowPayload(new Uint8Array(await response.arrayBuffer()), columns);
+    return {
+      offset: parseHeaderNumber(response.headers.get("X-Fastlit-Offset"), fallbackOffset),
+      limit: parseHeaderNumber(response.headers.get("X-Fastlit-Limit"), fallbackLimit),
+      totalRows: parseHeaderNumber(response.headers.get("X-Fastlit-Total-Rows"), payload.rows.length),
+      rows: payload.rows,
+      index: payload.index,
+      positions: payload.positions,
+      schemaVersion: response.headers.get("X-Fastlit-Schema-Version") ?? undefined,
+    };
+  }
+  return response.json();
+}
+
 function resolveGridHeight(height: number | string | undefined, rowCount: number, rowHeight: number, showToolbar: boolean): number {
   if (typeof height === "number" && Number.isFinite(height)) return height;
   const chrome = HEADER_HEIGHT + (showToolbar ? TOOLBAR_HEIGHT : 0) + 2;
@@ -208,6 +311,7 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
   const {
     columns = [],
     rows = [],
+    arrowData,
     index,
     positions,
     width,
@@ -234,15 +338,30 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     persistView = true,
   } = props as DataFrameProps;
 
+  const decodedPreview = useMemo(() => {
+    if (!arrowData) return null;
+    try {
+      return decodeArrowPayload(decodeBase64ToUint8Array(arrowData), columns);
+    } catch {
+      return null;
+    }
+  }, [arrowData, columns]);
+
+  const initialRows = decodedPreview?.rows ?? rows;
+  const initialIndex = decodedPreview?.index ?? index;
+  const initialPositions = decodedPreview?.positions ?? positions;
+
   const parentRef = useRef<HTMLDivElement>(null);
   const headerScrollRef = useRef<HTMLDivElement>(null);
   const scrollPersistTimerRef = useRef<number | null>(null);
   const resizeStateRef = useRef<{ columnName: string; startX: number; startWidth: number } | null>(null);
   const [serverOffset, setServerOffset] = useState(0);
-  const [serverRows, setServerRows] = useState<any[][]>(rows);
-  const [serverIndex, setServerIndex] = useState<any[] | undefined>(index);
-  const [serverPositions, setServerPositions] = useState<number[] | undefined>(positions);
-  const [serverTotalRows, setServerTotalRows] = useState<number>(typeof totalRows === "number" ? totalRows : rows.length);
+  const [serverRows, setServerRows] = useState<any[][]>(initialRows);
+  const [serverIndex, setServerIndex] = useState<any[] | undefined>(initialIndex);
+  const [serverPositions, setServerPositions] = useState<number[] | undefined>(initialPositions);
+  const [serverTotalRows, setServerTotalRows] = useState<number>(
+    typeof totalRows === "number" ? totalRows : initialRows.length
+  );
   const [loadingWindow, setLoadingWindow] = useState(false);
   const [selectedRowPositions, setSelectedRowPositions] = useState<number[]>(Array.isArray(selectedRows) ? [...selectedRows] : []);
   const [selectedColumnNames, setSelectedColumnNames] = useState<string[]>(Array.isArray(selectedColumns) ? [...selectedColumns] : []);
@@ -271,17 +390,18 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
   const allowsColumnSelection = selectable && !!columnSelectionMode;
   const allowsCellSelection = selectable && !!cellSelectionMode;
   const selectionColumnVisible = allowsRowSelection && rowSelectionMode !== "single-row";
-  const hasIndex = Array.isArray(index) && index.length > 0;
-  const isServerPaged = !!sourceId && (typeof totalRows === "number" ? totalRows : rows.length) > rows.length;
+  const isServerPaged = !!sourceId && (typeof totalRows === "number" ? totalRows : initialRows.length) > initialRows.length;
+  const effectiveIndex = isServerPaged ? serverIndex : initialIndex;
+  const hasIndex = Array.isArray(effectiveIndex) && effectiveIndex.length > 0;
   const effectiveRowHeight = resolveRowHeight(rowHeight);
 
   useEffect(() => {
     setServerOffset(0);
-    setServerRows(rows);
-    setServerIndex(index);
-    setServerPositions(positions);
-    setServerTotalRows(typeof totalRows === "number" ? totalRows : rows.length);
-  }, [index, positions, rows, sourceId, totalRows]);
+    setServerRows(initialRows);
+    setServerIndex(initialIndex);
+    setServerPositions(initialPositions);
+    setServerTotalRows(typeof totalRows === "number" ? totalRows : initialRows.length);
+  }, [initialIndex, initialPositions, initialRows, sourceId, totalRows]);
 
   useEffect(() => {
     setSelectedRowPositions(Array.isArray(selectedRows) ? [...selectedRows] : []);
@@ -295,7 +415,10 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     setSelectedCellValues(normalizeSelectedCells(selectedCells));
   }, [selectedCells]);
 
-  const baseRowModels = useMemo(() => normalizeRows(rows, index, positions), [index, positions, rows]);
+  const baseRowModels = useMemo(
+    () => normalizeRows(initialRows, initialIndex, initialPositions),
+    [initialIndex, initialPositions, initialRows]
+  );
   const currentWindowModels = useMemo(
     () => normalizeRows(serverRows, serverIndex, serverPositions),
     [serverIndex, serverPositions, serverRows]
@@ -303,7 +426,7 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
 
   const { resolvedColumns, columnIndexMap, totalWidth } = useGridColumns({
     columns: baseColumns,
-    rows: isServerPaged ? serverRows : rows,
+    rows: isServerPaged ? serverRows : initialRows,
     viewState,
   });
 
@@ -372,12 +495,12 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     const controller = new AbortController();
     fetchAbortRef.current = controller;
     setLoadingWindow(true);
-    fetch(`/_fastlit/dataframe/${encodeURIComponent(sourceId)}?offset=${fetchOffset}&limit=${fetchLimit}&${queryString}`, {
+    fetch(`/_fastlit/dataframe/${encodeURIComponent(sourceId)}?offset=${fetchOffset}&limit=${fetchLimit}&format=arrow&${queryString}`, {
       signal: controller.signal,
     })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
+        return parseDataframeResponse(res, columns, fetchOffset, fetchLimit);
       })
       .then((payload) => {
         setServerOffset(payload.offset ?? fetchOffset);
@@ -390,7 +513,7 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
       .finally(() => {
         if (!controller.signal.aborted) setLoadingWindow(false);
       });
-  }, [effectiveTotalRows, isServerPaged, queryString, rowVirtualizer, serverOffset, serverRows.length, sourceId, windowSize]);
+  }, [columns, effectiveTotalRows, isServerPaged, queryString, rowVirtualizer, serverOffset, serverRows.length, sourceId, windowSize]);
 
   useEffect(() => {
     if (!isServerPaged || !sourceId) return;
@@ -398,12 +521,12 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     const controller = new AbortController();
     fetchAbortRef.current = controller;
     setLoadingWindow(true);
-    fetch(`/_fastlit/dataframe/${encodeURIComponent(sourceId)}?offset=0&limit=${windowSize}&${queryString}`, {
+    fetch(`/_fastlit/dataframe/${encodeURIComponent(sourceId)}?offset=0&limit=${windowSize}&format=arrow&${queryString}`, {
       signal: controller.signal,
     })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
+        return parseDataframeResponse(res, columns, 0, windowSize);
       })
       .then((payload) => {
         setServerOffset(payload.offset ?? 0);
@@ -416,7 +539,7 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
       .finally(() => {
         if (!controller.signal.aborted) setLoadingWindow(false);
       });
-  }, [isServerPaged, queryString, sourceId, windowSize]);
+  }, [columns, isServerPaged, queryString, sourceId, windowSize]);
 
   const emitSelection = useCallback((payload: {
     rows?: number[];
@@ -620,16 +743,16 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     let offset = 0;
     const chunkSize = 5000;
     while (offset < serverTotalRows) {
-      const response = await fetch(`/_fastlit/dataframe/${encodeURIComponent(sourceId)}?offset=${offset}&limit=${chunkSize}&${queryString}`);
+      const response = await fetch(`/_fastlit/dataframe/${encodeURIComponent(sourceId)}?offset=${offset}&limit=${chunkSize}&format=arrow&${queryString}`);
       if (!response.ok) break;
-      const payload = await response.json();
+      const payload = await parseDataframeResponse(response, columns, offset, chunkSize);
       const rowsChunk = normalizeRows(payload.rows ?? [], payload.index, payload.positions);
       collected.push(...rowsChunk);
       offset += rowsChunk.length;
       if (!rowsChunk.length) break;
     }
     triggerCsvDownload(defaultCsvFileName(isStatic ? "fastlit-table" : "fastlit-dataframe"), buildCsv(resolvedColumns, collected));
-  }, [displayRows, isServerPaged, isStatic, queryString, resolvedColumns, serverTotalRows, sourceId]);
+  }, [columns, displayRows, isServerPaged, isStatic, queryString, resolvedColumns, serverTotalRows, sourceId]);
 
   if (!resolvedColumns.length) {
     return <GridEmptyState message={isStatic ? "Empty table" : "Empty DataFrame"} />;

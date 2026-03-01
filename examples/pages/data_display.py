@@ -253,7 +253,7 @@ st.column_config.MultiselectColumn("Tags", options=["ops", "beta"])
 st.column_config.JSONColumn("Payload")''', language="python")
 
 st.subheader("Live demo - all column_config types")
-st.caption("Text, numbers, booleans, select, chips, JSON, images, links and spark area columns.")
+st.caption("Text, numbers, booleans, select, date/time, JSON, images, links and chart columns.")
 
 import pandas as _pd_cc
 
@@ -262,6 +262,8 @@ _cc_df = _pd_cc.DataFrame({
     "Score": [87.5, 92.0, 78.3, 95.1],
     "Active": [True, False, True, True],
     "Role": ["admin", "user", "user", "viewer"],
+    "FocusStart": ["08:30", "09:00", "10:15", "11:00"],
+    "ReminderAt": ["2026-03-01T08:30", "2026-03-01T09:15", "2026-03-01T10:45", "2026-03-01T11:30"],
     "Progress": [75, 45, 90, 60],
     "Tags": [["ops", "admin"], ["sales"], ["ml", "viz"], ["viewer", "beta"]],
     "Segments": [["ops", "admin"], ["sales"], ["ml", "viz"], ["viewer", "beta"]],
@@ -272,6 +274,7 @@ _cc_df = _pd_cc.DataFrame({
         {"tier": "beta", "quota": 2},
     ],
     "Trend": [[3, 4, 5, 6], [4, 4, 5, 7], [2, 3, 3, 4], [1, 2, 4, 6]],
+    "Bars": [[6, 4, 5, 7], [4, 5, 6, 4], [3, 4, 2, 5], [2, 3, 4, 6]],
     "Avatar": [
         "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120&q=80",
         "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=120&q=80",
@@ -293,11 +296,14 @@ column_config={
     "Score":    st.column_config.NumberColumn("Score /100", min_value=0, max_value=100, step=0.5, resizable=True),
     "Active":   st.column_config.CheckboxColumn("Active ?"),
     "Role":     st.column_config.SelectboxColumn("Role", options=["admin", "user", "viewer"]),
+    "FocusStart": st.column_config.TimeColumn("Focus start", format="HH:mm"),
+    "ReminderAt": st.column_config.DatetimeColumn("Reminder at", format="YYYY-MM-DD HH:mm"),
     "Progress": st.column_config.ProgressColumn("Progress %", min_value=0, max_value=100),
     "Tags":     st.column_config.ListColumn("Tags", resizable=True),
     "Segments": st.column_config.MultiselectColumn("Segments", options=["ops", "admin", "sales", "ml", "viz", "viewer", "beta"]),
     "Payload":  st.column_config.JSONColumn("Payload", width="large"),
     "Trend":    st.column_config.AreaChartColumn("Trend", y_min=0, y_max=8),
+    "Bars":     st.column_config.BarChartColumn("Bars", y_min=0, y_max=8),
     "Avatar":   st.column_config.ImageColumn("Avatar"),
     "Link":     st.column_config.LinkColumn("URL", display_text="Open", resizable=True),
 },
@@ -316,6 +322,12 @@ with st.container(border=True):
             "Role": st.column_config.SelectboxColumn(
                 "Role", options=["admin", "user", "viewer"]
             ),
+            "FocusStart": st.column_config.TimeColumn(
+                "Focus start", format="HH:mm"
+            ),
+            "ReminderAt": st.column_config.DatetimeColumn(
+                "Reminder at", format="YYYY-MM-DD HH:mm"
+            ),
             "Progress": st.column_config.ProgressColumn(
                 "Progress %", min_value=0, max_value=100
             ),
@@ -326,6 +338,7 @@ with st.container(border=True):
             ),
             "Payload": st.column_config.JSONColumn("Payload", width="large"),
             "Trend": st.column_config.AreaChartColumn("Trend", y_min=0, y_max=8),
+            "Bars": st.column_config.BarChartColumn("Bars", y_min=0, y_max=8),
             "Avatar": st.column_config.ImageColumn("Avatar"),
             "Link": st.column_config.LinkColumn("URL", display_text="Open", resizable=True),
         },
@@ -334,7 +347,7 @@ with st.container(border=True):
         key="cc_demo_editor",
     )
     st.caption("Edited data:")
-    st.caption("Resize `Name`, `Score`, `Tags` or `Link`, then try `Segments`, `Payload` and `Trend`.")
+    st.caption("Teste `FocusStart`, `ReminderAt`, `Bars`, `Segments`, `Payload` et `Trend` pour valider les types avancés.")
     if hasattr(_cc_result, "to_dict"):
         st.json(_cc_result.to_dict(orient="records"))
     else:

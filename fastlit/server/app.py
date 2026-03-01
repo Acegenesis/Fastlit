@@ -26,6 +26,10 @@ from starlette.websockets import WebSocket
 from websockets import connect as ws_connect
 from websockets.exceptions import ConnectionClosed
 
+from fastlit.runtime.dataframe_arrow import (
+    ARROW_STREAM_MEDIA_TYPE,
+    serialize_arrow_frame,
+)
 from fastlit.server import metrics
 from fastlit.server.dataframe_store import (
     DataframeFilter,
@@ -483,6 +487,7 @@ async def component_file_endpoint(request: Request) -> Response:
 async def dataframe_slice_endpoint(request):
     """Serve server-side dataframe row windows."""
     source_id = request.path_params.get("source_id", "")
+    response_format = request.query_params.get("format", "json").strip().lower()
     try:
         offset = int(request.query_params.get("offset", "0"))
         limit = int(request.query_params.get("limit", "200"))
@@ -507,6 +512,28 @@ async def dataframe_slice_endpoint(request):
     )
     if data is None:
         return JSONResponse({"error": "unknown dataframe source"}, status_code=404)
+    if response_format == "arrow":
+        arrow_payload = serialize_arrow_frame(
+            columns=data.get("columns", []),
+            rows=data.get("rows", []),
+            index=data.get("index"),
+            positions=data.get("positions"),
+        )
+        if arrow_payload is not None:
+            headers = {
+                "X-Fastlit-Offset": str(data.get("offset", 0)),
+                "X-Fastlit-Limit": str(data.get("limit", 0)),
+                "X-Fastlit-Total-Rows": str(data.get("totalRows", 0)),
+                "X-Fastlit-Transport": "arrow",
+            }
+            schema_version = data.get("schemaVersion")
+            if schema_version:
+                headers["X-Fastlit-Schema-Version"] = str(schema_version)
+            return Response(
+                arrow_payload,
+                media_type=ARROW_STREAM_MEDIA_TYPE,
+                headers=headers,
+            )
     return JSONResponse(data)
 
 
