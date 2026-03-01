@@ -44,6 +44,8 @@ import { ChatInput } from "../components/chat/ChatInput";
 
 // ---- Data elements ----
 import { DataFrame, Table } from "../components/data/DataFrame";
+import { DataEditor } from "../components/data/DataEditor";
+import { Json } from "../components/data/Json";
 import { Metric } from "../components/data/Metric";
 
 // ---- Chart elements (already lazy) ----
@@ -127,13 +129,6 @@ const clamp = (value: number, min: number, max: number): number =>
 const numberProp = (value: unknown, fallback: number): number =>
   typeof value === "number" && Number.isFinite(value) ? value : fallback;
 
-const dataEditorFallback = (props: NodeComponentProps) =>
-  React.createElement(LazyBlockSkeleton, {
-    minHeight: clamp(numberProp(props.props?.height, 320), 220, 700),
-  });
-
-const jsonFallback = (_props: NodeComponentProps) =>
-  React.createElement(LazyBlockSkeleton, { minHeight: 160 });
 const fileUploaderFallback = (_props: NodeComponentProps) =>
   React.createElement(LazyBlockSkeleton, { minHeight: 120 });
 const cameraFallback = (_props: NodeComponentProps) =>
@@ -156,10 +151,6 @@ const pdfFallback = (props: NodeComponentProps) =>
     minHeight: clamp(numberProp(props.props?.height, 420), 240, 900),
   });
 
-const loadDataEditor = () =>
-  import("../components/data/DataEditor").then((m) => ({ default: m.DataEditor }));
-const loadJson = () =>
-  import("../components/data/Json").then((m) => ({ default: m.Json }));
 const loadFileUploader = () =>
   import("../components/input/FileUploader").then((m) => ({ default: m.FileUploader }));
 const loadCameraInput = () =>
@@ -189,8 +180,6 @@ const loadBalloons = () =>
 const loadSnow = () =>
   import("../components/status/Snow").then((m) => ({ default: m.Snow }));
 
-const DataEditor = lazyNode(loadDataEditor, dataEditorFallback);
-const Json = lazyNode(loadJson, jsonFallback);
 const FileUploader = lazyNode(loadFileUploader, fileUploaderFallback);
 const CameraInput = lazyNode(loadCameraInput, cameraFallback);
 const AudioInput = lazyNode(loadAudioInput, audioInputFallback);
@@ -207,8 +196,6 @@ const Balloons = lazyNode(loadBalloons);
 const Snow = lazyNode(loadSnow);
 
 const chunkPrefetchers: Record<string, () => Promise<unknown>> = {
-  data_editor: loadDataEditor,
-  json: loadJson,
   file_uploader: loadFileUploader,
   camera_input: loadCameraInput,
   audio_input: loadAudioInput,
@@ -363,7 +350,6 @@ export async function prefetchLikelyChunks(nodeTypes: Iterable<string>): Promise
 export function prefetchDefaultChunks(): Promise<void> {
   return Promise.allSettled([
     loadFileUploader(),
-    loadDataEditor(),
     loadPdf(),
     loadDialog(),
     loadStatus(),

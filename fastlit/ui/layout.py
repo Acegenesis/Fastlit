@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 from fastlit.runtime.context import get_current_session
+from fastlit.runtime.navigation_slug import slugify_page_token
 from fastlit.runtime.tree import UINode
 from fastlit.ui.base import _make_id, _emit_node
 
@@ -505,11 +506,7 @@ def set_sidebar_state(state: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _slugify_page(value: str) -> str:
-    slug = str(value).strip().lower()
-    slug = slug.replace("_", "-").replace(" ", "-")
-    while "--" in slug:
-        slug = slug.replace("--", "-")
-    return slug.strip("-")
+    return slugify_page_token(value)
 
 
 @dataclass

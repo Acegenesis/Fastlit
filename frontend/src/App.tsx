@@ -20,22 +20,60 @@ import type { UINode, ErrorMessage, RuntimeEventPayload } from "./runtime/types"
 
 type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
+function isLikelyNavigationSyncPatch(ops: Array<{ op?: string }> | undefined): boolean {
+  if (!Array.isArray(ops) || ops.length === 0) return false;
+  if (ops.length > 8) return true;
+  return ops.some((op) => op.op === "insertChild" || op.op === "remove" || op.op === "replace");
+}
+
 /** Convert page name to URL slug */
 function toSlug(page: string): string {
-  return page
+  const normalized = page.normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+  const asciiOnly = normalized.replace(/[^\x00-\x7F]/g, "");
+  const slug = asciiOnly
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
+  return slug || "page";
+}
+
+function canonicalizeSlug(slug: string): string {
+  return toSlug(decodeURIComponent(String(slug || "").replace(/^\/+|\/+$/g, "")));
 }
 
 /** Get current page from URL pathname */
 function getPageFromUrl(): string {
-  return decodeURIComponent(window.location.pathname.slice(1));
+  return canonicalizeSlug(window.location.pathname.slice(1));
 }
 
 // Page cache for instant navigation (LRU, max 20 entries)
 type PageCache = Map<string, UINode[]>;
 const PAGE_CACHE_MAX = 20;
+const CACHE_UNSAFE_NODE_TYPES = new Set([
+  "button",
+  "slider",
+  "text_input",
+  "text_area",
+  "checkbox",
+  "selectbox",
+  "radio",
+  "number_input",
+  "multiselect",
+  "date_input",
+  "time_input",
+  "toggle",
+  "color_picker",
+  "feedback",
+  "pills",
+  "segmented_control",
+  "file_uploader",
+  "camera_input",
+  "audio_input",
+  "form",
+  "form_submit_button",
+  "custom_component",
+  "data_editor",
+]);
 const PREFETCH_SKIP_TYPES = new Set([
   "file_uploader",
   "data_editor",
@@ -43,7 +81,6 @@ const PREFETCH_SKIP_TYPES = new Set([
   "camera_input",
   "audio_input",
 ]);
-
 /** Set a page in the cache, evicting oldest if over limit */
 function setCacheEntry(cache: PageCache, slug: string, content: UINode[]) {
   cache.delete(slug); // remove first so re-insert puts it at end (most recent)
@@ -53,6 +90,21 @@ function setCacheEntry(cache: PageCache, slug: string, content: UINode[]) {
     if (oldest !== undefined) cache.delete(oldest);
     else break;
   }
+}
+
+function pageCacheIsSafe(content: UINode[]): boolean {
+  const stack = [...content];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    if (CACHE_UNSAFE_NODE_TYPES.has(node.type)) return false;
+    if (node.type === "dataframe" && (node.props?.selectable || node.props?.editable)) {
+      return false;
+    }
+    if (node.children?.length) {
+      stack.push(...node.children);
+    }
+  }
+  return true;
 }
 
 /** Collect all widget IDs from a UI tree (for orphan cleanup) */
@@ -104,6 +156,13 @@ export const App: React.FC = () => {
   const idleHandleRef = useRef<number | null>(null);
   const prefetchedNodeTypesRef = useRef<Set<string>>(new Set());
   const patchJobSeqRef = useRef(0);
+  // Always holds the latest committed tree — avoids capturing stale closures
+  // in async patch callbacks without using side-effects inside state updaters.
+  const treeRef = useRef<UINode | null>(null);
+
+  // Keep treeRef in sync with the latest committed tree so async patch
+  // callbacks can access it without needing side-effects in state updaters.
+  treeRef.current = tree;
 
   // Remove the inline HTML skeleton (#sk) only once we have renderable content
   // (or when connection definitively failed and we need to show an error state).
@@ -182,7 +241,11 @@ export const App: React.FC = () => {
 
       // 3. Update content from cache if available
       const cachedContent = pageCacheRef.current.get(slug);
-      const hasCache = cachedContent && cachedContent.length > 0;
+      const hasCache = !!(
+        cachedContent &&
+        cachedContent.length > 0 &&
+        pageCacheIsSafe(cachedContent)
+      );
 
       currentPageRef.current = slug;
 
@@ -273,6 +336,8 @@ export const App: React.FC = () => {
     });
 
     ws.onRenderFull((msg) => {
+      patchJobSeqRef.current += 1;
+      treeRef.current = msg.tree;
       lastServerRevRef.current = Math.max(lastServerRevRef.current, msg.rev);
       if (
         pendingSkipPatchAfterRevRef.current !== null &&
@@ -306,7 +371,7 @@ export const App: React.FC = () => {
           ? (navNode.props.urlPaths as string[])
           : [];
         const slugs = rawUrlPaths.length === opts.length
-          ? rawUrlPaths.map((p) => String(p ?? "").replace(/^\/+|\/+$/g, ""))
+          ? rawUrlPaths.map((p) => canonicalizeSlug(String(p ?? "")))
           : opts.map(toSlug);
         sidebarNavRef.current = { id: navNode.id, options: opts, slugs };
 
@@ -317,6 +382,9 @@ export const App: React.FC = () => {
         if (urlIdx >= 0) {
           // URL matches a known page — use it (page reload case)
           currentPageRef.current = currentUrlSlug;
+          if (window.location.pathname !== `/${currentUrlSlug}`) {
+            window.history.replaceState(null, "", `/${currentUrlSlug}`);
+          }
           // Update widget store so Navigation component shows correct selection
           storeRef.current.set(navNode.id, opts[urlIdx]);
           // Tell server to switch to this page so the next response is correct
@@ -349,32 +417,31 @@ export const App: React.FC = () => {
       // Cache the content for this page (always cache, even if not displaying)
       if (responseSlug && msg.tree?.children) {
         const mainContent = msg.tree.children.filter((c) => c.type !== "sidebar");
-        setCacheEntry(pageCacheRef.current, responseSlug, mainContent);
+        if (pageCacheIsSafe(mainContent)) {
+          setCacheEntry(pageCacheRef.current, responseSlug, mainContent);
+        } else {
+          pageCacheRef.current.delete(responseSlug);
+        }
       }
 
       // Only display if this response is for the current page
       const currentSlug = currentPageRef.current;
       const isCorrectPage = responseSlug === currentSlug;
       const shouldDisplay = isCorrectPage || (!nav && !currentSlug);
-
       if (isFirstLoad) {
         // ALWAYS set the tree on first load so sidebar is initialized and
         // subsequent patches have a base tree to work with.
-        startTransition(() => {
-          setTree(msg.tree);
-          setError(null);
-          // If the URL matched the server response, show content;
-          // otherwise keep skeleton visible (we already sent an event for the right page)
-          if (isCorrectPage) {
-            setIsNavigating(false);
-          }
-        });
-      } else if (shouldDisplay) {
-        startTransition(() => {
-          setTree(msg.tree);
-          setError(null);
+        setTree(msg.tree);
+        setError(null);
+        // If the URL matched the server response, show content;
+        // otherwise keep skeleton visible (we already sent an event for the right page)
+        if (isCorrectPage) {
           setIsNavigating(false);
-        });
+        }
+      } else if (shouldDisplay) {
+        setTree(msg.tree);
+        setError(null);
+        setIsNavigating(false);
       }
     });
 
@@ -385,42 +452,53 @@ export const App: React.FC = () => {
       // frontend already shows the new page from cache. Applying this patch
       // would corrupt the tree (duplication). Skip only the expected next rev.
       const skipAfterRev = pendingSkipPatchAfterRevRef.current;
-      if (skipAfterRev !== null && msg.rev > skipAfterRev) {
+      if (
+        skipAfterRev !== null &&
+        msg.rev > skipAfterRev &&
+        isLikelyNavigationSyncPatch(msg.ops)
+      ) {
         pendingSkipPatchAfterRevRef.current = null;
         setIsNavigating(false);
         return;
       }
+      if (skipAfterRev !== null && msg.rev > skipAfterRev) {
+        pendingSkipPatchAfterRevRef.current = null;
+      }
 
-      setTree((prev) => {
-        if (!prev) return prev;
-        const seq = ++patchJobSeqRef.current;
-        applyPatchAsync(prev, msg.ops)
-          .then((patched) => {
-            if (seq !== patchJobSeqRef.current) return;
-            startTransition(() => {
-              setTree(patched);
-              if (patched?.children) {
-                handleSidebarStateNode(patched.children);
-              }
-              const currentSlug = currentPageRef.current;
-              if (currentSlug && patched?.children) {
-                const mainContent = patched.children.filter((c) => c.type !== "sidebar");
+      // Capture current tree and increment seq OUTSIDE the state updater to
+      // avoid React 18 calling the updater multiple times (concurrent mode).
+      const prevTree = treeRef.current;
+      if (!prevTree) return;
+      const seq = ++patchJobSeqRef.current;
+      applyPatchAsync(prevTree, msg.ops)
+        .then((patched) => {
+          if (seq !== patchJobSeqRef.current) return;
+          startTransition(() => {
+            setTree(patched);
+            if (patched?.children) {
+              handleSidebarStateNode(patched.children);
+            }
+            const currentSlug = currentPageRef.current;
+            if (currentSlug && patched?.children) {
+              const mainContent = patched.children.filter((c) => c.type !== "sidebar");
+              if (pageCacheIsSafe(mainContent)) {
                 setCacheEntry(pageCacheRef.current, currentSlug, mainContent);
+              } else {
+                pageCacheRef.current.delete(currentSlug);
               }
-              setError(null);
-              setIsNavigating(false);
-            });
-          })
-          .catch(() => {
-            const fallback = applyPatch(prev, msg.ops);
-            startTransition(() => {
-              setTree(fallback);
-              setError(null);
-              setIsNavigating(false);
-            });
+            }
+            setError(null);
+            setIsNavigating(false);
           });
-        return prev;
-      });
+        })
+        .catch(() => {
+          const fallback = applyPatch(prevTree, msg.ops);
+          startTransition(() => {
+            setTree(fallback);
+            setError(null);
+            setIsNavigating(false);
+          });
+        });
     });
 
     ws.onError((msg) => setError(msg));
@@ -450,8 +528,10 @@ export const App: React.FC = () => {
     const currentSlug = currentPageRef.current;
     if (currentSlug) {
       const mainContent = tree.children.filter((c) => c.type !== "sidebar");
-      if (mainContent.length > 0) {
+      if (mainContent.length > 0 && pageCacheIsSafe(mainContent)) {
         setCacheEntry(pageCacheRef.current, currentSlug, mainContent);
+      } else {
+        pageCacheRef.current.delete(currentSlug);
       }
     }
 
@@ -484,7 +564,11 @@ export const App: React.FC = () => {
 
       // Show cached content if available
       const cachedContent = pageCacheRef.current.get(slug);
-      const hasCache = cachedContent && cachedContent.length > 0;
+      const hasCache = !!(
+        cachedContent &&
+        cachedContent.length > 0 &&
+        pageCacheIsSafe(cachedContent)
+      );
 
       if (hasCache) {
         setTree((prev) => {

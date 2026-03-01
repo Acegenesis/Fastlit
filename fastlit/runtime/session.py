@@ -9,6 +9,7 @@ from typing import Any
 
 from fastlit.runtime.context import clear_current_session, set_current_session
 from fastlit.runtime.diff import diff_trees
+from fastlit.runtime.navigation_slug import slugify_page_token
 from fastlit.runtime.protocol import PatchOp, RenderFull, RenderPatch
 from fastlit.runtime.script_runner import run_script
 from fastlit.runtime.tree import UINode, UITree
@@ -78,6 +79,10 @@ class Session:
         self._page_scripts: dict[int, str] = {}
         # OIDC claims attached by the WS handler from the session cookie.
         self.user_claims: dict = {}
+        # Widgets that should force a full tree render after an event.
+        # Used for cases where incremental patching can be inconsistent with
+        # highly interactive client-side views.
+        self._force_full_render_widget_ids: set[str] = set()
 
     def register_navigation_pages(
         self,
@@ -95,9 +100,7 @@ class Session:
 
     @staticmethod
     def _normalize_page_token(value: str) -> str:
-        token = str(value).strip().strip("/").lower()
-        token = token.replace("_", "-").replace(" ", "-")
-        return token
+        return slugify_page_token(value)
 
     def _switch_to_page_index(self, idx: int, nav_id: str | None) -> None:
         """Apply selected page index and switch script when required."""
@@ -237,10 +240,26 @@ class Session:
         with self._runtime_events_lock:
             self._runtime_events.clear()
 
+    def coerce_widget_event_result(
+        self,
+        result: RenderFull | RenderPatch,
+        event_ids: list[str] | tuple[str, ...],
+    ) -> RenderFull | RenderPatch:
+        """Promote patch results to full renders for force-full widgets."""
+        if not any(
+            event_id in self._force_full_render_widget_ids for event_id in event_ids
+        ):
+            return result
+        if isinstance(result, RenderFull):
+            return result
+        if self._previous_tree is not None:
+            return RenderFull(rev=result.rev, tree=self._previous_tree.to_dict())
+        return result
+
     def handle_widget_event(self, widget_id: str, value: Any) -> RenderFull | RenderPatch:
         """Process a widget event and return the resulting render message."""
         self.widget_store[widget_id] = value
-        return self.run()
+        return self.coerce_widget_event_result(self.run(), [widget_id])
 
     def run_fragment(self, fragment_id: str) -> RenderPatch | None:
         """Re-execute a single fragment and return a targeted patch."""

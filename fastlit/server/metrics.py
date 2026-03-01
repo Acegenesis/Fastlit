@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from collections import deque
@@ -10,6 +11,7 @@ from typing import Any
 
 _LOCK = threading.Lock()
 _START_TIME = time.time()
+_BOOT_ID = f"{os.getpid()}-{int(_START_TIME * 1000)}"
 
 _STATE: dict[str, Any] = {
     "active_sessions": 0,
@@ -149,6 +151,8 @@ def snapshot() -> dict[str, Any]:
 
     state_copy["avg_run_ms"] = avg_run_ms
     state_copy["avg_payload_bytes"] = avg_payload_bytes
+    state_copy["boot_id"] = _BOOT_ID
+    state_copy["process_id"] = os.getpid()
     state_copy["uptime_seconds"] = time.time() - _START_TIME
     state_copy["run_ms_p50"] = _percentile(run_samples, 0.50)
     state_copy["run_ms_p95"] = _percentile(run_samples, 0.95)
