@@ -34,6 +34,7 @@ _MAX_QUERY_VAL_LEN = 2048
 _MAX_WIDGET_ID_LEN = 512
 _SENSITIVE_QUERY_PARAM_KEYS = {
     "token",  # internal WS auth token
+    "fastlit_path",  # internal current pathname bootstrap
 }
 _MAX_WS_MESSAGE_BYTES = int(
     os.environ.get("FASTLIT_MAX_WS_MESSAGE_BYTES", str(16 * 1024 * 1024))
@@ -215,6 +216,24 @@ async def _send_payload(
         body, size_bytes = _serialize_payload(payload)
     metrics.record_outbound_message(size_bytes=size_bytes, message_type=payload.get("type"))
     await websocket.send_text(body)
+
+
+async def _send_pending_redirect(
+    websocket: WebSocket,
+    session: Session,
+    *,
+    node_cache: dict[str, dict],
+) -> bool:
+    """Send a pending browser redirect instead of a UI payload."""
+    target = session.consume_pending_browser_redirect()
+    if not target:
+        return False
+    await _send_payload(
+        websocket,
+        {"type": "redirect", "path": target},
+        node_cache=node_cache,
+    )
+    return True
 
 
 def _optimize_patch_payload(
@@ -478,6 +497,9 @@ def _validate_and_copy_query_params(websocket: WebSocket, session: Session) -> b
             return False
         if len(key) > _MAX_QUERY_KEY_LEN or len(value) > _MAX_QUERY_VAL_LEN:
             return False
+        if key == "fastlit_path":
+            session.set_current_path(value)
+            continue
         if key.lower() in _SENSITIVE_QUERY_PARAM_KEYS:
             continue
         session.query_params[key] = value
@@ -922,6 +944,9 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
             await websocket.close(code=1011, reason="Initial render timeout")
             return
 
+        if await _send_pending_redirect(websocket, session, node_cache=node_cache):
+            return
+
         await _send_payload(websocket, result.to_dict(), node_cache=node_cache)
         logger.debug("Sent initial render (rev=%d)", session.rev)
 
@@ -979,6 +1004,8 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
             previous_values: list[tuple[str, object]] = []
             rerun_event_ids: list[str] = []
             for event in batch:
+                if event.path is not None:
+                    session.set_current_path(event.path)
                 prev_val = session.widget_store.get(event.id, sentinel)
                 previous_values.append((event.id, prev_val))
                 session.widget_store[event.id] = event.value
@@ -1095,6 +1122,9 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
                         )
                         await websocket.close(code=1013, reason="Tree too large")
                         return
+                if await _send_pending_redirect(websocket, session, node_cache=node_cache):
+                    continue
+
                 await _send_payload(websocket, payload, node_cache=node_cache)
                 t4 = time.perf_counter()
                 logger.info(

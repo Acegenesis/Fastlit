@@ -48,6 +48,30 @@ class _ContextProxy:
         session = self._get_session()
         return getattr(session, "timezone", None)
 
+    @property
+    def path(self) -> str:
+        """Current browser pathname normalized by the router."""
+        session = self._get_session()
+        return getattr(session, "route_path", "") or getattr(session, "current_path", "")
+
+    @property
+    def route_params(self) -> dict[str, str | list[str]]:
+        """Dynamic route parameters resolved from the current pathname."""
+        session = self._get_session()
+        return dict(getattr(session, "route_params", {}))
+
+    @property
+    def layout_stack(self) -> list[str]:
+        """Resolved layout stack for the current page."""
+        session = self._get_session()
+        return list(getattr(session, "layout_stack", []))
+
+    @property
+    def guard_failure(self) -> str | None:
+        """Guard failure reason for the current route, if any."""
+        session = self._get_session()
+        return getattr(session, "route_guard_failure", None)
+
     def __repr__(self) -> str:
         return (
             f"Context(locale={self.locale!r}, "

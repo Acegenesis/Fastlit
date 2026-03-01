@@ -51,6 +51,8 @@ from fastlit.ui.layout import (
     divider,
     navigation,
     Page,
+    page_path,
+    page_outlet,
     switch_page,
     set_sidebar_state,
 )
@@ -373,6 +375,8 @@ __all__ = [
     "divider",
     "navigation",
     "Page",
+    "page_path",
+    "page_outlet",
     "switch_page",
     "set_sidebar_state",
     # State

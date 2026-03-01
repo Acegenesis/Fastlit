@@ -78,6 +78,179 @@ With explicit frontend dev server options:
 fastlit run app.py --dev --frontend-port 5173 --frontend-host 127.0.0.1
 ```
 
+## File-based pages
+
+Fastlit supports file-based multi-page apps out of the box.
+
+This mode is optional. If a sibling `pages/` directory exists next to your
+entry script, Fastlit treats your app as a file-based multi-page app.
+
+Project layout:
+
+```text
+app.py
+pages/
+  index.py
+  charts.py
+  status_feedback.py
+```
+
+`app.py`:
+
+```python
+import fastlit as st
+
+st.set_page_config(page_title="My App", layout="wide")
+st.sidebar.navigation()
+```
+
+`pages/charts.py`:
+
+```python
+import fastlit as st
+
+PAGE_CONFIG = {
+    "title": "Charts",
+    "icon": "📈",
+    "order": 20,
+}
+
+st.title("Charts")
+st.write("Auto-discovered from pages/charts.py")
+```
+
+### How it works
+
+1. `app.py` stays your entry script and global layout.
+2. Fastlit scans `pages/*.py` automatically.
+3. The filename becomes the route slug by default.
+4. `st.sidebar.navigation()` builds the sidebar navigation.
+5. In auto-discovery mode, the selected page is rendered implicitly inside `app.py`.
+
+Example:
+
+```python
+import fastlit as st
+
+st.set_page_config(page_title="My App", layout="wide")
+
+st.sidebar.title("My App")
+st.sidebar.navigation()
+
+st.caption("This footer stays visible on every page.")
+```
+
+In that example:
+- `app.py` is the shared shell
+- `pages/index.py` maps to `/`
+- `pages/charts.py` becomes `/charts`
+- `pages/status_feedback.py` becomes `/status_feedback`
+
+Supported page metadata:
+- `PAGE_CONFIG = {"title": "...", "icon": "...", "order": 10, "default": True, "hidden": False, "url_path": "..."}`
+- Or individual constants: `PAGE_TITLE`, `PAGE_ICON`, `PAGE_ORDER`, `PAGE_DEFAULT`, `PAGE_HIDDEN`, `PAGE_URL_PATH`
+
+By default, the route slug is the filename. For example, `pages/status_feedback.py` maps to `/status_feedback`.
+When Fastlit auto-discovers a sibling `pages/` directory, the selected page is rendered implicitly inside `app.py`.
+If you build your own `st.Page(...)` list manually, you can still use `selected_page.run()` for explicit page outlets.
+
+### Advanced routing
+
+Fastlit also supports a more structured file-based router:
+
+- root index pages: `pages/index.py` -> `/`
+- parent pages: `pages/admin/index.py` -> `/admin`
+- nested routes from subfolders: `pages/admin/users.py` -> `/admin/users`
+- nested pages grouped automatically in the sidebar
+- sidebar groups remember their open/closed state
+- dynamic segments: `pages/blog/[id].py` -> `/blog/42`
+- catch-all segments: `pages/docs/[...slug].py` -> `/docs/guides/routing`
+- custom `404.py` and `403.py` pages at the root of `pages/`
+- nested layouts from a sibling `layouts/` directory
+- finer nested layouts like `layouts/admin/default.py`
+- per-page guards for auth and roles
+- route helpers like `st.page_path(...)` and param-aware `st.switch_page(...)`
+
+Example project:
+
+```text
+app.py
+layouts/
+  default.py
+  admin.py
+  admin/
+    default.py
+pages/
+  index.py
+  403.py
+  404.py
+  admin/
+    index.py
+    users.py
+    secure.py
+  blog/
+    [id].py
+  docs/
+    [...slug].py
+```
+
+`layouts/default.py`:
+
+```python
+import fastlit as st
+
+st.caption("Default nested layout")
+st.page_outlet()
+```
+
+`layouts/admin.py`:
+
+```python
+import fastlit as st
+
+st.info("Admin layout")
+st.page_outlet()
+```
+
+`pages/admin/secure.py`:
+
+```python
+import fastlit as st
+
+PAGE_CONFIG = {
+    "title": "Admin Secure",
+    "hidden": True,
+    "guard": {
+        "auth": True,
+        "roles": ["admin"],
+    },
+}
+
+st.title("Admin Secure")
+```
+
+Available routing metadata now includes:
+- `guard`: `{"auth": True, "roles": ["admin"]}`
+- `PAGE_GUARD`
+- `PAGE_AUTH` / `PAGE_REQUIRE_LOGIN`
+- `PAGE_ROLES`
+- `PAGE_LAYOUT` / `PAGE_LAYOUTS`
+
+Inside a page or layout, Fastlit exposes route context through `st.context`:
+
+- `st.context.path`
+- `st.context.route_params`
+- `st.context.layout_stack`
+- `st.context.guard_failure`
+
+`st.page_outlet()` renders the next nested layout or page in the current route chain.
+
+### When to use it
+
+- Use a single `app.py` if your app is small and linear.
+- Use `app.py` + `pages/` if your app is growing and you want one file per screen.
+- Use manual `st.Page(...)` definitions if you want full control over page registration.
+
 In `--dev` mode, Fastlit now:
 - starts the Python backend with autoreload
 - starts the Vite frontend dev server with HMR
@@ -92,12 +265,12 @@ Notes:
 
 The full showcase is in:
 
-- `examples/all_components_demo.py`
+- `examples/app.py`
 
 Run it:
 
 ```bash
-fastlit run examples/all_components_demo.py --dev
+fastlit run examples/app.py --dev
 ```
 
 ## API reference
@@ -262,7 +435,7 @@ npm run build
 Then run demo:
 
 ```bash
-fastlit run examples/all_components_demo.py --dev
+fastlit run examples/app.py --dev
 ```
 
 For fullstack dev mode, make sure frontend dependencies are installed first:

@@ -10,6 +10,7 @@ OUT_PATH = Path("docs/API_REFERENCE.md")
 
 
 EXAMPLE_OVERRIDES: dict[str, str] = {
+    "Page": 'st.Page("pages/charts.py", title="Charts", icon="📈")',
     "title": 'st.title("My App")',
     "header": 'st.header("Section")',
     "subheader": 'st.subheader("Subsection")',
@@ -69,8 +70,9 @@ EXAMPLE_OVERRIDES: dict[str, str] = {
     "dialog": '@st.dialog("Confirm")\ndef dlg(): st.write("...")',
     "popover": 'with st.popover("Settings"): st.toggle("Enable")',
     "divider": "st.divider()",
-    "navigation": 'page = st.navigation(["Home", "Data"])',
-    "switch_page": 'st.switch_page("Home")',
+    "navigation": "st.navigation()",
+    "page_outlet": "st.page_outlet()",
+    "switch_page": 'st.switch_page("charts")',
     "set_sidebar_state": 'st.set_sidebar_state("collapsed")',
     "rerun": "st.rerun()",
     "stop": "st.stop()",

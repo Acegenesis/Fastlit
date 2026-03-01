@@ -62,12 +62,18 @@ export interface RuntimeEventMessage {
   event: RuntimeEventPayload;
 }
 
+export interface RedirectMessage {
+  type: "redirect";
+  path: string;
+}
+
 export type ServerMessage =
   | RenderFullMessage
   | RenderPatchMessage
   | RenderPatchCompactMessage
   | RenderPatchCompressedMessage
   | RuntimeEventMessage
+  | RedirectMessage
   | ErrorMessage;
 
 // --- Client to Server ---
@@ -76,6 +82,7 @@ export interface WidgetEvent {
   type: "widget_event";
   id: string;
   value: any;
+  path?: string;
   noRerun?: boolean; // If true, server stores value but doesn't rerun script
 }
 
