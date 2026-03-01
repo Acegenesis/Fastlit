@@ -142,7 +142,7 @@ st.caption("This footer stays visible on every page.")
 
 In that example:
 - `app.py` is the shared shell
-- `pages/index.py` is the default page
+- `pages/index.py` maps to `/`
 - `pages/charts.py` becomes `/charts`
 - `pages/status_feedback.py` becomes `/status_feedback`
 
@@ -158,13 +158,18 @@ If you build your own `st.Page(...)` list manually, you can still use `selected_
 
 Fastlit also supports a more structured file-based router:
 
+- root index pages: `pages/index.py` -> `/`
+- parent pages: `pages/admin/index.py` -> `/admin`
 - nested routes from subfolders: `pages/admin/users.py` -> `/admin/users`
 - nested pages grouped automatically in the sidebar
+- sidebar groups remember their open/closed state
 - dynamic segments: `pages/blog/[id].py` -> `/blog/42`
 - catch-all segments: `pages/docs/[...slug].py` -> `/docs/guides/routing`
 - custom `404.py` and `403.py` pages at the root of `pages/`
 - nested layouts from a sibling `layouts/` directory
+- finer nested layouts like `layouts/admin/default.py`
 - per-page guards for auth and roles
+- route helpers like `st.page_path(...)` and param-aware `st.switch_page(...)`
 
 Example project:
 
@@ -173,11 +178,14 @@ app.py
 layouts/
   default.py
   admin.py
+  admin/
+    default.py
 pages/
   index.py
   403.py
   404.py
   admin/
+    index.py
     users.py
     secure.py
   blog/

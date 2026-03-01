@@ -131,14 +131,14 @@ with st.expander("📖 Documentation", expanded=False):
     - `use_container_width` (bool): Full-width layout
     """)
 
-st.code('''st.page_link("/index", label="Home", icon="🏠")
+st.code('''st.page_link("/", label="Home", icon="🏠")
 st.page_link("/charts", label="Charts page")
 st.page_link("https://docs.streamlit.io", label="External docs")''', language="python")
 
 with st.container(border=True):
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.page_link("/index", label="Home", icon="🏠")
+        st.page_link("/", label="Home", icon="🏠")
     with c2:
         st.page_link("/charts", label="Charts page")
     with c3:

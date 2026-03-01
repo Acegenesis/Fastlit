@@ -76,7 +76,8 @@ with left:
     st.markdown("""
     **Default mapping** from `pages/` to routes:
                 
-    - `pages/index.py` -> `/index`
+    - `pages/index.py` -> `/`
+    - `pages/admin/index.py` -> `/admin`
     - `pages/admin/users.py` -> `/admin/users`
     - `pages/blog/[id].py` -> `/blog/[id]`
     - `pages/docs/[...slug].py` -> `/docs/a/b/c`
@@ -89,6 +90,7 @@ with right:
     - underscores are preserved
     - filenames are the default slugs
     - you can override the slug with metadata
+    - sidebar groups remember their open/closed state
     - hidden pages are not shown in navigation
     - `404.py` is used for unknown routes
     - `403.py` is used for forbidden routes when available
@@ -177,7 +179,26 @@ st.caption("Admin footer")''',
 
 st.caption(
     "For a route like `/admin/users`, Fastlit can apply `layouts/default.py` "
-    "then `layouts/admin.py` before rendering the page."
+    "then `layouts/admin.py`, then `layouts/admin/default.py` before rendering the page."
+)
+
+st.header("Route Helpers", divider="blue")
+
+st.markdown("""
+Use `st.page_path()` when you want to build a route from a file path or a
+dynamic template, then pass the result to `st.page_link()` or call
+`st.switch_page()` directly with params.
+""")
+
+st.code(
+    '''st.page_link(
+    st.page_path("pages/blog/[id].py", id=42),
+    label="Blog post 42",
+)
+
+if st.button("Open docs route"):
+    st.switch_page("pages/docs/[...slug].py", slug=["guides", "routing"])''',
+    language="python",
 )
 
 st.header("Route Context", divider="blue")
@@ -217,6 +238,11 @@ with context_links[3]:
     st.page_link("/admin/users", label="Nested Layout", icon="🛡️")
     st.caption("Expected: non-empty `layout_stack`")
 
+parent_link = st.columns(1)
+with parent_link[0]:
+    st.page_link("/admin", label="Parent Admin Page", icon="🧭")
+    st.caption("Expected: clickable sidebar parent group entry for `Admin`.")
+
 guard_test = st.columns(2)
 with guard_test[0]:
     st.page_link("/admin/secure", label="Guard Failure", icon="🔒")
@@ -247,7 +273,7 @@ with tab2:
     """)
     st.code(
         '''page = st.navigation([
-    st.Page("pages/index.py", title="Home", default=True),
+    st.Page("pages/index.py", title="Home", url_path="", default=True),
     st.Page("pages/charts.py", title="Charts"),
 ])
 
@@ -315,13 +341,14 @@ st.markdown("""
 - Extract reusable helpers into shared modules when duplication appears
 - Prefer clear filenames because they become routes by default
 - Use `PAGE_CONFIG["order"]` to keep sidebar navigation stable
+- Use `index.py` for section landing pages like `/` or `/admin`
 """)
 
 st.header("Live Links", divider="blue")
 
 links = st.columns(3)
 with links[0]:
-    st.page_link("/index", label="Home", icon="🏠")
+    st.page_link("/", label="Home", icon="🏠")
 with links[1]:
     st.page_link("/layout", label="Layout API", icon="📐")
 with links[2]:

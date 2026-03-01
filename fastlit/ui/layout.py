@@ -8,12 +8,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Any, Callable, Sequence
+from urllib.parse import quote
 
 from fastlit.runtime.context import get_current_session
 from fastlit.runtime.page_discovery import (
     build_navigation_items,
     discover_pages,
+    normalize_request_path,
     resolve_page,
     visible_pages,
 )
@@ -515,6 +517,108 @@ def _slugify_page(value: str) -> str:
     return slugify_page_token(value)
 
 
+def _normalize_template_segment(value: Any, *, allow_multiple: bool) -> list[str]:
+    if allow_multiple and isinstance(value, (list, tuple, set)):
+        result = [
+            str(item).strip().strip("/")
+            for item in value
+            if str(item).strip().strip("/")
+        ]
+    else:
+        text = str(value).strip().strip("/")
+        if allow_multiple:
+            result = [segment for segment in text.split("/") if segment]
+        else:
+            if not text:
+                result = []
+            elif "/" in text:
+                raise ValueError("Single-segment route params cannot contain '/'.")
+            else:
+                result = [text]
+
+    if not result:
+        raise ValueError("Route params cannot be empty.")
+    return [quote(segment, safe="") for segment in result]
+
+
+def _page_template_from_file_path(raw: str) -> str | None:
+    path = Path(raw)
+    if path.suffix != ".py":
+        return None
+
+    parts = list(path.parts)
+    if "pages" in parts:
+        parts = parts[parts.index("pages") + 1 :]
+    if not parts:
+        return None
+
+    relative_path = Path(*parts)
+    segments = list(relative_path.parts[:-1])
+    stem = relative_path.stem
+    if stem != "index":
+        segments.append(stem)
+    return "/".join(segments)
+
+
+def _page_template(page: str | "Page") -> str:
+    raw = page.url_path if isinstance(page, Page) else str(page)
+    text = str(raw or "").strip()
+    if text.startswith(("http://", "https://")):
+        return text
+
+    file_template = _page_template_from_file_path(text)
+    if file_template is not None:
+        return file_template
+
+    return normalize_request_path(text)
+
+
+def page_path(page: str | "Page", /, **params: Any) -> str:
+    """Build a browser path for a page or route template.
+
+    Examples:
+        ``st.page_path("blog/[id]", id=42)`` -> ``"/blog/42"``
+        ``st.page_path("pages/admin/index.py")`` -> ``"/admin"``
+        ``st.page_path("/")`` -> ``"/"``
+    """
+    template = _page_template(page)
+    if template.startswith(("http://", "https://")):
+        if params:
+            raise ValueError("External URLs do not accept route params.")
+        return template
+
+    used_params: set[str] = set()
+    rendered_segments: list[str] = []
+
+    for segment in [part for part in template.split("/") if part]:
+        if segment.startswith("[...") and segment.endswith("]"):
+            name = segment[4:-1]
+            if name not in params:
+                raise ValueError(f"Missing route param '{name}' for '{template}'.")
+            used_params.add(name)
+            rendered_segments.extend(
+                _normalize_template_segment(params[name], allow_multiple=True)
+            )
+            continue
+        if segment.startswith("[") and segment.endswith("]"):
+            name = segment[1:-1]
+            if name not in params:
+                raise ValueError(f"Missing route param '{name}' for '{template}'.")
+            used_params.add(name)
+            rendered_segments.extend(
+                _normalize_template_segment(params[name], allow_multiple=False)
+            )
+            continue
+        rendered_segments.append(segment)
+
+    unexpected = sorted(key for key in params if key not in used_params)
+    if unexpected:
+        joined = ", ".join(unexpected)
+        raise ValueError(f"Unused route params for '{template}': {joined}.")
+
+    return f"/{'/'.join(rendered_segments)}" if rendered_segments else "/"
+
+
 @dataclass
 class Page:
     """Multi-page app page definition.
@@ -555,21 +659,18 @@ def page_outlet() -> None:
     get_current_session().run_page_outlet()
 
 
-def switch_page(page: str | Page) -> None:
+def switch_page(page: str | Page, /, **params: Any) -> None:
     """Switch to a different page programmatically.
 
     This stops the current script and reruns with the target page selected.
 
     Args:
-        page: The page name/slug (or Page object) to switch to.
+        page: The page name/slug, route template, file path, or Page object.
+        **params: Route params for dynamic segments like ``[id]``.
     """
     from fastlit.runtime.session import SwitchPageException
 
-    if isinstance(page, Page):
-        target = page.url_path or page.title or page.path
-    else:
-        target = page
-    raise SwitchPageException(str(target))
+    raise SwitchPageException(page_path(page, **params))
 
 
 # ---------------------------------------------------------------------------
@@ -642,7 +743,7 @@ def navigation(
             label = item.title or Path(item.path).stem
             labels.append(label)
             icons.append(item.icon)
-            url_paths.append(item.url_path or _slugify_page(label))
+            url_paths.append(item.url_path if item.url_path is not None else _slugify_page(label))
             values.append(item)
 
             script_path = Path(item.path)

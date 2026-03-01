@@ -3,7 +3,7 @@
 Generated from real Python signatures in `fastlit`.
 Regenerate with: `python scripts/generate_api_reference.py`
 
-Total documented functions: **101**
+Total documented functions: **102**
 
 ## `st.Page`
 
@@ -1218,6 +1218,22 @@ st.page_outlet() -> 'None'
 st.page_outlet()
 ```
 
+## `st.page_path`
+
+**Signature**
+```python
+st.page_path(page: "str | 'Page'", /, **params: 'Any') -> 'str'
+```
+
+**Parameters**
+- `page`: `str | 'Page'` (default: `required`)
+- `params`: `Any` (default: `required`)
+
+**Example**
+```python
+st.page_path("value")
+```
+
 ## `st.pdf`
 
 **Signature**
@@ -1712,11 +1728,12 @@ st.success("Saved")
 
 **Signature**
 ```python
-st.switch_page(page: 'str | Page') -> 'None'
+st.switch_page(page: 'str | Page', /, **params: 'Any') -> 'None'
 ```
 
 **Parameters**
 - `page`: `str | Page` (default: `required`)
+- `params`: `Any` (default: `required`)
 
 **Example**
 ```python

@@ -184,7 +184,7 @@ def _route_segments_from_relative_path(relative_path: Path) -> tuple[tuple[str, 
     segments = [_route_segment_from_part(part) for part in relative_path.parts[:-1]]
     if stem == "index":
         if not segments:
-            segments.append("index")
+            return ((), False, False)
     else:
         segments.append(_route_segment_from_part(stem))
     return (tuple(segments), False, False)
@@ -256,7 +256,7 @@ def _guard_from_config(config: dict[str, Any]) -> PageGuard:
     return PageGuard(auth=auth, roles=roles)
 
 
-def _sort_key(page: DiscoveredPage) -> tuple[int, int, int, int, int, str]:
+def _sort_key(page: DiscoveredPage) -> tuple[int, int, int, int, int, int, str]:
     static_count = sum(
         1
         for segment in page.route_segments
@@ -269,6 +269,7 @@ def _sort_key(page: DiscoveredPage) -> tuple[int, int, int, int, int, str]:
         0 if page.default else 1,
         special_rank,
         page.order,
+        len(page.route_segments),
         -static_count,
         dynamic_count + catch_all_count * 10,
         page.url_path,
@@ -304,9 +305,9 @@ def discover_pages(entry_script_path: str | Path) -> list[DiscoveredPage]:
                 title=str(config.get("title") or _page_title_from_relative_path(relative_path)),
                 icon=str(config["icon"]) if config.get("icon") else None,
                 url_path=str(config.get("url_path") or "/".join(route_segments)),
-                default=bool(config.get("default", route_segments == ("index",))),
+                default=bool(config.get("default", route_segments == ())),
                 hidden=bool(config.get("hidden", hidden_default)),
-                order=int(config.get("order", 0 if route_segments == ("index",) else 1000)),
+                order=int(config.get("order", 0 if route_segments == () else 1000)),
                 route_segments=route_segments,
                 layout_paths=_discover_layout_paths(layouts_dir, relative_path, config),
                 guard=_guard_from_config(config),
@@ -342,29 +343,55 @@ def _sidebar_group_label(segment: str) -> str:
 
 def build_navigation_items(pages: list[DiscoveredPage]) -> list[dict[str, Any]]:
     """Build a hierarchical sidebar tree from visible file-based pages."""
+    visible = visible_pages(pages)
     items: list[dict[str, Any]] = []
     group_index: dict[tuple[str, ...], dict[str, Any]] = {}
 
-    for page_index, page in enumerate(visible_pages(pages)):
-        path_segments = [segment for segment in page.url_path.split("/") if segment]
+    group_paths: set[tuple[str, ...]] = set()
+    for page in visible:
+        path_segments = tuple(segment for segment in page.url_path.split("/") if segment)
+        prefix: list[str] = []
+        for segment in path_segments[:-1]:
+            prefix.append(segment)
+            group_paths.add(tuple(prefix))
+
+    def ensure_group(path_segments: tuple[str, ...]) -> dict[str, Any]:
+        existing = group_index.get(path_segments)
+        if existing is not None:
+            return existing
+
+        if not path_segments:
+            raise ValueError("Sidebar groups require at least one path segment.")
+
+        parent = items
+        if len(path_segments) > 1:
+            parent = ensure_group(path_segments[:-1])["children"]
+
+        group = {
+            "type": "group",
+            "label": _sidebar_group_label(path_segments[-1]),
+            "path": "/".join(path_segments),
+            "children": [],
+        }
+        group_index[path_segments] = group
+        parent.append(group)
+        return group
+
+    for page_index, page in enumerate(visible):
+        path_segments = tuple(segment for segment in page.url_path.split("/") if segment)
         parent_segments = path_segments[:-1]
         children = items
-        prefix: list[str] = []
 
-        for segment in parent_segments:
-            prefix.append(segment)
-            key = tuple(prefix)
-            group = group_index.get(key)
-            if group is None:
-                group = {
-                    "type": "group",
-                    "label": _sidebar_group_label(segment),
-                    "path": "/".join(prefix),
-                    "children": [],
-                }
-                group_index[key] = group
-                children.append(group)
-            children = group["children"]
+        if parent_segments:
+            children = ensure_group(parent_segments)["children"]
+
+        if path_segments and path_segments in group_paths:
+            group = ensure_group(path_segments)
+            group["label"] = page.title
+            group["icon"] = page.icon
+            group["pageIndex"] = page_index
+            group["urlPath"] = page.url_path
+            continue
 
         children.append(
             {
@@ -493,6 +520,17 @@ def resolve_page(
         return None
 
     requested_path = normalize_request_path(pathname)
+    if requested_path == "index":
+        root_page = next(
+            (
+                page
+                for page in pages
+                if page.route_segments == () and not page.not_found and not page.forbidden
+            ),
+            None,
+        )
+        if root_page is not None:
+            requested_path = ""
     target_page: DiscoveredPage | None = None
     params: dict[str, str | list[str]] = {}
     matched = False

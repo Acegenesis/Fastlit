@@ -20,5 +20,6 @@ This page demonstrates:
 
 - nested route discovery from subfolders
 - automatic application of `layouts/admin.py`
+- finer nested layouts from `layouts/admin/default.py`
 - access to route info via `st.context`
 """)

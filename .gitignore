@@ -32,3 +32,12 @@ Thumbs.db
 __pycache__/
 
 py.typed
+
+.claude/
+claude.md
+
+.rgignore
+
+tmp*
+
+tests/

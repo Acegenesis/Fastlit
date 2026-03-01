@@ -340,7 +340,7 @@ with st.expander("📖 Documentation", expanded=False):
     """)
 
 st.code('''page_defs = [
-st.Page("pages/index.py", title="Home", icon="🏠", url_path="index", default=True),
+st.Page("pages/index.py", title="Home", icon="🏠", url_path="", default=True),
 st.Page("pages/charts.py", title="Charts", icon="📈", url_path="charts"),
 st.Page("pages/state_control.py", title="State Control", icon="🔄", url_path="state_control"),
 ]
@@ -353,7 +353,7 @@ st.write(f"Selected: title={selected_page.title}, url_path={selected_page.url_pa
 with st.container(border=True):
     if has_page_api:
         page_defs = [
-            st.Page("pages/index.py", title="Home", icon="🏠", url_path="index", default=True),
+            st.Page("pages/index.py", title="Home", icon="🏠", url_path="", default=True),
             st.Page("pages/charts.py", title="Charts", icon="📈", url_path="charts"),
             st.Page("pages/state_control.py", title="State Control", icon="🔄", url_path="state_control"),
         ]
