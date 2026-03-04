@@ -314,7 +314,7 @@ const parseMarkdown = (
 };
 
 export const Markdown: React.FC<NodeComponentProps> = ({ props }) => {
-  const resolved = useResolvedText(props.text, props._tpl, props._refs);
+  const resolved = useResolvedText(props.text, props._tpl, props._refs, props._exprs);
   const isStreaming = Boolean(props.isStreaming);
   const hasHtml = useMemo(() => containsHtml(resolved), [resolved]);
   const needsKatex = useMemo(

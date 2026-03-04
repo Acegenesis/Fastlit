@@ -128,7 +128,7 @@ const parseMarkdown = (
 };
 
 export const Caption: React.FC<NodeComponentProps> = ({ props }) => {
-  const resolved = useResolvedText(props.text, props._tpl, props._refs);
+  const resolved = useResolvedText(props.text, props._tpl, props._refs, props._exprs);
   const help = props.help;
   const hasHtml = useMemo(() => containsHtml(resolved), [resolved]);
   const needsKatex = useMemo(

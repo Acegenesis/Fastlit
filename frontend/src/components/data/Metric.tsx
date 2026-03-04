@@ -2,13 +2,24 @@ import React, { useId, useMemo } from "react";
 import DOMPurify from "dompurify";
 import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 import type { NodeComponentProps } from "../../registry/registry";
+import { LiveExpression, useResolvedText, useResolvedValue } from "../../context/WidgetStore";
 import { cn } from "@/lib/utils";
 
 interface MetricProps {
   label: string;
   value: string;
   delta?: string | null;
+  labelTpl?: string;
+  labelRefs?: Record<string, string>;
+  labelExprs?: Record<string, LiveExpression>;
+  valueTpl?: string;
+  valueRefs?: Record<string, string>;
+  valueExprs?: Record<string, LiveExpression>;
+  deltaTpl?: string;
+  deltaRefs?: Record<string, string>;
+  deltaExprs?: Record<string, LiveExpression>;
   deltaColor?: string;
+  deltaColorLive?: LiveExpression;
   help?: string;
   labelVisibility?: "visible" | "hidden" | "collapsed";
   border?: boolean;
@@ -210,7 +221,17 @@ export const Metric: React.FC<NodeComponentProps> = ({ props }) => {
     label,
     value,
     delta,
+    labelTpl,
+    labelRefs,
+    labelExprs,
+    valueTpl,
+    valueRefs,
+    valueExprs,
+    deltaTpl,
+    deltaRefs,
+    deltaExprs,
     deltaColor = "normal",
+    deltaColorLive,
     help,
     labelVisibility = "visible",
     border = false,
@@ -221,8 +242,13 @@ export const Metric: React.FC<NodeComponentProps> = ({ props }) => {
     deltaArrow = "auto",
   } = props as MetricProps;
 
-  const deltaNumber = useMemo(() => parseNumericDelta(delta), [delta]);
+  const resolvedLabel = useResolvedText(label, labelTpl, labelRefs, labelExprs);
+  const resolvedValue = useResolvedText(value, valueTpl, valueRefs, valueExprs);
   const hasDelta = delta !== null && delta !== undefined && delta !== "";
+  const resolvedDelta = useResolvedText(delta ?? "", deltaTpl, deltaRefs, deltaExprs);
+  const resolvedDeltaColor = useResolvedValue(deltaColor, deltaColorLive);
+  const deltaText = hasDelta ? resolvedDelta : null;
+  const deltaNumber = useMemo(() => parseNumericDelta(deltaText), [deltaText]);
   const deltaDirection = deltaArrow === "auto"
     ? deltaNumber === null
       ? "flat"
@@ -233,8 +259,8 @@ export const Metric: React.FC<NodeComponentProps> = ({ props }) => {
           : "flat"
     : deltaArrow;
   const tone = useMemo(
-    () => resolveDeltaTone(deltaColor, String(deltaDirection), hasDelta),
-    [deltaColor, deltaDirection, hasDelta]
+    () => resolveDeltaTone(resolvedDeltaColor, String(deltaDirection), hasDelta),
+    [resolvedDeltaColor, deltaDirection, hasDelta]
   );
   const showArrow = hasDelta && deltaArrow !== "off";
 
@@ -249,20 +275,20 @@ export const Metric: React.FC<NodeComponentProps> = ({ props }) => {
     >
       {labelVisibility !== "collapsed" ? (
         <div className={cn("text-sm font-medium text-slate-500", labelVisibility === "hidden" && "invisible")}>
-          <InlineMarkdown text={label} />
+          <InlineMarkdown text={resolvedLabel} />
         </div>
       ) : null}
       <div className="mt-1 break-words text-3xl font-semibold tracking-tight text-slate-900">
-        <InlineMarkdown text={value} />
+        <InlineMarkdown text={resolvedValue} />
       </div>
-      {hasDelta ? (
+      {deltaText !== null ? (
         <div className={cn("mt-2 flex items-center gap-1.5 text-sm font-medium", tone.text)}>
           {showArrow ? (
             deltaDirection === "up" ? <ArrowUpRight className="h-4 w-4" /> :
             deltaDirection === "down" ? <ArrowDownRight className="h-4 w-4" /> :
             <Minus className="h-4 w-4" />
           ) : null}
-          <InlineMarkdown text={delta || ""} />
+          <InlineMarkdown text={deltaText} />
         </div>
       ) : null}
       {Array.isArray(chartData) && chartData.length > 0 ? (

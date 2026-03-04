@@ -275,6 +275,8 @@ export class FastlitWS {
   send(msg: WidgetEvent): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
+    } else {
+      console.warn("[WS] send DROPPED (not open, readyState=" + this.ws?.readyState + ")", msg);
     }
   }
 

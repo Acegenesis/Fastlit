@@ -3,7 +3,7 @@ import type { NodeComponentProps } from "../../registry/registry";
 import { useResolvedText } from "../../context/WidgetStore";
 
 export const Title: React.FC<NodeComponentProps> = ({ props }) => {
-  const resolved = useResolvedText(props.text, props._tpl, props._refs);
+  const resolved = useResolvedText(props.text, props._tpl, props._refs, props._exprs);
 
   return (
     <h1 className="text-3xl font-bold text-gray-900 mb-4">

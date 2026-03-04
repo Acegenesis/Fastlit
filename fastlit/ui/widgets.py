@@ -200,7 +200,6 @@ def slider(
         },
         key=key,
         is_widget=True,
-        no_rerun=True,
     )
     session = get_current_session()
     current = session.widget_store.get(node.id, send_value)

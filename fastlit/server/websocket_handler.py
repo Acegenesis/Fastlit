@@ -791,7 +791,11 @@ def _coalesce_events(
     *,
     batch_limit: int,
 ) -> list[WidgetEvent]:
-    """Drain currently available events and keep the latest value per widget."""
+    """Drain currently available events and keep the latest value per widget.
+
+    Preserve reruns when a widget emits both preview (`no_rerun=True`) and
+    commit (`no_rerun=False`) events in the same coalescing window.
+    """
     merged: dict[str, WidgetEvent] = {first_event.id: first_event}
     drained = 0
 
@@ -802,7 +806,17 @@ def _coalesce_events(
             break
         if ev is None:
             break
-        merged[ev.id] = ev
+        previous = merged.get(ev.id)
+        if previous is None:
+            merged[ev.id] = ev
+        else:
+            merged[ev.id] = WidgetEvent(
+                type=ev.type,
+                id=ev.id,
+                value=ev.value,
+                path=ev.path if ev.path is not None else previous.path,
+                no_rerun=previous.no_rerun and ev.no_rerun,
+            )
         drained += 1
 
     return list(merged.values())

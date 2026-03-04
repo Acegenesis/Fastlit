@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json as _json_mod
 import math
 import re
 from dataclasses import asdict, is_dataclass
@@ -9,9 +11,18 @@ from decimal import Decimal
 from typing import Any
 
 from fastlit.ui.base import _emit_node
+from fastlit.ui.widget_value import (
+    LiveValue,
+    WidgetValue,
+    _MARKER,
+    _encode_live_expression,
+    _live_spec_for,
+)
 
-# Marker pattern: \x00W<widget_id>\x00<value>\x00
-_MARKER_RE = re.compile(r"\x00W(.+?)\x00(.*?)\x00")
+# Marker patterns:
+# - widget:  \x00W<widget_id>\x00<value>\x00
+# - derived: \x00X<encoded_expr>\x00<value>\x00
+_MARKER_RE = re.compile(r"\x00([WX])(.+?)\x00(.*?)\x00")
 
 
 def _process_text(raw: str) -> dict:
@@ -26,23 +37,38 @@ def _process_text(raw: str) -> dict:
     if not matches:
         return {"text": raw}
 
-    # Build clean text (markers replaced with actual values)
-    clean = _MARKER_RE.sub(r"\2", raw)
+    # Build clean text (markers replaced with actual values, group 3 = rendered value)
+    clean = _MARKER_RE.sub(r"\3", raw)
 
-    # Build template (markers replaced with placeholders) and refs map
+    # Build template (markers replaced with placeholders) and refs/exprs maps
     refs = {}
+    exprs = {}
     counter = 0
 
     def replacer(m: re.Match) -> str:
         nonlocal counter
         key = f"__w{counter}__"
-        refs[key] = m.group(1)  # widget ID
+        marker_type = m.group(1)
+        payload = m.group(2)
+        if marker_type == "W":
+            refs[key] = payload
+        else:
+            padding = "=" * (-len(payload) % 4)
+            try:
+                decoded = base64.urlsafe_b64decode(f"{payload}{padding}".encode("ascii"))
+                exprs[key] = _json_mod.loads(decoded.decode("utf-8"))
+            except Exception:
+                exprs[key] = {"kind": "literal", "value": m.group(3)}
         counter += 1
         return key
 
     template = _MARKER_RE.sub(replacer, raw)
-
-    return {"text": clean, "_tpl": template, "_refs": refs}
+    props = {"text": clean, "_tpl": template}
+    if refs:
+        props["_refs"] = refs
+    if exprs:
+        props["_exprs"] = exprs
+    return props
 
 
 def title(
@@ -283,15 +309,15 @@ def metric(
         delta_arrow: "auto", "up", "down", or "off".
         format: Optional numeric format string applied to value and delta.
     """
-    display_value = _format_metric_value(value, format)
-    display_delta = _format_metric_value(delta, format) if delta not in {None, ""} else None
+    display_value = _format_metric_value_live(value, format)
+    display_delta = _format_metric_value_live(delta, format) if delta not in {None, ""} else None
     _emit_node(
         "metric",
         {
-            "label": str(label),
-            "value": display_value,
-            "delta": display_delta,
-            "deltaColor": delta_color,
+            **_metric_text_props("label", str(label)),
+            **_metric_text_props("value", display_value),
+            **(_metric_text_props("delta", display_delta) if display_delta is not None else {"delta": None}),
+            **_metric_live_prop("deltaColor", delta_color),
             "help": help,
             "labelVisibility": label_visibility,
             "border": border,
@@ -418,6 +444,8 @@ def _json_safe_value(value: Any) -> Any:
 
 
 def _coerce_metric_number(value: Any) -> float | int | None:
+    if isinstance(value, (WidgetValue, LiveValue)):
+        value = value._val
     if isinstance(value, bool) or value is None:
         return None
     if isinstance(value, Decimal):
@@ -494,6 +522,8 @@ def _format_metric_named(value: float | int, fmt: str) -> str:
 
 
 def _format_metric_value(value: Any, fmt: str | None) -> str:
+    if isinstance(value, (WidgetValue, LiveValue)):
+        value = value._val
     if value is None:
         return "—"
     if not fmt:
@@ -547,6 +577,42 @@ def _format_metric_value(value: Any, fmt: str | None) -> str:
             return f"{prefix}{format(numeric, spec)}{suffix}"
         except Exception:
             return str(value)
+
+
+def _format_metric_value_live(value: Any, fmt: str | None) -> str:
+    if isinstance(value, WidgetValue):
+        rendered = _format_metric_value(value._val, fmt)
+        if rendered == "—":
+            return rendered
+        return f"{_MARKER}W{value._wid}{_MARKER}{rendered}{_MARKER}"
+    if isinstance(value, LiveValue):
+        rendered = _format_metric_value(value._val, fmt)
+        if rendered == "—":
+            return rendered
+        token = _encode_live_expression(value._spec)
+        return f"{_MARKER}X{token}{_MARKER}{rendered}{_MARKER}"
+    return _format_metric_value(value, fmt)
+
+
+def _metric_text_props(prefix: str, raw: str) -> dict[str, Any]:
+    processed = _process_text(raw)
+    props: dict[str, Any] = {prefix: processed.get("text", raw)}
+    if "_tpl" in processed:
+        props[f"{prefix}Tpl"] = processed["_tpl"]
+    if "_refs" in processed:
+        props[f"{prefix}Refs"] = processed["_refs"]
+    if "_exprs" in processed:
+        props[f"{prefix}Exprs"] = processed["_exprs"]
+    return props
+
+
+def _metric_live_prop(prefix: str, value: Any) -> dict[str, Any]:
+    if isinstance(value, (WidgetValue, LiveValue)):
+        return {
+            prefix: _json_safe_value(value._val),
+            f"{prefix}Live": _live_spec_for(value),
+        }
+    return {prefix: value}
 
 
 def _normalize_metric_chart_data(data: Any) -> list[float] | None:

@@ -15,7 +15,6 @@ import { WidgetStoreProvider, WidgetStoreImpl } from "./context/WidgetStore";
 import { SidebarContext } from "./context/SidebarContext";
 import { Toaster } from "@/components/ui/sonner";
 import { PageSkeleton } from "./components/layout/PageSkeleton";
-import { cn } from "@/lib/utils";
 import type { UINode, ErrorMessage, RuntimeEventPayload } from "./runtime/types";
 
 type ConnectionStatus = "connecting" | "connected" | "disconnected";
@@ -154,7 +153,7 @@ export const App: React.FC = () => {
     slugs: string[];
   } | null>(null);
 
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
 
   // Cached navigation can require skipping exactly one backend patch.
   // We bind the skip to revision progression instead of a global boolean.
@@ -168,7 +167,11 @@ export const App: React.FC = () => {
 
   const idleHandleRef = useRef<number | null>(null);
   const prefetchedNodeTypesRef = useRef<Set<string>>(new Set());
-  const patchJobSeqRef = useRef(0);
+  // Epoch counter: incremented on each render_full to invalidate stale patch chains.
+  const patchEpochRef = useRef(0);
+  // Promise chain: patches are applied sequentially, each on top of the previous
+  // result, so no incremental updates are ever dropped.
+  const patchChainRef = useRef<Promise<UINode | null>>(Promise.resolve(null));
   // Always holds the latest committed tree — avoids capturing stale closures
   // in async patch callbacks without using side-effects inside state updaters.
   const treeRef = useRef<UINode | null>(null);
@@ -307,7 +310,8 @@ export const App: React.FC = () => {
         return;
       }
 
-      // NoRerun events - debounce
+      // Debounced events (sliders, text inputs, etc.)
+      // Rate-limit rapid changes; trigger a normal rerun after the pause.
       if (options?.noRerun) {
         pendingValuesRef.current.set(id, value);
         const existing = debounceTimersRef.current.get(id);
@@ -316,7 +320,7 @@ export const App: React.FC = () => {
         const timer = setTimeout(() => {
           debounceTimersRef.current.delete(id);
           pendingValuesRef.current.delete(id);
-          wsRef.current?.send({ type: "widget_event", id, value, noRerun: true });
+          wsRef.current?.send({ type: "widget_event", id, value });
         }, DEBOUNCE_MS);
 
         debounceTimersRef.current.set(id, timer);
@@ -351,7 +355,9 @@ export const App: React.FC = () => {
     });
 
     ws.onRenderFull((msg) => {
-      patchJobSeqRef.current += 1;
+      // New epoch: invalidate any in-flight patch chain handlers.
+      patchEpochRef.current += 1;
+      patchChainRef.current = Promise.resolve(msg.tree);
       treeRef.current = msg.tree;
       lastServerRevRef.current = Math.max(lastServerRevRef.current, msg.rev);
       if (
@@ -492,40 +498,41 @@ export const App: React.FC = () => {
         pendingSkipPatchAfterRevRef.current = null;
       }
 
-      // Capture current tree and increment seq OUTSIDE the state updater to
-      // avoid React 18 calling the updater multiple times (concurrent mode).
-      const prevTree = treeRef.current;
-      if (!prevTree) return;
-      const seq = ++patchJobSeqRef.current;
-      applyPatchAsync(prevTree, msg.ops)
-        .then((patched) => {
-          if (seq !== patchJobSeqRef.current) return;
-          startTransition(() => {
-            setTree(patched);
-            if (patched?.children) {
-              handleSidebarStateNode(patched.children);
+      // Chain patches sequentially: each patch applies on top of the previous
+      // result so no incremental updates are ever dropped.
+      const epoch = patchEpochRef.current;
+      patchChainRef.current = patchChainRef.current.then(async (chainBase) => {
+        // A new render_full arrived — this patch belongs to an old epoch; skip it.
+        if (epoch !== patchEpochRef.current) return chainBase;
+        const base = chainBase || treeRef.current;
+        if (!base) return null;
+        let patched: UINode;
+        try {
+          patched = await applyPatchAsync(base, msg.ops);
+        } catch {
+          patched = applyPatch(base, msg.ops);
+        }
+        // Re-check epoch after async work (a render_full may have arrived).
+        if (epoch !== patchEpochRef.current) return chainBase;
+        startTransition(() => {
+          setTree(patched);
+          if (patched?.children) {
+            handleSidebarStateNode(patched.children);
+          }
+          const currentSlug = currentPageRef.current;
+          if (currentSlug && patched?.children) {
+            const mainContent = patched.children.filter((c) => c.type !== "sidebar");
+            if (pageCacheIsSafe(mainContent)) {
+              setCacheEntry(pageCacheRef.current, currentSlug, mainContent);
+            } else {
+              pageCacheRef.current.delete(currentSlug);
             }
-            const currentSlug = currentPageRef.current;
-            if (currentSlug && patched?.children) {
-              const mainContent = patched.children.filter((c) => c.type !== "sidebar");
-              if (pageCacheIsSafe(mainContent)) {
-                setCacheEntry(pageCacheRef.current, currentSlug, mainContent);
-              } else {
-                pageCacheRef.current.delete(currentSlug);
-              }
-            }
-            setError(null);
-            setIsNavigating(false);
-          });
-        })
-        .catch(() => {
-          const fallback = applyPatch(prevTree, msg.ops);
-          startTransition(() => {
-            setTree(fallback);
-            setError(null);
-            setIsNavigating(false);
-          });
+          }
+          setError(null);
+          setIsNavigating(false);
         });
+        return patched;
+      });
     });
 
     ws.onError((msg) => setError(msg));
@@ -763,14 +770,10 @@ export const App: React.FC = () => {
           {/* Show skeleton only for uncached page navigation (initial load uses #sk overlay). */}
           {isNavigating && <PageSkeleton />}
 
-          {/* Main content with fade transition */}
+          {/* Main content */}
           {tree && mainNodes.length > 0 && !isNavigating && (
             <div
               key={currentPageRef.current}
-              className={cn(
-                "transition-opacity duration-200 ease-in-out",
-                isPending ? "opacity-70" : "opacity-100"
-              )}
             >
               {mainNodes.map((node) => (
                 <NodeRenderer key={node.id} node={node} sendEvent={sendEvent} />

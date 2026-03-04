@@ -369,6 +369,7 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
   const [columnSelectionAnchor, setColumnSelectionAnchor] = useState<string | null>(null);
   const [cellSelectionAnchor, setCellSelectionAnchor] = useState<SelectedCell | null>(null);
   const fetchAbortRef = useRef<AbortController | null>(null);
+  const didMountServerPagingRef = useRef(false);
   const baseColumns = useMemo(() => normalizeColumns(columns, columnConfig), [columnConfig, columns]);
   const initialColumnOrder = useMemo(
     () => (columnOrder.length ? [...columnOrder] : baseColumns.map((column) => column.name)),
@@ -475,9 +476,15 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     params.set("filters", encodeGridFilters(viewState.filters));
     return params.toString();
   }, [viewState.filters, viewState.search, viewState.sorts]);
+  const requestKey = useMemo(
+    () => `${sourceId ?? ""}::${windowSize}::${queryString}`,
+    [queryString, sourceId, windowSize]
+  );
+  const [activeRequestKey, setActiveRequestKey] = useState(requestKey);
 
   useEffect(() => {
     if (!isServerPaged || !sourceId) return;
+    if (activeRequestKey !== requestKey) return;
     const virtualItems = rowVirtualizer.getVirtualItems();
     if (virtualItems.length === 0) return;
 
@@ -513,13 +520,18 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
       .finally(() => {
         if (!controller.signal.aborted) setLoadingWindow(false);
       });
-  }, [columns, effectiveTotalRows, isServerPaged, queryString, rowVirtualizer, serverOffset, serverRows.length, sourceId, windowSize]);
+  }, [activeRequestKey, columns, effectiveTotalRows, isServerPaged, queryString, requestKey, rowVirtualizer, serverOffset, serverRows.length, sourceId, windowSize]);
 
   useEffect(() => {
     if (!isServerPaged || !sourceId) return;
+    if (!didMountServerPagingRef.current) {
+      didMountServerPagingRef.current = true;
+      return;
+    }
     fetchAbortRef.current?.abort();
     const controller = new AbortController();
     fetchAbortRef.current = controller;
+    setActiveRequestKey("");
     setLoadingWindow(true);
     fetch(`/_fastlit/dataframe/${encodeURIComponent(sourceId)}?offset=0&limit=${windowSize}&format=arrow&${queryString}`, {
       signal: controller.signal,
@@ -537,9 +549,12 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
       })
       .catch(() => undefined)
       .finally(() => {
-        if (!controller.signal.aborted) setLoadingWindow(false);
+        if (!controller.signal.aborted) {
+          setActiveRequestKey(requestKey);
+          setLoadingWindow(false);
+        }
       });
-  }, [columns, isServerPaged, queryString, sourceId, windowSize]);
+  }, [columns, isServerPaged, queryString, requestKey, sourceId, windowSize]);
 
   const emitSelection = useCallback((payload: {
     rows?: number[];

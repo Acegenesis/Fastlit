@@ -14,7 +14,7 @@ const DIVIDER_COLORS: Record<string, string> = {
 };
 
 export const Header: React.FC<NodeComponentProps> = ({ props, nodeId }) => {
-  const resolved = useResolvedText(props.text, props._tpl, props._refs);
+  const resolved = useResolvedText(props.text, props._tpl, props._refs, props._exprs);
   const divider = props.divider;
   const help = props.help as string | undefined;
 
