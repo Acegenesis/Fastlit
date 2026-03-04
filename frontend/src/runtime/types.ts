@@ -53,7 +53,10 @@ export interface ErrorMessage {
 export interface RuntimeEventPayload {
   kind: "spinner";
   id: string;
-  text: string;
+  text?: string;
+  textTpl?: string;
+  textRefs?: Record<string, string>;
+  textExprs?: Record<string, any>;
   active: boolean;
 }
 

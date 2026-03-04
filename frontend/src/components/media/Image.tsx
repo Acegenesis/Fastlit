@@ -1,5 +1,6 @@
 import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
+import { useResolvedPropText } from "../../context/WidgetStore";
 
 interface ImageProps {
   src: string;
@@ -11,10 +12,10 @@ interface ImageProps {
 export const Image: React.FC<NodeComponentProps> = ({ props }) => {
   const {
     src,
-    caption,
     width,
     useContainerWidth = true,
   } = props as ImageProps;
+  const caption = useResolvedPropText(props, "caption");
 
   if (!src) {
     return (

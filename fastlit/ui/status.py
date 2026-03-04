@@ -30,8 +30,8 @@ def success(body: str, *, icon: str | None = None) -> None:
         "alert",
         {
             "type": "success",
-            "body": str(body),
-            "icon": icon or "✓",
+            **_live_text_props("body", body),
+            **_live_text_props("icon", icon or "\u2713"),
         },
     )
 
@@ -47,8 +47,8 @@ def info(body: str, *, icon: str | None = None) -> None:
         "alert",
         {
             "type": "info",
-            "body": str(body),
-            "icon": icon or "ℹ",
+            **_live_text_props("body", body),
+            **_live_text_props("icon", icon or "\u2139"),
         },
     )
 
@@ -64,8 +64,8 @@ def warning(body: str, *, icon: str | None = None) -> None:
         "alert",
         {
             "type": "warning",
-            "body": str(body),
-            "icon": icon or "⚠",
+            **_live_text_props("body", body),
+            **_live_text_props("icon", icon or "\u26a0"),
         },
     )
 
@@ -81,8 +81,8 @@ def error(body: str, *, icon: str | None = None) -> None:
         "alert",
         {
             "type": "error",
-            "body": str(body),
-            "icon": icon or "✕",
+            **_live_text_props("body", body),
+            **_live_text_props("icon", icon or "\u2715"),
         },
     )
 
@@ -106,7 +106,7 @@ def exception(exception: BaseException | None = None) -> None:
                 {
                     "type": "error",
                     "body": "No exception to display",
-                    "icon": "✕",
+                    "icon": "\u2715",
                 },
             )
             return
@@ -168,7 +168,7 @@ def progress(
 
 
 @contextmanager
-def spinner(text: str = "Loading...") -> Generator[None, None, None]:
+def spinner(text: Any = "Loading...") -> Generator[None, None, None]:
     """Display a spinner while executing code.
 
     Usage:
@@ -184,7 +184,7 @@ def spinner(text: str = "Loading...") -> Generator[None, None, None]:
         {
             "kind": "spinner",
             "id": spinner_id,
-            "text": text,
+            **_live_text_props("text", text),
             "active": True,
         }
     )
@@ -195,7 +195,7 @@ def spinner(text: str = "Loading...") -> Generator[None, None, None]:
             {
                 "kind": "spinner",
                 "id": spinner_id,
-                "text": text,
+                **_live_text_props("text", text),
                 "active": False,
             }
         )
@@ -203,7 +203,7 @@ def spinner(text: str = "Loading...") -> Generator[None, None, None]:
 
 @contextmanager
 def status(
-    label: str,
+    label: Any,
     *,
     expanded: bool = True,
     state: str = "running",
@@ -230,14 +230,14 @@ def status(
 class StatusContainer:
     """Container for status updates."""
 
-    def __init__(self, label: str, expanded: bool, state: str):
+    def __init__(self, label: Any, expanded: bool, state: str):
         self._label = label
         self._expanded = expanded
         self._state = state
         self._node = _emit_node(
             "status",
             {
-                "label": label,
+                **_live_text_props("label", label),
                 "expanded": expanded,
                 "state": state,
             },
@@ -246,7 +246,7 @@ class StatusContainer:
     def update(
         self,
         *,
-        label: str | None = None,
+        label: Any | None = None,
         expanded: bool | None = None,
         state: str | None = None,
     ) -> None:
@@ -259,7 +259,7 @@ class StatusContainer:
             self._state = state
 
         # Update node props
-        self._node.props["label"] = self._label
+        self._node.props.update(_live_text_props("label", self._label))
         self._node.props["expanded"] = self._expanded
         self._node.props["state"] = self._state
 
@@ -283,8 +283,8 @@ def toast(
     _emit_node(
         "toast",
         {
-            "body": str(body),
-            "icon": icon,
+            **_live_text_props("body", body),
+            **_live_text_props("icon", icon),
             "_ts": time.time(),
         },
     )

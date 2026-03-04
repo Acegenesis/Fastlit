@@ -1,6 +1,6 @@
 import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
-import { useWidgetValue } from "../../context/WidgetStore";
+import { useResolvedPropText, useWidgetValue } from "../../context/WidgetStore";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -9,7 +9,10 @@ export const TextInput: React.FC<NodeComponentProps> = ({
   props,
   sendEvent,
 }) => {
-  const { label, placeholder, maxChars, inputType, disabled, help, autocomplete } = props;
+  const { maxChars, inputType, disabled, autocomplete } = props;
+  const label = useResolvedPropText(props, "label");
+  const placeholder = useResolvedPropText(props, "placeholder");
+  const help = useResolvedPropText(props, "help");
   const [value, setValue] = useWidgetValue(nodeId, props.value ?? "");
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -1,16 +1,17 @@
 import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
 import { cn } from "../../lib/utils";
+import { useResolvedPropText } from "../../context/WidgetStore";
 
 export const PageLink: React.FC<NodeComponentProps> = ({ props }) => {
   const {
     page,
-    label,
-    icon,
-    help,
     disabled,
     useContainerWidth,
   } = props;
+  const label = useResolvedPropText(props, "label");
+  const icon = useResolvedPropText(props, "icon");
+  const help = useResolvedPropText(props, "help");
 
   const isExternal = page.startsWith("http://") || page.startsWith("https://");
 

@@ -8,6 +8,7 @@ from typing import Any, Callable, Sequence
 
 from fastlit.runtime.context import get_current_session
 from fastlit.ui.base import _emit_node
+from fastlit.ui.text import _live_text_list_props, _live_text_props
 from fastlit.ui.widget_value import WidgetValue
 
 
@@ -90,10 +91,10 @@ def button(
     node = _emit_node(
         "button",
         {
-            "label": label,
-            "help": help,
+            **_live_text_props("label", label),
+            **_live_text_props("help", help),
             "type": type,
-            "icon": icon,
+            **_live_text_props("icon", icon),
             "iconPosition": icon_position,
             "disabled": disabled,
             "width": actual_width,
@@ -186,13 +187,13 @@ def slider(
     node = _emit_node(
         "slider",
         {
-            "label": label,
+            **_live_text_props("label", label),
             "min": min_value,
             "max": max_value,
             "value": send_value,
             "step": step,
             "format": format,
-            "help": help,
+            **_live_text_props("help", help),
             "disabled": disabled,
             "labelVisibility": label_visibility,
             "width": width,
@@ -275,12 +276,12 @@ def text_input(
     node = _emit_node(
         "text_input",
         {
-            "label": label,
+            **_live_text_props("label", label),
             "value": value,
-            "placeholder": placeholder or "",
+            **_live_text_props("placeholder", placeholder or ""),
             "maxChars": max_chars,
             "inputType": type,
-            "help": help,
+            **_live_text_props("help", help),
             "autocomplete": autocomplete,
             "disabled": disabled,
             "labelVisibility": label_visibility,
@@ -340,12 +341,12 @@ def text_area(
     node = _emit_node(
         "text_area",
         {
-            "label": label,
+            **_live_text_props("label", label),
             "value": value,
             "height": height,
-            "placeholder": placeholder or "",
+            **_live_text_props("placeholder", placeholder or ""),
             "maxChars": max_chars,
-            "help": help,
+            **_live_text_props("help", help),
             "disabled": disabled,
             "labelVisibility": label_visibility,
             "width": width,
@@ -397,9 +398,9 @@ def checkbox(
     node = _emit_node(
         "checkbox",
         {
-            "label": label,
+            **_live_text_props("label", label),
             "value": value,
-            "help": help,
+            **_live_text_props("help", help),
             "disabled": disabled,
             "labelVisibility": label_visibility,
             "width": width,
@@ -463,11 +464,11 @@ def selectbox(
     node = _emit_node(
         "selectbox",
         {
-            "label": label,
-            "options": display_labels,
+            **_live_text_props("label", label),
+            **_live_text_list_props("options", display_labels),
             "index": index,
-            "placeholder": placeholder,
-            "help": help,
+            **_live_text_props("placeholder", placeholder),
+            **_live_text_props("help", help),
             "disabled": disabled,
             "labelVisibility": label_visibility,
             "acceptNewOptions": accept_new_options,
@@ -537,12 +538,12 @@ def radio(
     node = _emit_node(
         "radio",
         {
-            "label": label,
-            "options": display_labels,
+            **_live_text_props("label", label),
+            **_live_text_list_props("options", display_labels),
             "index": index,
             "horizontal": horizontal,
-            "captions": list(captions) if captions else None,
-            "help": help,
+            **_live_text_list_props("captions", list(captions) if captions else None),
+            **_live_text_props("help", help),
             "disabled": disabled,
             "labelVisibility": label_visibility,
             "width": width,
@@ -622,17 +623,17 @@ def number_input(
     node = _emit_node(
         "number_input",
         {
-            "label": label,
+            **_live_text_props("label", label),
             "min": min_value,
             "max": max_value,
             "value": value,
             "step": step,
             "format": format,
-            "placeholder": placeholder,
-            "help": help,
+            **_live_text_props("placeholder", placeholder),
+            **_live_text_props("help", help),
             "disabled": disabled,
             "labelVisibility": label_visibility,
-            "icon": icon,
+            **_live_text_props("icon", icon),
             "width": width,
         },
         key=key,
@@ -708,12 +709,12 @@ def multiselect(
     node = _emit_node(
         "multiselect",
         {
-            "label": label,
-            "options": display_labels,
+            **_live_text_props("label", label),
+            **_live_text_list_props("options", display_labels),
             "defaultValues": default_values,
             "maxSelections": max_selections,
-            "placeholder": placeholder or "Select...",
-            "help": help,
+            **_live_text_props("placeholder", placeholder or "Select..."),
+            **_live_text_props("help", help),
             "disabled": disabled,
             "labelVisibility": label_visibility,
             "acceptNewOptions": accept_new_options,
@@ -810,13 +811,13 @@ def date_input(
     node = _emit_node(
         "date_input",
         {
-            "label": label,
+            **_live_text_props("label", label),
             "value": value_str,
             "isRange": is_range,
             "min": min_value.isoformat() if min_value else None,
             "max": max_value.isoformat() if max_value else None,
             "format": format,
-            "help": help,
+            **_live_text_props("help", help),
             "disabled": disabled,
             "labelVisibility": label_visibility,
             "width": width,
@@ -899,10 +900,10 @@ def time_input(
     node = _emit_node(
         "time_input",
         {
-            "label": label,
+            **_live_text_props("label", label),
             "value": value_str,
             "step": step,
-            "help": help,
+            **_live_text_props("help", help),
             "disabled": disabled,
             "labelVisibility": label_visibility,
             "width": width,
@@ -963,9 +964,9 @@ def toggle(
     node = _emit_node(
         "toggle",
         {
-            "label": label,
+            **_live_text_props("label", label),
             "value": value,
-            "help": help,
+            **_live_text_props("help", help),
             "disabled": disabled,
             "labelVisibility": label_visibility,
             "width": width,
@@ -1022,9 +1023,9 @@ def color_picker(
     node = _emit_node(
         "color_picker",
         {
-            "label": label,
+            **_live_text_props("label", label),
             "value": value,
-            "help": help,
+            **_live_text_props("help", help),
             "disabled": disabled,
             "labelVisibility": label_visibility,
             "width": width,
@@ -1068,11 +1069,11 @@ def link_button(
     _emit_node(
         "link_button",
         {
-            "label": label,
+            **_live_text_props("label", label),
             "url": url,
-            "help": help,
+            **_live_text_props("help", help),
             "type": type,
-            "icon": icon,
+            **_live_text_props("icon", icon),
             "disabled": disabled,
             "useContainerWidth": use_container_width,
         },
@@ -1106,9 +1107,9 @@ def page_link(
         "page_link",
         {
             "page": page,
-            "label": label or page,
-            "icon": icon,
-            "help": help,
+            **_live_text_props("label", label or page),
+            **_live_text_props("icon", icon),
+            **_live_text_props("help", help),
             "disabled": disabled,
             "useContainerWidth": use_container_width,
         },
@@ -1178,13 +1179,13 @@ def download_button(
     node = _emit_node(
         "download_button",
         {
-            "label": label,
+            **_live_text_props("label", label),
             "data": b64_data,
             "fileName": file_name or "download",
             "mime": mime,
-            "help": help,
+            **_live_text_props("help", help),
             "type": type,
-            "icon": icon,
+            **_live_text_props("icon", icon),
             "disabled": disabled,
             "useContainerWidth": use_container_width,
         },
@@ -1261,11 +1262,11 @@ def select_slider(
     node = _emit_node(
         "select_slider",
         {
-            "label": label,
-            "options": display_labels,
+            **_live_text_props("label", label),
+            **_live_text_list_props("options", display_labels),
             "value": default_indices,
             "isRange": is_range,
-            "help": help,
+            **_live_text_props("help", help),
             "disabled": disabled,
             "labelVisibility": label_visibility,
             "width": width,
@@ -1347,11 +1348,11 @@ def file_uploader(
     node = _emit_node(
         "file_uploader",
         {
-            "label": label,
+            **_live_text_props("label", label),
             "allowedTypes": allowed_types,
             "acceptMultiple": accept_multiple_files,
             "maxSizeBytes": max_size_bytes,
-            "help": help,
+            **_live_text_props("help", help),
             "disabled": disabled,
             "labelVisibility": label_visibility,
             "width": width,
@@ -1584,11 +1585,11 @@ def pills(
     node = _emit_node(
         "pills",
         {
-            "label": label,
-            "options": display_labels,
+            **_live_text_props("label", label),
+            **_live_text_list_props("options", display_labels),
             "selectionMode": selection_mode,
             "defaultIndices": default_indices,
-            "help": help,
+            **_live_text_props("help", help),
             "disabled": disabled,
             "labelVisibility": label_visibility,
         },
@@ -1664,11 +1665,11 @@ def segmented_control(
     node = _emit_node(
         "segmented_control",
         {
-            "label": label,
-            "options": display_labels,
+            **_live_text_props("label", label),
+            **_live_text_list_props("options", display_labels),
             "selectionMode": selection_mode,
             "defaultIndex": default_idx,
-            "help": help,
+            **_live_text_props("help", help),
             "disabled": disabled,
             "labelVisibility": label_visibility,
         },
@@ -1722,8 +1723,8 @@ def camera_input(
     node = _emit_node(
         "camera_input",
         {
-            "label": label,
-            "help": help,
+            **_live_text_props("label", label),
+            **_live_text_props("help", help),
             "disabled": disabled,
             "labelVisibility": label_visibility,
         },
@@ -1779,8 +1780,8 @@ def audio_input(
     node = _emit_node(
         "audio_input",
         {
-            "label": label,
-            "help": help,
+            **_live_text_props("label", label),
+            **_live_text_props("help", help),
             "disabled": disabled,
             "labelVisibility": label_visibility,
         },

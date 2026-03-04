@@ -8,7 +8,7 @@ import math
 import re
 from dataclasses import asdict, is_dataclass
 from decimal import Decimal
-from typing import Any
+from typing import Any, Sequence
 
 from fastlit.ui.base import _emit_node
 from fastlit.ui.widget_value import (
@@ -90,7 +90,7 @@ def title(
     """
     props = _process_text(str(body))
     props["anchor"] = anchor
-    props["help"] = help
+    props.update(_live_text_props("help", help))
     props["width"] = width
     props["textAlignment"] = text_alignment
     _emit_node("title", props)
@@ -119,7 +119,7 @@ def header(
     props = _process_text(str(body))
     props["anchor"] = anchor
     props["divider"] = divider
-    props["help"] = help
+    props.update(_live_text_props("help", help))
     props["width"] = width
     props["textAlignment"] = text_alignment
     _emit_node("header", props)
@@ -148,7 +148,7 @@ def subheader(
     props = _process_text(str(body))
     props["anchor"] = anchor
     props["divider"] = divider
-    props["help"] = help
+    props.update(_live_text_props("help", help))
     props["width"] = width
     props["textAlignment"] = text_alignment
     _emit_node("subheader", props)
@@ -174,7 +174,7 @@ def markdown(
     """
     props = _process_text(str(body))
     props["unsafeAllowHtml"] = unsafe_allow_html
-    props["help"] = help
+    props.update(_live_text_props("help", help))
     props["width"] = width
     props["textAlignment"] = text_alignment
     _emit_node("markdown", props)
@@ -271,7 +271,7 @@ def text(
         text_alignment: Horizontal alignment - "left" (default), "center", "right", or "justify".
     """
     props = _process_text(str(body))
-    props["help"] = help
+    props.update(_live_text_props("help", help))
     props["width"] = width
     props["textAlignment"] = text_alignment
     _emit_node("text", props)
@@ -594,8 +594,10 @@ def _format_metric_value_live(value: Any, fmt: str | None) -> str:
     return _format_metric_value(value, fmt)
 
 
-def _live_text_props(prefix: str, raw: str) -> dict[str, Any]:
-    processed = _process_text(raw)
+def _live_text_props(prefix: str, raw: Any) -> dict[str, Any]:
+    if raw is None:
+        return {prefix: None}
+    processed = _process_text(str(raw))
     props: dict[str, Any] = {prefix: processed.get("text", raw)}
     if "_tpl" in processed:
         props[f"{prefix}Tpl"] = processed["_tpl"]
@@ -603,6 +605,47 @@ def _live_text_props(prefix: str, raw: str) -> dict[str, Any]:
         props[f"{prefix}Refs"] = processed["_refs"]
     if "_exprs" in processed:
         props[f"{prefix}Exprs"] = processed["_exprs"]
+    return props
+
+
+def _live_text_list_props(prefix: str, values: Sequence[Any] | None) -> dict[str, Any]:
+    if values is None:
+        return {prefix: None}
+
+    clean_values: list[Any] = []
+    tpls: list[str | None] = []
+    refs_list: list[dict[str, str] | None] = []
+    exprs_list: list[dict[str, Any] | None] = []
+    has_tpls = False
+    has_refs = False
+    has_exprs = False
+
+    for value in values:
+        if value is None:
+            clean_values.append(None)
+            tpls.append(None)
+            refs_list.append(None)
+            exprs_list.append(None)
+            continue
+        processed = _process_text(str(value))
+        clean_values.append(processed.get("text", str(value)))
+        tpl = processed.get("_tpl")
+        refs = processed.get("_refs")
+        exprs = processed.get("_exprs")
+        tpls.append(tpl)
+        refs_list.append(refs)
+        exprs_list.append(exprs)
+        has_tpls = has_tpls or tpl is not None
+        has_refs = has_refs or refs is not None
+        has_exprs = has_exprs or exprs is not None
+
+    props: dict[str, Any] = {prefix: clean_values}
+    if has_tpls:
+        props[f"{prefix}Tpls"] = tpls
+    if has_refs:
+        props[f"{prefix}RefsList"] = refs_list
+    if has_exprs:
+        props[f"{prefix}ExprsList"] = exprs_list
     return props
 
 
@@ -723,7 +766,7 @@ def caption(
         text_alignment: Horizontal alignment - "left" (default), "center", "right", or "justify".
     """
     props = _process_text(str(body))
-    props["help"] = help
+    props.update(_live_text_props("help", help))
     props["unsafeAllowHtml"] = unsafe_allow_html
     props["width"] = width
     props["textAlignment"] = text_alignment
@@ -757,7 +800,7 @@ def latex(
         "latex",
         {
             "text": str(body),
-            "help": help,
+            **_live_text_props("help", help),
             "width": width,
         },
     )

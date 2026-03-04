@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import type { NodeComponentProps } from "../../registry/registry";
-import { useWidgetValue } from "../../context/WidgetStore";
+import { useResolvedPropText, useResolvedTextList, useWidgetValue } from "../../context/WidgetStore";
 import { cn } from "../../lib/utils";
 
 export const Multiselect: React.FC<NodeComponentProps> = ({
@@ -9,15 +9,15 @@ export const Multiselect: React.FC<NodeComponentProps> = ({
   sendEvent,
 }) => {
   const {
-    label,
-    options = [],
     defaultValues = [],
     maxSelections,
-    placeholder = "Select...",
     disabled,
-    help,
     labelVisibility,
   } = props;
+  const label = useResolvedPropText(props, "label");
+  const placeholder = useResolvedPropText(props, "placeholder", "Select...");
+  const help = useResolvedPropText(props, "help");
+  const options = useResolvedTextList((props.options as string[]) ?? [], props.optionsTpls, props.optionsRefsList, props.optionsExprsList);
 
   // Store actual values (strings) instead of indices for real-time text interpolation
   const [selectedValues, setSelectedValues] = useWidgetValue(

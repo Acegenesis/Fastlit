@@ -7,6 +7,7 @@ from typing import Any, Callable
 from fastlit.runtime.context import get_current_session
 from fastlit.runtime.tree import UINode
 from fastlit.ui.base import _emit_node, _make_id
+from fastlit.ui.text import _live_text_props
 
 
 class ChatMessage:
@@ -76,8 +77,8 @@ def chat_message(
         type="chat_message",
         id=msg_id,
         props={
-            "name": name,
-            "avatar": avatar,
+            **_live_text_props("name", name),
+            **_live_text_props("avatar", avatar),
         },
     )
     return ChatMessage(node)
@@ -112,7 +113,7 @@ def chat_input(
     node = _emit_node(
         "chat_input",
         {
-            "placeholder": placeholder,
+            **_live_text_props("placeholder", placeholder),
             "maxChars": max_chars,
             "disabled": disabled,
         },

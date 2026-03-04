@@ -1,8 +1,10 @@
 import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
+import { useResolvedPropText } from "../../context/WidgetStore";
 
 export const Spinner: React.FC<NodeComponentProps> = ({ props }) => {
-  const { text = "Loading...", active = true } = props;
+  const { active = true } = props;
+  const text = useResolvedPropText(props, "text", "Loading...");
 
   if (!active) return null;
 

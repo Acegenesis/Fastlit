@@ -15,6 +15,7 @@ import { buildCsv, defaultCsvFileName, encodeGridFilters, encodeGridSorts, trigg
 import { useGridVirtualRows } from "./grid/useGridVirtualRows";
 import type { GridColumn, GridPinned, GridResolvedColumn, GridRowModel } from "./grid/types";
 import { cn } from "@/lib/utils";
+import { useResolvedPropText } from "../../context/WidgetStore";
 
 const DEFAULT_ROW_HEIGHT = 48;
 const HEADER_HEIGHT = 48;
@@ -88,6 +89,8 @@ interface DataFrameProps {
   rowHeight?: number;
   placeholder?: string;
   toolbar?: boolean;
+  showSearch?: boolean;
+  showFilters?: boolean;
   downloadable?: boolean;
   persistView?: boolean;
 }
@@ -332,11 +335,13 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     indexLabel,
     columnOrder = [],
     rowHeight,
-    placeholder,
     toolbar = !isStatic,
+    showSearch = true,
+    showFilters = true,
     downloadable = !isStatic,
     persistView = true,
   } = props as DataFrameProps;
+  const resolvedPlaceholder = useResolvedPropText(props as Record<string, any>, "placeholder");
 
   const decodedPreview = useMemo(() => {
     if (!arrowData) return null;
@@ -382,6 +387,8 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     enabled: !!persistView,
     initialColumnOrder,
   });
+  const effectiveSearch = showSearch ? viewState.search : "";
+  const effectiveFilters = showFilters ? viewState.filters : [];
 
   const selectionModes = useMemo(() => normalizeSelectionModes(selectionMode), [selectionMode]);
   const rowSelectionMode = selectionModes.find((mode) => ROW_SELECTION_MODES.has(mode));
@@ -433,9 +440,9 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
 
   const filteredLocalRows = useMemo(() => {
     if (isServerPaged) return currentWindowModels;
-    const searched = applyGridSearchAndFilters(baseRowModels, viewState.search, viewState.filters, columnIndexMap);
+    const searched = applyGridSearchAndFilters(baseRowModels, effectiveSearch, effectiveFilters, columnIndexMap);
     return applyGridSorts(searched, viewState.sorts, columnIndexMap);
-  }, [baseRowModels, columnIndexMap, currentWindowModels, isServerPaged, viewState.filters, viewState.search, viewState.sorts]);
+  }, [baseRowModels, columnIndexMap, currentWindowModels, effectiveFilters, effectiveSearch, isServerPaged, viewState.sorts]);
 
   const displayRows = isServerPaged ? currentWindowModels : filteredLocalRows;
   const effectiveTotalRows = isServerPaged ? serverTotalRows : displayRows.length;
@@ -471,11 +478,11 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
 
   const queryString = useMemo(() => {
     const params = new URLSearchParams();
-    params.set("search", viewState.search);
+    params.set("search", effectiveSearch);
     params.set("sort", encodeGridSorts(viewState.sorts));
-    params.set("filters", encodeGridFilters(viewState.filters));
+    params.set("filters", encodeGridFilters(effectiveFilters));
     return params.toString();
-  }, [viewState.filters, viewState.search, viewState.sorts]);
+  }, [effectiveFilters, effectiveSearch, viewState.sorts]);
   const requestKey = useMemo(
     () => `${sourceId ?? ""}::${windowSize}::${queryString}`,
     [queryString, sourceId, windowSize]
@@ -770,7 +777,7 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
   }, [columns, displayRows, isServerPaged, isStatic, queryString, resolvedColumns, serverTotalRows, sourceId]);
 
   if (!resolvedColumns.length) {
-    return <GridEmptyState message={isStatic ? "Empty table" : "Empty DataFrame"} />;
+    return <GridEmptyState message={resolvedPlaceholder || (isStatic ? "Empty table" : "Empty DataFrame")} />;
   }
 
   const contentWidth = totalWidth + (selectionColumnVisible ? SELECTION_WIDTH : 0) + readOnlyIndexColumn(hasIndex);
@@ -839,7 +846,7 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
                 toggleRowSelection(row.originalPosition);
               }}
             >
-              {renderGridCell(column, row.cells[column.originalIndex], row.cells, resolvedColumns, { compact: true, placeholder })}
+              {renderGridCell(column, row.cells[column.originalIndex], row.cells, resolvedColumns, { compact: true, placeholder: resolvedPlaceholder })}
             </div>
           );
         })}
@@ -854,6 +861,8 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
           columns={baseColumns}
           viewState={viewState}
           downloadable={downloadable}
+          showSearch={showSearch}
+          showFilters={showFilters}
           onSearchChange={(value) => updateViewState((current) => ({ ...current, search: value }))}
           onReset={resetViewState}
           onDownload={downloadable ? handleDownload : undefined}

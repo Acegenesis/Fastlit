@@ -1,12 +1,15 @@
 import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
+import { useResolvedPropText } from "../../context/WidgetStore";
 
 export const FormSubmitButton: React.FC<NodeComponentProps> = ({
   nodeId,
   props,
   sendEvent,
 }) => {
-  const { label, disabled, type: btnType, useContainerWidth, help } = props;
+  const { disabled, type: btnType, useContainerWidth } = props;
+  const label = useResolvedPropText(props, "label");
+  const help = useResolvedPropText(props, "help");
 
   const handleClick = () => {
     if (disabled) return;

@@ -1,6 +1,6 @@
 import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
-import { useWidgetValue } from "../../context/WidgetStore";
+import { useResolvedPropText, useResolvedTextList, useWidgetValue } from "../../context/WidgetStore";
 import {
   Select,
   SelectContent,
@@ -15,8 +15,11 @@ export const Selectbox: React.FC<NodeComponentProps> = ({
   props,
   sendEvent,
 }) => {
-  const { label, options, disabled, help, placeholder } = props;
-  const opts = options as string[];
+  const { options, disabled } = props;
+  const label = useResolvedPropText(props, "label");
+  const help = useResolvedPropText(props, "help");
+  const placeholder = useResolvedPropText(props, "placeholder");
+  const opts = useResolvedTextList((options as string[]) ?? [], props.optionsTpls, props.optionsRefsList, props.optionsExprsList);
   const [value, setValue] = useWidgetValue(nodeId, opts[props.index ?? 0] ?? "");
   const currentIndex = Math.max(0, opts.indexOf(value));
 

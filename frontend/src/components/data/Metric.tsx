@@ -2,7 +2,7 @@ import React, { useId, useMemo } from "react";
 import DOMPurify from "dompurify";
 import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 import type { NodeComponentProps } from "../../registry/registry";
-import { LiveExpression, useResolvedText, useResolvedValue } from "../../context/WidgetStore";
+import { LiveExpression, useResolvedPropText, useResolvedText, useResolvedValue } from "../../context/WidgetStore";
 import { cn } from "@/lib/utils";
 
 interface MetricProps {
@@ -247,6 +247,7 @@ export const Metric: React.FC<NodeComponentProps> = ({ props }) => {
   const hasDelta = delta !== null && delta !== undefined && delta !== "";
   const resolvedDelta = useResolvedText(delta ?? "", deltaTpl, deltaRefs, deltaExprs);
   const resolvedDeltaColor = useResolvedValue(deltaColor, deltaColorLive);
+  const resolvedHelp = useResolvedPropText(props as Record<string, any>, "help");
   const deltaText = hasDelta ? resolvedDelta : null;
   const deltaNumber = useMemo(() => parseNumericDelta(deltaText), [deltaText]);
   const deltaDirection = deltaArrow === "auto"
@@ -271,7 +272,7 @@ export const Metric: React.FC<NodeComponentProps> = ({ props }) => {
         border ? "border border-slate-200" : "border border-transparent"
       )}
       style={resolveBoxStyle(width, height)}
-      title={help || undefined}
+      title={resolvedHelp || undefined}
     >
       {labelVisibility !== "collapsed" ? (
         <div className={cn("text-sm font-medium text-slate-500", labelVisibility === "hidden" && "invisible")}>

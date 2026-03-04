@@ -1,6 +1,6 @@
 import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
-import { useWidgetValue } from "../../context/WidgetStore";
+import { useResolvedPropText, useWidgetValue } from "../../context/WidgetStore";
 import { cn } from "../../lib/utils";
 
 export const TimeInput: React.FC<NodeComponentProps> = ({
@@ -9,12 +9,12 @@ export const TimeInput: React.FC<NodeComponentProps> = ({
   sendEvent,
 }) => {
   const {
-    label,
     step = 900, // 15 minutes in seconds
     disabled,
-    help,
     labelVisibility,
   } = props;
+  const label = useResolvedPropText(props, "label");
+  const help = useResolvedPropText(props, "help");
 
   const [value, setValue] = useWidgetValue(nodeId, props.value || "00:00");
 

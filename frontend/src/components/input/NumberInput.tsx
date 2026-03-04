@@ -1,6 +1,6 @@
 import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
-import { useWidgetValue } from "../../context/WidgetStore";
+import { useResolvedPropText, useWidgetValue } from "../../context/WidgetStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,7 +11,10 @@ export const NumberInput: React.FC<NodeComponentProps> = ({
   props,
   sendEvent,
 }) => {
-  const { label, min, max, step, disabled, help, placeholder } = props;
+  const { min, max, step, disabled } = props;
+  const label = useResolvedPropText(props, "label");
+  const help = useResolvedPropText(props, "help");
+  const placeholder = useResolvedPropText(props, "placeholder");
   const [value, setValue] = useWidgetValue(nodeId, props.value ?? 0);
 
   const clamp = (val: number) => {

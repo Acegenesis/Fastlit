@@ -1,6 +1,6 @@
 import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
-import { useWidgetValue } from "../../context/WidgetStore";
+import { useResolvedPropText, useWidgetValue } from "../../context/WidgetStore";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -10,7 +10,9 @@ export const Toggle: React.FC<NodeComponentProps> = ({
   props,
   sendEvent,
 }) => {
-  const { label, disabled, help, labelVisibility } = props;
+  const { disabled, labelVisibility } = props;
+  const label = useResolvedPropText(props, "label");
+  const help = useResolvedPropText(props, "help");
 
   const [checked, setChecked] = useWidgetValue(nodeId, !!props.value);
 

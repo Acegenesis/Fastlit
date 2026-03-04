@@ -7,6 +7,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { useResolvedPropText } from "../../context/WidgetStore";
 
 const WIDTH_MAP: Record<string, string> = {
   small: "max-w-lg",
@@ -20,7 +21,8 @@ export const Dialog: React.FC<NodeComponentProps> = ({
   children,
   sendEvent,
 }) => {
-  const { title, width, dismissible } = props;
+  const { width, dismissible } = props;
+  const title = useResolvedPropText(props, "title");
   const [open, setOpen] = useState(true);
   const prevNodeIdRef = useRef(nodeId);
 

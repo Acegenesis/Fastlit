@@ -25,6 +25,7 @@ import { buildCsv, defaultCsvFileName, normalizeListLikeValue, safeJsonStringify
 import { useGridVirtualRows } from "./grid/useGridVirtualRows";
 import type { GridColumn, GridResolvedColumn, GridRowModel } from "./grid/types";
 import { cn } from "@/lib/utils";
+import { useResolvedPropText } from "../../context/WidgetStore";
 
 interface Column {
   name: string;
@@ -74,6 +75,8 @@ interface DataEditorProps {
   rowHeight?: number;
   placeholder?: string;
   toolbar?: boolean;
+  showSearch?: boolean;
+  showFilters?: boolean;
   downloadable?: boolean;
   persistView?: boolean;
 }
@@ -993,11 +996,13 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
     totalRows,
     truncated = false,
     rowHeight,
-    placeholder,
     toolbar = true,
+    showSearch = true,
+    showFilters = true,
     downloadable = true,
     persistView = true,
   } = props as DataEditorProps;
+  const resolvedPlaceholder = useResolvedPropText(props as Record<string, any>, "placeholder");
 
   const parentRef = useRef<HTMLDivElement>(null);
   const headerScrollRef = useRef<HTMLDivElement>(null);
@@ -1017,6 +1022,8 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
     enabled: !!persistView,
     initialColumnOrder,
   });
+  const effectiveSearch = showSearch ? viewState.search : "";
+  const effectiveFilters = showFilters ? viewState.filters : [];
 
   const [localRows, setLocalRows] = useState<GridRowModel[]>(() => normalizeRows(rows, index));
   const [localIndex, setLocalIndex] = useState<any[]>(() => (Array.isArray(index) ? [...index] : []));
@@ -1046,9 +1053,9 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
   });
 
   const displayRows = useMemo(() => {
-    const searched = applyGridSearchAndFilters(localRows, viewState.search, viewState.filters, columnIndexMap);
+    const searched = applyGridSearchAndFilters(localRows, effectiveSearch, effectiveFilters, columnIndexMap);
     return applyGridSorts(searched, viewState.sorts, columnIndexMap);
-  }, [columnIndexMap, localRows, viewState.filters, viewState.search, viewState.sorts]);
+  }, [columnIndexMap, effectiveFilters, effectiveSearch, localRows, viewState.sorts]);
 
   const containerHeight = resolveGridHeight(height, Math.max(displayRows.length, 1), effectiveRowHeight, toolbar);
   const rowVirtualizer = useGridVirtualRows({ rowCount: displayRows.length, parentRef, rowHeight: effectiveRowHeight });
@@ -1490,7 +1497,7 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
   }, [clearLiveCommitTimer, commitDraft, disabledColumns, draftValues, editable, resolvedColumns, rerunOnChange, scheduleLiveCommit, updateCell]);
 
   if (!resolvedColumns.length) {
-    return <GridEmptyState message={placeholder || "Empty editor"} />;
+    return <GridEmptyState message={resolvedPlaceholder || "Empty editor"} />;
   }
 
   const renderRow = (row: GridRowModel, rowIndex: number, layoutStyle?: React.CSSProperties) => {
@@ -1543,6 +1550,8 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
           columns={baseColumns}
           viewState={viewState}
           downloadable={downloadable}
+          showSearch={showSearch}
+          showFilters={showFilters}
           onSearchChange={(value) => updateViewState((current) => ({ ...current, search: value }))}
           onReset={resetViewState}
           onDownload={downloadable ? handleDownload : undefined}
@@ -1606,7 +1615,7 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
 
       {!displayRows.length ? (
         <div className="p-4">
-          <GridEmptyState message={placeholder || "No rows match the current view."} />
+          <GridEmptyState message={resolvedPlaceholder || "No rows match the current view."} />
         </div>
       ) : (
         <div

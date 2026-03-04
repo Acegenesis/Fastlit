@@ -11,7 +11,7 @@ import { applyPatch } from "./runtime/patcher";
 import { applyPatchAsync } from "./runtime/patchWorkerClient";
 import { NodeRenderer } from "./registry/NodeRenderer";
 import { prefetchLikelyChunks } from "./registry/registry";
-import { WidgetStoreProvider, WidgetStoreImpl } from "./context/WidgetStore";
+import { WidgetStoreProvider, WidgetStoreImpl, useResolvedPropText } from "./context/WidgetStore";
 import { SidebarContext } from "./context/SidebarContext";
 import { Toaster } from "@/components/ui/sonner";
 import { PageSkeleton } from "./components/layout/PageSkeleton";
@@ -131,6 +131,20 @@ function collectIds(node: UINode): Set<string> {
   return ids;
 }
 
+const RuntimeSpinnerItem: React.FC<{ event: RuntimeEventPayload }> = ({ event }) => {
+  const text = useResolvedPropText(event as Record<string, any>, "text", "Loading...");
+
+  return (
+    <div className="flex items-center gap-3 rounded-md border bg-white px-3 py-2 shadow-sm">
+      <div className="relative">
+        <div className="w-5 h-5 border-2 border-gray-200 rounded-full" />
+        <div className="absolute inset-0 w-5 h-5 border-2 border-blue-500 rounded-full border-t-transparent animate-spin" />
+      </div>
+      <span className="text-gray-700 text-sm">{text}</span>
+    </div>
+  );
+};
+
 export const App: React.FC = () => {
   const [tree, setTree] = useState<UINode | null>(null);
   const [error, setError] = useState<ErrorMessage | null>(null);
@@ -138,7 +152,7 @@ export const App: React.FC = () => {
   const [isNavigating, setIsNavigating] = useState(false);
   const [enableSidebarTransition, setEnableSidebarTransition] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [runtimeSpinners, setRuntimeSpinners] = useState<Map<string, string>>(new Map());
+  const [runtimeSpinners, setRuntimeSpinners] = useState<Map<string, RuntimeEventPayload>>(new Map());
   const wsRef = useRef<FastlitWS | null>(null);
   const storeRef = useRef(new WidgetStoreImpl());
 
@@ -541,7 +555,7 @@ export const App: React.FC = () => {
       if (event.kind !== "spinner") return;
       setRuntimeSpinners((prev) => {
         const next = new Map(prev);
-        if (event.active) next.set(event.id, event.text || "Loading...");
+        if (event.active) next.set(event.id, event);
         else next.delete(event.id);
         return next;
       });
@@ -726,17 +740,8 @@ export const App: React.FC = () => {
         <Toaster position="bottom-right" />
         {runtimeSpinners.size > 0 && (
           <div className="fixed top-3 right-3 z-50 flex flex-col gap-2">
-            {Array.from(runtimeSpinners.entries()).map(([id, text]) => (
-              <div
-                key={id}
-                className="flex items-center gap-3 rounded-md border bg-white px-3 py-2 shadow-sm"
-              >
-                <div className="relative">
-                  <div className="w-5 h-5 border-2 border-gray-200 rounded-full" />
-                  <div className="absolute inset-0 w-5 h-5 border-2 border-blue-500 rounded-full border-t-transparent animate-spin" />
-                </div>
-                <span className="text-gray-700 text-sm">{text}</span>
-              </div>
+            {Array.from(runtimeSpinners.entries()).map(([id, event]) => (
+              <RuntimeSpinnerItem key={id} event={event} />
             ))}
           </div>
         )}

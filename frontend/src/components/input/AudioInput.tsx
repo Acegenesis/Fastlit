@@ -1,13 +1,16 @@
 import React, { useRef, useState, useCallback } from "react";
 import type { NodeComponentProps } from "../../registry/registry";
 import { Label } from "@/components/ui/label";
+import { useResolvedPropText } from "../../context/WidgetStore";
 
 export const AudioInput: React.FC<NodeComponentProps> = ({
   nodeId,
   props,
   sendEvent,
 }) => {
-  const { label, help, disabled, labelVisibility } = props;
+  const { disabled, labelVisibility } = props;
+  const label = useResolvedPropText(props, "label");
+  const help = useResolvedPropText(props, "help");
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const [recording, setRecording] = useState(false);

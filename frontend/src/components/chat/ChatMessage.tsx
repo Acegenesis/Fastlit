@@ -1,20 +1,23 @@
 import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
+import { useResolvedPropText } from "../../context/WidgetStore";
 
 const defaultAvatars: Record<string, string> = {
-  user: "👤",
-  human: "👤",
-  assistant: "🤖",
-  ai: "🤖",
+  user: "\u{1F464}",
+  human: "\u{1F464}",
+  assistant: "\u{1F916}",
+  ai: "\u{1F916}",
 };
 
 export const ChatMessage: React.FC<NodeComponentProps> = ({
   props,
   children,
 }) => {
-  const { name, avatar } = props;
-  const displayAvatar = avatar || defaultAvatars[name?.toLowerCase()] || "💬";
-  const isUser = name?.toLowerCase() === "user" || name?.toLowerCase() === "human";
+  const name = useResolvedPropText(props, "name");
+  const avatar = useResolvedPropText(props, "avatar");
+  const normalizedName = name?.toLowerCase() || "";
+  const displayAvatar = avatar || defaultAvatars[normalizedName] || "\u{1F4AC}";
+  const isUser = normalizedName === "user" || normalizedName === "human";
 
   return (
     <div
@@ -25,9 +28,7 @@ export const ChatMessage: React.FC<NodeComponentProps> = ({
       </div>
       <div
         className={`flex-1 rounded-lg px-4 py-2 ${
-          isUser
-            ? "bg-primary/10 ml-12"
-            : "bg-muted mr-12"
+          isUser ? "bg-primary/10 ml-12" : "bg-muted mr-12"
         }`}
       >
         {children}

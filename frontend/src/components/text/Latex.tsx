@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { NodeComponentProps } from "../../registry/registry";
 import { loadKatex } from "../../utils/katexLoader";
+import { useResolvedPropText } from "../../context/WidgetStore";
 
 export const Latex: React.FC<NodeComponentProps> = ({ props }) => {
-  const { text, help } = props;
+  const { text } = props;
+  const help = useResolvedPropText(props, "help");
   const [katexModule, setKatexModule] = useState<Awaited<ReturnType<typeof loadKatex>> | null>(
     null
   );

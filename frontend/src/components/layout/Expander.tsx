@@ -7,12 +7,15 @@ import {
 } from "@/components/ui/collapsible";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useResolvedPropText } from "../../context/WidgetStore";
 
 export const Expander: React.FC<NodeComponentProps> = ({
   props,
   children,
 }) => {
-  const { label, expanded: defaultExpanded, icon } = props;
+  const { expanded: defaultExpanded } = props;
+  const label = useResolvedPropText(props, "label");
+  const icon = useResolvedPropText(props, "icon");
   const [open, setOpen] = useState<boolean>(!!defaultExpanded);
 
   return (

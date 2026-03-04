@@ -1,6 +1,7 @@
 import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
 import { cn } from "../../lib/utils";
+import { useResolvedPropText } from "../../context/WidgetStore";
 
 export const DownloadButton: React.FC<NodeComponentProps> = ({
   nodeId,
@@ -8,16 +9,16 @@ export const DownloadButton: React.FC<NodeComponentProps> = ({
   sendEvent,
 }) => {
   const {
-    label,
     data,
     fileName,
     mime,
-    help,
     type = "secondary",
-    icon,
     disabled,
     useContainerWidth,
   } = props;
+  const label = useResolvedPropText(props, "label");
+  const help = useResolvedPropText(props, "help");
+  const icon = useResolvedPropText(props, "icon");
 
   const handleClick = () => {
     if (disabled) return;

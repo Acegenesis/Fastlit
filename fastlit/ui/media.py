@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastlit.ui.base import _emit_node
+from fastlit.ui.text import _live_text_props
 
 
 _MAX_INLINE_MEDIA_BYTES = max(
@@ -57,7 +58,7 @@ def image(
         "image",
         {
             "src": src,
-            "caption": caption,
+            **_live_text_props("caption", caption),
             "width": width,
             "useContainerWidth": container_width,
         },

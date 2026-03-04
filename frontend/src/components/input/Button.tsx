@@ -2,13 +2,17 @@ import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
 import { Button as ShadcnButton } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useResolvedPropText } from "../../context/WidgetStore";
 
 export const Button: React.FC<NodeComponentProps> = ({
   nodeId,
   props,
   sendEvent,
 }) => {
-  const { label, disabled, type: btnType, useContainerWidth, help } = props;
+  const { disabled, type: btnType, useContainerWidth, iconPosition } = props;
+  const label = useResolvedPropText(props, "label");
+  const help = useResolvedPropText(props, "help");
+  const icon = useResolvedPropText(props, "icon");
 
   const handleClick = () => {
     if (disabled) return;
@@ -30,7 +34,9 @@ export const Button: React.FC<NodeComponentProps> = ({
       title={help || undefined}
       className={cn("mb-2", useContainerWidth && "w-full")}
     >
+      {icon && iconPosition !== "right" ? <span>{icon}</span> : null}
       {label}
+      {icon && iconPosition === "right" ? <span>{icon}</span> : null}
     </ShadcnButton>
   );
 };

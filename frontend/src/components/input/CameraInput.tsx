@@ -1,13 +1,16 @@
 import React, { useRef, useState, useCallback, useEffect } from "react";
 import type { NodeComponentProps } from "../../registry/registry";
 import { Label } from "@/components/ui/label";
+import { useResolvedPropText } from "../../context/WidgetStore";
 
 export const CameraInput: React.FC<NodeComponentProps> = ({
   nodeId,
   props,
   sendEvent,
 }) => {
-  const { label, help, disabled, labelVisibility } = props;
+  const { disabled, labelVisibility } = props;
+  const label = useResolvedPropText(props, "label");
+  const help = useResolvedPropText(props, "help");
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);

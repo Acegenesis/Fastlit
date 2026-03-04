@@ -1,6 +1,6 @@
 import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
-import { useResolvedText } from "../../context/WidgetStore";
+import { useResolvedPropText, useResolvedText } from "../../context/WidgetStore";
 import { cn } from "@/lib/utils";
 
 const DIVIDER_COLORS: Record<string, string> = {
@@ -16,7 +16,7 @@ const DIVIDER_COLORS: Record<string, string> = {
 export const Header: React.FC<NodeComponentProps> = ({ props, nodeId }) => {
   const resolved = useResolvedText(props.text, props._tpl, props._refs, props._exprs);
   const divider = props.divider;
-  const help = props.help as string | undefined;
+  const help = useResolvedPropText(props, "help");
 
   const isSubheader = nodeId.includes("subheader") || props._level === 3;
   const className = isSubheader

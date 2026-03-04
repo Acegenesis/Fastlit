@@ -1,6 +1,6 @@
 import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
-import { useWidgetValue } from "../../context/WidgetStore";
+import { useResolvedPropText, useWidgetValue } from "../../context/WidgetStore";
 import { Checkbox as ShadcnCheckbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 
@@ -9,7 +9,9 @@ export const Checkbox: React.FC<NodeComponentProps> = ({
   props,
   sendEvent,
 }) => {
-  const { label, disabled, help } = props;
+  const { disabled } = props;
+  const label = useResolvedPropText(props, "label");
+  const help = useResolvedPropText(props, "help");
   const [checked, setChecked] = useWidgetValue(nodeId, !!props.value);
 
   const handleChange = (value: boolean) => {

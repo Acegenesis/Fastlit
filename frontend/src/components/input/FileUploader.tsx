@@ -1,6 +1,7 @@
 import React, { useRef, useState } from "react";
 import type { NodeComponentProps } from "../../registry/registry";
 import { cn } from "../../lib/utils";
+import { useResolvedPropText } from "../../context/WidgetStore";
 
 interface UploadedFile {
   name: string;
@@ -15,13 +16,13 @@ export const FileUploader: React.FC<NodeComponentProps> = ({
   sendEvent,
 }) => {
   const {
-    label,
     allowedTypes,
     acceptMultiple,
-    help,
     disabled,
     labelVisibility,
   } = props;
+  const label = useResolvedPropText(props, "label");
+  const help = useResolvedPropText(props, "help");
 
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);

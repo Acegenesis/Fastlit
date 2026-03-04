@@ -1,6 +1,6 @@
 import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
-import { useWidgetValue } from "../../context/WidgetStore";
+import { useResolvedPropText, useResolvedTextList, useWidgetValue } from "../../context/WidgetStore";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -10,8 +10,11 @@ export const Radio: React.FC<NodeComponentProps> = ({
   props,
   sendEvent,
 }) => {
-  const { label, options, disabled, help, horizontal, captions } = props;
-  const opts = options as string[];
+  const { options, disabled, horizontal, captions } = props;
+  const label = useResolvedPropText(props, "label");
+  const help = useResolvedPropText(props, "help");
+  const opts = useResolvedTextList((options as string[]) ?? [], props.optionsTpls, props.optionsRefsList, props.optionsExprsList);
+  const resolvedCaptions = useResolvedTextList((captions as string[] | undefined) ?? [], props.captionsTpls, props.captionsRefsList, props.captionsExprsList);
   const [value, setValue] = useWidgetValue(nodeId, opts[props.index ?? 0] ?? "");
   const currentIndex = Math.max(0, opts.indexOf(value));
 
@@ -38,8 +41,8 @@ export const Radio: React.FC<NodeComponentProps> = ({
               <Label htmlFor={`${nodeId}-${i}`} className="cursor-pointer font-normal">
                 {opt}
               </Label>
-              {captions && captions[i] && (
-                <p className="text-xs text-muted-foreground">{captions[i]}</p>
+              {resolvedCaptions[i] && (
+                <p className="text-xs text-muted-foreground">{resolvedCaptions[i]}</p>
               )}
             </div>
           </div>

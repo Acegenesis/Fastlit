@@ -6,12 +6,13 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
+import { useResolvedTextList } from "../../context/WidgetStore";
 
 export const Tabs: React.FC<NodeComponentProps> = ({
   props,
   children,
 }) => {
-  const labels = (props.labels as string[]) ?? [];
+  const labels = useResolvedTextList((props.labels as string[]) ?? [], props.labelsTpls, props.labelsRefsList, props.labelsExprsList);
   const defaultIndex = (props.defaultIndex as number) ?? 0;
   const [activeIndex, setActiveIndex] = useState(defaultIndex);
 

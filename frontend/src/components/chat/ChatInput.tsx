@@ -1,13 +1,15 @@
 import React, { useState, useCallback } from "react";
 import type { NodeComponentProps } from "../../registry/registry";
 import { Input } from "@/components/ui/input";
+import { useResolvedPropText } from "../../context/WidgetStore";
 
 export const ChatInput: React.FC<NodeComponentProps> = ({
   nodeId,
   props,
   sendEvent,
 }) => {
-  const { placeholder, disabled, maxChars } = props;
+  const { disabled, maxChars } = props;
+  const placeholder = useResolvedPropText(props, "placeholder", "Type a message...");
   const [text, setText] = useState("");
 
   const handleSubmit = useCallback(() => {
@@ -34,7 +36,7 @@ export const ChatInput: React.FC<NodeComponentProps> = ({
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={placeholder || "Type a message..."}
+          placeholder={placeholder}
           disabled={!!disabled}
           maxLength={maxChars || undefined}
           className="flex-1"

@@ -22,6 +22,7 @@ from fastlit.runtime.page_discovery import (
 from fastlit.runtime.navigation_slug import slugify_page_token
 from fastlit.runtime.tree import UINode
 from fastlit.ui.base import _make_id, _emit_node
+from fastlit.ui.text import _live_text_list_props, _live_text_props
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +235,7 @@ def tabs(
     tabs_node = UINode(
         type="tabs",
         id=tabs_id,
-        props={"labels": labels_list, "defaultIndex": default_index},
+        props={**_live_text_list_props("labels", labels_list), "defaultIndex": default_index},
     )
     session.current_tree.append(tabs_node)
     session.current_tree.push_container(tabs_node)
@@ -242,7 +243,7 @@ def tabs(
     result = []
     for i, label in enumerate(labels_list):
         tab_id = f"{tabs_id}:tab:{i}"
-        tab_node = UINode(type="tab", id=tab_id, props={"label": label, "index": i})
+        tab_node = UINode(type="tab", id=tab_id, props={**_live_text_props("label", label), "index": i})
         tabs_node.children.append(tab_node)
         result.append(Tab(tab_node))
 
@@ -272,7 +273,7 @@ def expander(
     node = UINode(
         type="expander",
         id=exp_id,
-        props={"label": label, "expanded": expanded, "icon": icon},
+        props={**_live_text_props("label", label), "expanded": expanded, **_live_text_props("icon", icon)},
     )
     return Expander(node)
 
@@ -382,8 +383,8 @@ def form_submit_button(
     node = _emit_node(
         "form_submit_button",
         {
-            "label": label,
-            "help": help,
+            **_live_text_props("label", label),
+            **_live_text_props("help", help),
             "type": type,
             "disabled": disabled,
             "useContainerWidth": use_container_width,
@@ -426,7 +427,7 @@ def dialog(
                 type="dialog",
                 id=did,
                 props={
-                    "title": title,
+                    **_live_text_props("title", title),
                     "width": width,
                     "dismissible": dismissible,
                     "open": True,
@@ -471,9 +472,9 @@ def popover(
         type="popover",
         id=pid,
         props={
-            "label": label,
+            **_live_text_props("label", label),
             "type": type,
-            "help": help,
+            **_live_text_props("help", help),
             "disabled": disabled or False,
             "useContainerWidth": use_container_width or False,
         },

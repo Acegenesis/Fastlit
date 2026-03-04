@@ -3,7 +3,7 @@ import { DayPicker } from "react-day-picker";
 import { format, parse } from "date-fns";
 import * as Popover from "@radix-ui/react-popover";
 import type { NodeComponentProps } from "../../registry/registry";
-import { useWidgetValue } from "../../context/WidgetStore";
+import { useResolvedPropText, useWidgetValue } from "../../context/WidgetStore";
 import { cn } from "../../lib/utils";
 import "react-day-picker/dist/style.css";
 
@@ -13,14 +13,14 @@ export const DateInput: React.FC<NodeComponentProps> = ({
   sendEvent,
 }) => {
   const {
-    label,
     isRange,
     min,
     max,
     disabled,
-    help,
     labelVisibility,
   } = props;
+  const label = useResolvedPropText(props, "label");
+  const help = useResolvedPropText(props, "help");
 
   const [value, setValue] = useWidgetValue(nodeId, props.value);
   const [open, setOpen] = useState(false);

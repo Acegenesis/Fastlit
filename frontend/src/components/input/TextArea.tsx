@@ -1,6 +1,6 @@
 import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
-import { useWidgetValue } from "../../context/WidgetStore";
+import { useResolvedPropText, useWidgetValue } from "../../context/WidgetStore";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 
@@ -9,7 +9,10 @@ export const TextArea: React.FC<NodeComponentProps> = ({
   props,
   sendEvent,
 }) => {
-  const { label, height, placeholder, maxChars, disabled, help } = props;
+  const { height, maxChars, disabled } = props;
+  const label = useResolvedPropText(props, "label");
+  const placeholder = useResolvedPropText(props, "placeholder");
+  const help = useResolvedPropText(props, "help");
   const [value, setValue] = useWidgetValue(nodeId, props.value ?? "");
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {

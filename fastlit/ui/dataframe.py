@@ -14,6 +14,7 @@ from fastlit.runtime.dataframe_arrow import (
     encode_arrow_frame_base64,
 )
 from fastlit.ui.base import _emit_node
+from fastlit.ui.text import _live_text_props
 
 
 class _AttrDict(dict):
@@ -107,6 +108,8 @@ def dataframe(
     row_height: int | None = None,
     placeholder: str | None = None,
     toolbar: bool = True,
+    show_search: bool = True,
+    show_filters: bool = True,
     downloadable: bool = True,
     persist_view: bool = True,
     max_rows: int | None = None,
@@ -127,6 +130,8 @@ def dataframe(
         row_height: Fixed row height in pixels.
         placeholder: Placeholder text rendered for missing cell values.
         toolbar: If True, show the grid toolbar.
+        show_search: If True, show the search input in the toolbar.
+        show_filters: If True, show filter controls in the toolbar.
         downloadable: If True, expose CSV export for the current view.
         persist_view: If True, persist the grid view state in sessionStorage.
         max_rows: Maximum number of rows to serialize for display.
@@ -197,8 +202,10 @@ def dataframe(
         "height": height,
         "useContainerWidth": use_container_width_value,
         "rowHeight": row_height,
-        "placeholder": placeholder,
+        **_live_text_props("placeholder", placeholder),
         "toolbar": toolbar,
+        "showSearch": show_search,
+        "showFilters": show_filters,
         "downloadable": downloadable,
         "persistView": persist_view,
         "totalRows": total_rows,
@@ -574,6 +581,8 @@ def data_editor(
     row_height: int | None = None,
     placeholder: str | None = None,
     toolbar: bool = True,
+    show_search: bool = True,
+    show_filters: bool = True,
     downloadable: bool = True,
     persist_view: bool = True,
     key: str | None = None,
@@ -596,6 +605,8 @@ def data_editor(
         row_height: Fixed row height in pixels.
         placeholder: Placeholder text when the dataset is empty.
         toolbar: If True, show the grid toolbar.
+        show_search: If True, show the search input in the toolbar.
+        show_filters: If True, show filter controls in the toolbar.
         downloadable: If True, allow exporting the current edited view as CSV.
         persist_view: If True, persist the editor view state in sessionStorage.
         key: Optional key for stable identity.
@@ -657,8 +668,10 @@ def data_editor(
         "disabledColumns": disabled_cols,
         "rerunOnChange": rerun_on_change,
         "rowHeight": row_height,
-        "placeholder": placeholder,
+        **_live_text_props("placeholder", placeholder),
         "toolbar": toolbar,
+        "showSearch": show_search,
+        "showFilters": show_filters,
         "downloadable": downloadable,
         "persistView": persist_view,
         "totalRows": total_rows,
@@ -925,7 +938,7 @@ def table(
         "static": True,
         "width": width,
         "height": height,
-        "placeholder": placeholder,
+        **_live_text_props("placeholder", placeholder),
         "rowHeight": row_height,
         "totalRows": total_rows,
         "truncated": truncated,

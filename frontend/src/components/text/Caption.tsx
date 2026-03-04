@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import DOMPurify from "dompurify";
 import type { NodeComponentProps } from "../../registry/registry";
-import { useResolvedText } from "../../context/WidgetStore";
+import { useResolvedPropText, useResolvedText } from "../../context/WidgetStore";
 import { loadKatex } from "../../utils/katexLoader";
 
 // Simple check if text contains HTML tags
@@ -129,7 +129,7 @@ const parseMarkdown = (
 
 export const Caption: React.FC<NodeComponentProps> = ({ props }) => {
   const resolved = useResolvedText(props.text, props._tpl, props._refs, props._exprs);
-  const help = props.help;
+  const help = useResolvedPropText(props, "help");
   const hasHtml = useMemo(() => containsHtml(resolved), [resolved]);
   const needsKatex = useMemo(
     () => !hasHtml && LATEX_HINTS.test(resolved),

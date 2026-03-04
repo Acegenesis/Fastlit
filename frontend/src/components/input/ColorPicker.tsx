@@ -1,6 +1,6 @@
 import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
-import { useWidgetValue } from "../../context/WidgetStore";
+import { useResolvedPropText, useWidgetValue } from "../../context/WidgetStore";
 
 export const ColorPicker: React.FC<NodeComponentProps> = ({
   nodeId,
@@ -8,11 +8,11 @@ export const ColorPicker: React.FC<NodeComponentProps> = ({
   sendEvent,
 }) => {
   const {
-    label,
     disabled,
-    help,
     labelVisibility,
   } = props;
+  const label = useResolvedPropText(props, "label");
+  const help = useResolvedPropText(props, "help");
 
   const [color, setColor] = useWidgetValue(nodeId, props.value || "#000000");
 

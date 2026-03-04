@@ -1,6 +1,6 @@
 import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
-import { useWidgetValue } from "../../context/WidgetStore";
+import { useResolvedPropText, useResolvedTextList, useWidgetValue } from "../../context/WidgetStore";
 import { cn } from "../../lib/utils";
 
 export const SelectSlider: React.FC<NodeComponentProps> = ({
@@ -9,13 +9,13 @@ export const SelectSlider: React.FC<NodeComponentProps> = ({
   sendEvent,
 }) => {
   const {
-    label,
-    options = [],
     isRange,
-    help,
     disabled,
     labelVisibility,
   } = props;
+  const label = useResolvedPropText(props, "label");
+  const help = useResolvedPropText(props, "help");
+  const options = useResolvedTextList((props.options as string[]) ?? [], props.optionsTpls, props.optionsRefsList, props.optionsExprsList);
 
   const defaultValue = isRange ? [0, options.length - 1] : 0;
   const [value, setValue] = useWidgetValue(nodeId, props.value ?? defaultValue);

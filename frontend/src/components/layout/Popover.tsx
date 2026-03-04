@@ -8,12 +8,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useResolvedPropText } from "../../context/WidgetStore";
 
 export const Popover: React.FC<NodeComponentProps> = ({
   props,
   children,
 }) => {
-  const { label, disabled, help, type: btnType, useContainerWidth } = props;
+  const { disabled, type: btnType, useContainerWidth } = props;
+  const label = useResolvedPropText(props, "label");
+  const help = useResolvedPropText(props, "help");
 
   const variant =
     btnType === "primary"

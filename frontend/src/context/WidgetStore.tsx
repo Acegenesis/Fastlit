@@ -232,6 +232,38 @@ export function useResolvedValue<T>(fallback: T, expr?: LiveExpression): T {
   return useExpressionSnapshot(fallback, expr);
 }
 
+function resolveTemplateText(
+  fallback: string,
+  tpl: string | undefined,
+  refs: Record<string, string> | undefined,
+  exprs: Record<string, LiveExpression> | undefined,
+  store: WidgetStoreImpl | null,
+): string {
+  if (!tpl || !store) return fallback;
+  let resolved = tpl;
+  if (refs) {
+    for (const [placeholder, widgetId] of Object.entries(refs)) {
+      const liveValue = store.get(widgetId);
+      if (liveValue !== undefined) {
+        resolved = resolved.replace(placeholder, String(liveValue));
+      } else {
+        return fallback;
+      }
+    }
+  }
+  if (exprs) {
+    for (const [placeholder, expr] of Object.entries(exprs)) {
+      const liveValue = evaluateExpression(expr, store);
+      if (liveValue !== undefined) {
+        resolved = resolved.replace(placeholder, String(liveValue));
+      } else {
+        return fallback;
+      }
+    }
+  }
+  return resolved;
+}
+
 /**
  * Hook for text components: resolve a template using live widget values.
  * Subscribes only to referenced widget IDs.
@@ -259,30 +291,67 @@ export function useResolvedText(
   );
 
   const getSnapshot = useCallback(() => {
-    if (!tpl || !store) return text;
-    let resolved = tpl;
-    if (refs) {
-      for (const [placeholder, widgetId] of Object.entries(refs)) {
-        const liveValue = store.get(widgetId);
-        if (liveValue !== undefined) {
-          resolved = resolved.replace(placeholder, String(liveValue));
-        } else {
-          return text;
-        }
-      }
-    }
-    if (exprs) {
-      for (const [placeholder, expr] of Object.entries(exprs)) {
-        const liveValue = evaluateExpression(expr, store);
-        if (liveValue !== undefined) {
-          resolved = resolved.replace(placeholder, String(liveValue));
-        } else {
-          return text;
-        }
-      }
-    }
-    return resolved;
+    return resolveTemplateText(text, tpl, refs, exprs, store);
   }, [exprs, refs, store, text, tpl]);
+
+  return useSyncExternalStore(subscribe, getSnapshot);
+}
+
+export function useResolvedPropText(
+  props: Record<string, any>,
+  prefix: string,
+  fallback = "",
+): string {
+  return useResolvedText(
+    String(props[prefix] ?? fallback),
+    props[`${prefix}Tpl`],
+    props[`${prefix}Refs`],
+    props[`${prefix}Exprs`],
+  );
+}
+
+export function useResolvedPropValue<T>(
+  props: Record<string, any>,
+  prefix: string,
+  fallback: T,
+): T {
+  return useResolvedValue((props[prefix] ?? fallback) as T, props[`${prefix}Live`]);
+}
+
+export function useResolvedTextList(
+  texts: Array<string | null | undefined>,
+  tpls?: Array<string | null | undefined>,
+  refsList?: Array<Record<string, string> | null | undefined>,
+  exprsList?: Array<Record<string, LiveExpression> | null | undefined>,
+): string[] {
+  const store = useContext(StoreContext);
+  const widgetIds = useMemo(() => {
+    const direct = (refsList ?? []).flatMap((refs) => refs ? Object.values(refs) : []);
+    const computed = (exprsList ?? []).flatMap((exprs) =>
+      exprs ? Object.values(exprs).flatMap((expr) => collectExpressionWidgetIds(expr)) : []
+    );
+    return Array.from(new Set([...direct, ...computed]));
+  }, [exprsList, refsList]);
+
+  const subscribe = useCallback(
+    (cb: () => void) => {
+      if (!store || widgetIds.length === 0) return () => {};
+      return store.subscribeMany(widgetIds, cb);
+    },
+    [store, widgetIds]
+  );
+
+  const getSnapshot = useCallback(() => {
+    return texts.map((text, index) =>
+      resolveTemplateText(
+        String(text ?? ""),
+        tpls?.[index] ?? undefined,
+        refsList?.[index] ?? undefined,
+        exprsList?.[index] ?? undefined,
+        store,
+      )
+    );
+  }, [exprsList, refsList, store, texts, tpls]);
 
   return useSyncExternalStore(subscribe, getSnapshot);
 }

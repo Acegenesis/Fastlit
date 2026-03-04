@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import type { NodeComponentProps } from "../../registry/registry";
+import { useResolvedPropText } from "../../context/WidgetStore";
 
 const stateIcons = {
   running: (
@@ -27,7 +28,8 @@ const stateStyles = {
 };
 
 export const Status: React.FC<NodeComponentProps> = ({ props, children }) => {
-  const { label, expanded: initialExpanded = true, state = "running" } = props;
+  const { expanded: initialExpanded = true, state = "running" } = props;
+  const label = useResolvedPropText(props, "label");
   const [expanded, setExpanded] = useState(initialExpanded);
 
   const icon = stateIcons[state as keyof typeof stateIcons] || stateIcons.running;

@@ -2,6 +2,7 @@ import React from "react";
 import type { NodeComponentProps } from "../../registry/registry";
 import { Alert as ShadcnAlert, AlertDescription } from "@/components/ui/alert";
 import { CheckCircle, Info, AlertTriangle, XCircle } from "lucide-react";
+import { useResolvedPropText } from "../../context/WidgetStore";
 
 const iconMap = {
   success: CheckCircle,
@@ -18,7 +19,9 @@ const variantMap: Record<string, "default" | "destructive" | "success" | "warnin
 };
 
 export const Alert: React.FC<NodeComponentProps> = ({ props }) => {
-  const { type = "info", body, icon } = props;
+  const { type = "info" } = props;
+  const body = useResolvedPropText(props, "body");
+  const icon = useResolvedPropText(props, "icon");
   const IconComponent = iconMap[type as keyof typeof iconMap] || Info;
   const variant = variantMap[type as keyof typeof variantMap] || "default";
 

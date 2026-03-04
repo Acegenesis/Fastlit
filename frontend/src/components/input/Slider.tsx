@@ -1,6 +1,6 @@
 import React, { useRef } from "react";
 import type { NodeComponentProps } from "../../registry/registry";
-import { useWidgetValue } from "../../context/WidgetStore";
+import { useResolvedPropText, useWidgetValue } from "../../context/WidgetStore";
 import { Slider as ShadcnSlider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 
@@ -9,7 +9,9 @@ export const Slider: React.FC<NodeComponentProps> = ({
   props,
   sendEvent,
 }) => {
-  const { label, min, max, step, disabled, help, isRange } = props;
+  const { min, max, step, disabled, isRange } = props;
+  const label = useResolvedPropText(props, "label");
+  const help = useResolvedPropText(props, "help");
   const [value, setValue] = useWidgetValue(nodeId, props.value);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
