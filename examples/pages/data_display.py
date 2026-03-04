@@ -390,6 +390,7 @@ threshold = st.slider("Seuil d'alerte erreurs", 0, 100, 25, key="metric_threshol
 with st.container(border=True):
     current_errors = 23
     error_delta = current_errors - threshold
+    is_healthy = current_errors <= threshold
     m1, m2, m3 = st.columns(3)
     with m1:
         st.metric(
@@ -403,9 +404,15 @@ with st.container(border=True):
     with m2:
         st.metric("Seuil défini", threshold, delta_arrow="off", border=True)
     with m3:
-        status = st.live_if(current_errors <= threshold, "✅ OK", "⚠️ Dépassé")
-        color = st.live_if(current_errors <= threshold, "normal", "inverse")
+        status = (current_errors <= threshold).when("✅ OK", "⚠️ Dépassé")
+        color = (current_errors <= threshold).when("normal", "inverse")
         st.metric("État", status, delta_color=color, border=True)
+    st.progress(threshold, text=f"Seuil live: {threshold}")
+    st.badge(
+        is_healthy.when("Sous le seuil", "Au-dessus du seuil"),
+        color=is_healthy.when("green", "orange"),
+        icon=is_healthy.when("✅", "⚠️"),
+    )
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. st.json()

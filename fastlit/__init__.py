@@ -104,7 +104,6 @@ from fastlit.connections import connection
 import fastlit.connections as connections
 import fastlit.components as components
 from fastlit.ui.user import user
-from fastlit.ui.widget_value import live_if
 
 
 # --- Lifecycle hooks (B3) ---

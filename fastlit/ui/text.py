@@ -314,10 +314,10 @@ def metric(
     _emit_node(
         "metric",
         {
-            **_metric_text_props("label", str(label)),
-            **_metric_text_props("value", display_value),
-            **(_metric_text_props("delta", display_delta) if display_delta is not None else {"delta": None}),
-            **_metric_live_prop("deltaColor", delta_color),
+            **_live_text_props("label", str(label)),
+            **_live_text_props("value", display_value),
+            **(_live_text_props("delta", display_delta) if display_delta is not None else {"delta": None}),
+            **_live_value_props("deltaColor", delta_color),
             "help": help,
             "labelVisibility": label_visibility,
             "border": border,
@@ -594,7 +594,7 @@ def _format_metric_value_live(value: Any, fmt: str | None) -> str:
     return _format_metric_value(value, fmt)
 
 
-def _metric_text_props(prefix: str, raw: str) -> dict[str, Any]:
+def _live_text_props(prefix: str, raw: str) -> dict[str, Any]:
     processed = _process_text(raw)
     props: dict[str, Any] = {prefix: processed.get("text", raw)}
     if "_tpl" in processed:
@@ -606,7 +606,7 @@ def _metric_text_props(prefix: str, raw: str) -> dict[str, Any]:
     return props
 
 
-def _metric_live_prop(prefix: str, value: Any) -> dict[str, Any]:
+def _live_value_props(prefix: str, value: Any) -> dict[str, Any]:
     if isinstance(value, (WidgetValue, LiveValue)):
         return {
             prefix: _json_safe_value(value._val),
@@ -863,25 +863,25 @@ def write_stream(stream: Any) -> str:
 
 
 def badge(
-    label: str,
+    label: Any,
     *,
-    color: str = "blue",
-    icon: str | None = None,
+    color: Any = "blue",
+    icon: Any | None = None,
 ) -> None:
     """Display an inline badge/tag.
 
     Args:
-        label: The badge text.
+        label: The badge text. Reactive values are also accepted.
         color: Badge color - "blue" (default), "green", "red", "orange",
-            "violet", "yellow", "gray", "grey".
-        icon: Optional icon (emoji).
+            "violet", "yellow", "gray", "grey". Reactive values are also accepted.
+        icon: Optional icon (emoji). Reactive values are also accepted.
     """
     _emit_node(
         "badge",
         {
-            "label": str(label),
-            "color": color,
-            "icon": icon,
+            **_live_text_props("label", str(label)),
+            **_live_value_props("color", color),
+            **(_live_text_props("icon", str(icon)) if icon is not None else {"icon": None}),
         },
     )
 

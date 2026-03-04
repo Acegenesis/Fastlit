@@ -31,6 +31,16 @@ export interface LiveExpression {
   else?: LiveExpression;
 }
 
+function pythonFloorDiv(left: any, right: any): number | undefined {
+  if (typeof left !== "number" || typeof right !== "number" || right === 0) return undefined;
+  return Math.floor(left / right);
+}
+
+function pythonModulo(left: any, right: any): number | undefined {
+  if (typeof left !== "number" || typeof right !== "number" || right === 0) return undefined;
+  return left - pythonFloorDiv(left, right)! * right;
+}
+
 export class WidgetStoreImpl {
   private values = new Map<string, any>();
   private widgetSubs = new Map<string, Set<Listener>>();
@@ -165,8 +175,8 @@ function evaluateExpression(expr: LiveExpression | undefined, store: WidgetStore
         case "sub": return left - right;
         case "mul": return left * right;
         case "div": return left / right;
-        case "floordiv": return left / right >= 0 ? Math.floor(left / right) : Math.ceil(left / right);
-        case "mod": return left % right;
+        case "floordiv": return pythonFloorDiv(left, right);
+        case "mod": return pythonModulo(left, right);
         case "pow": return left ** right;
         case "eq": return left === right;
         case "ne": return left !== right;

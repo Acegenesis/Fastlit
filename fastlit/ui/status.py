@@ -14,6 +14,8 @@ from contextlib import contextmanager
 from typing import Any, Generator
 
 from fastlit.ui.base import _emit_node
+from fastlit.ui.text import _live_text_props
+from fastlit.ui.widget_value import LiveValue, WidgetValue, _live_spec_for
 from fastlit.runtime.context import get_current_session
 
 
@@ -122,8 +124,8 @@ def exception(exception: BaseException | None = None) -> None:
 
 
 def progress(
-    value: float | int,
-    text: str | None = None,
+    value: Any,
+    text: Any | None = None,
     *,
     key: str | None = None,
 ) -> None:
@@ -131,21 +133,35 @@ def progress(
 
     Args:
         value: Progress value between 0 and 100 (or 0.0 and 1.0).
+            Reactive widget/live values are also accepted.
         text: Optional text to display above the progress bar.
+            Reactive text is also accepted.
         key: Optional key.
     """
     # Normalize value to 0-100
-    if isinstance(value, float) and 0 <= value <= 1:
-        normalized = int(value * 100)
+    raw_value = value._val if isinstance(value, (WidgetValue, LiveValue)) else value
+    if isinstance(raw_value, float) and 0 <= raw_value <= 1:
+        normalized = int(raw_value * 100)
     else:
-        normalized = int(value)
+        normalized = int(raw_value)
     normalized = max(0, min(100, normalized))
+
+    value_live = None
+    if isinstance(value, (WidgetValue, LiveValue)):
+        value_live = _live_spec_for(value)
+        if isinstance(raw_value, float) and 0 <= raw_value <= 1:
+            value_live = {
+                "kind": "binary",
+                "op": "mul",
+                "left": value_live,
+                "right": {"kind": "literal", "value": 100},
+            }
 
     _emit_node(
         "progress",
         {
-            "value": normalized,
-            "text": text,
+            **({"value": normalized, "valueLive": value_live} if value_live is not None else {"value": normalized}),
+            **(_live_text_props("text", text) if text is not None else {"text": None}),
         },
         key=key,
     )

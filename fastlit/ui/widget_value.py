@@ -47,6 +47,18 @@ class _ReactiveMixin:
     def _make_live(self, value, spec: dict):
         return LiveValue(value, spec)
 
+    def when(self, when_true, when_false):
+        next_value = when_true if bool(self._val) else when_false
+        return self._make_live(
+            _raw_value(next_value),
+            {
+                "kind": "if",
+                "condition": self._live_spec(),
+                "then": _live_spec_for(when_true),
+                "else": _live_spec_for(when_false),
+            },
+        )
+
     def _binary(self, op: str, other, fn):
         other_raw = _raw_value(other)
         return self._make_live(
@@ -204,16 +216,3 @@ class WidgetValue(_ReactiveMixin):
 
     def __repr__(self) -> str:
         return repr(self._val)
-
-
-def live_if(condition, when_true, when_false):
-    next_value = when_true if bool(_raw_value(condition)) else when_false
-    return LiveValue(
-        _raw_value(next_value),
-        {
-            "kind": "if",
-            "condition": _live_spec_for(condition),
-            "then": _live_spec_for(when_true),
-            "else": _live_spec_for(when_false),
-        },
-    )
