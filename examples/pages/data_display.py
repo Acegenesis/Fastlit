@@ -73,6 +73,9 @@ with st.expander("📖 Parameters", expanded=False):
 | `toolbar` | bool | Show the toolbar |
 | `show_search` | bool | Show the search input |
 | `show_filters` | bool | Show the filters popover |
+| `show_column_manager` | bool | Show the columns button |
+| `show_reset_view` | bool | Show the reset button |
+| `show_footer_summary` | bool | Show footer row/column badges |
 | `downloadable` | bool | CSV export button |
 | `persist_view` | bool | Persist sort/filter/scroll |
 | `on_select` | "rerun" / Callable / None | Selection mode |
@@ -115,7 +118,7 @@ with st.container(border=True):
     )
 
 st.subheader("Search and filters visible by default")
-st.caption("Search and filters are enabled by default. You can hide either one explicitly.")
+st.caption("Search and filters are enabled by default. You can hide them explicitly, and toolbar buttons collapse to icon-only when space gets tight.")
 st.code(
     """st.dataframe(
     df,
@@ -129,6 +132,7 @@ st.dataframe(
     height=280,
     show_search=False,
     show_filters=False,
+    show_footer_summary=False,
 )""",
     language="python",
 )
@@ -150,6 +154,10 @@ with st.container(border=True):
             hide_index=True,
             show_search=False,
             show_filters=False,
+            show_column_manager=False,
+            show_reset_view=False,
+            show_footer_summary=False,
+            downloadable=False,
             key="df_toolbar_hidden",
         )
 
@@ -238,6 +246,10 @@ with st.expander("📖 Parameters", expanded=False):
 | `on_change` | Callable | Callback on edits |
 | `show_search` | bool | Show the search input |
 | `show_filters` | bool | Show the filters popover |
+| `show_column_manager` | bool | Show the columns button |
+| `show_reset_view` | bool | Show the reset button |
+| `show_footer_summary` | bool | Show footer row/column badges |
+| `show_row_actions` | bool | Show the per-row actions column |
 | `persist_view` | bool | Persist visual state |
 
 **Returns**: DataFrame (or dict/list matching the input shape) with edits applied.
@@ -249,6 +261,7 @@ st.code(
     """edited = st.data_editor(
     df,
     num_rows="dynamic",
+    show_row_actions=False,
     column_config={
         "Name": st.column_config.TextColumn("Name", pinned="left", resizable=True),
         "Score": st.column_config.NumberColumn("Score", min_value=0, max_value=100, step=0.5),
@@ -265,6 +278,7 @@ with st.container(border=True):
     edited_basic = st.data_editor(
         USERS_DF.copy(),
         num_rows="dynamic",
+        show_row_actions=False,
         column_config={
             "Name": st.column_config.TextColumn("Name", pinned="left", resizable=True),
             "Score": st.column_config.NumberColumn("Score", min_value=0, max_value=100, step=0.5),
@@ -278,12 +292,18 @@ with st.container(border=True):
     st.caption(f"{len(edited_basic)} rows · {n_active} active")
 
 st.subheader("Minimal editor toolbar")
+st.caption("The footer summary can also be removed, while the Add row action stays available in dynamic mode.")
 st.code(
     """st.data_editor(
     df,
     num_rows="dynamic",
     show_search=False,
     show_filters=False,
+    show_column_manager=False,
+    show_reset_view=False,
+    show_footer_summary=False,
+    downloadable=False,
+    show_row_actions=False,
     key="editor_minimal",
 )""",
     language="python",
@@ -294,8 +314,41 @@ with st.container(border=True):
         num_rows="dynamic",
         show_search=False,
         show_filters=False,
+        show_column_manager=False,
+        show_reset_view=False,
+        show_footer_summary=False,
+        downloadable=False,
+        show_row_actions=False,
         height=260,
         key="editor_minimal",
+    )
+
+st.subheader("Fully stripped toolbar")
+st.code(
+    """st.dataframe(
+    df,
+    hide_index=True,
+    show_search=False,
+    show_filters=False,
+    show_column_manager=False,
+    show_reset_view=False,
+    show_footer_summary=False,
+    downloadable=False,
+)""",
+    language="python",
+)
+with st.container(border=True):
+    st.dataframe(
+        USERS_DF,
+        height=220,
+        hide_index=True,
+        show_search=False,
+        show_filters=False,
+        show_column_manager=False,
+        show_reset_view=False,
+        show_footer_summary=False,
+        downloadable=False,
+        key="df_fully_stripped",
     )
 
 

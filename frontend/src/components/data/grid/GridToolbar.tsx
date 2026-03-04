@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownWideNarrow, ArrowUpWideNarrow, Download, Eye, EyeOff, Filter, Pin, RotateCcw, Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,8 @@ interface GridToolbarProps {
   downloadable?: boolean;
   showSearch?: boolean;
   showFilters?: boolean;
+  showColumnManager?: boolean;
+  showResetView?: boolean;
   onSearchChange: (value: string) => void;
   onReset: () => void;
   onDownload?: () => void;
@@ -44,6 +46,8 @@ export const GridToolbar: React.FC<GridToolbarProps> = ({
   downloadable = true,
   showSearch = true,
   showFilters = true,
+  showColumnManager = true,
+  showResetView = true,
   onSearchChange,
   onReset,
   onDownload,
@@ -53,18 +57,54 @@ export const GridToolbar: React.FC<GridToolbarProps> = ({
   onSortsChange,
   onFiltersChange,
 }) => {
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [compactButtons, setCompactButtons] = useState(false);
   const hidden = new Set(viewState.hiddenColumns);
+  const showClearSort = showResetView && viewState.sorts.length > 0;
+  const hasLeadingControls = showSearch || showFilters || showColumnManager;
+  const hasTrailingControls = showClearSort || showResetView || downloadable;
+  const visibleButtonCount = useMemo(
+    () =>
+      (showFilters ? 1 : 0) +
+      (showColumnManager ? 1 : 0) +
+      (showClearSort ? 1 : 0) +
+      (showResetView ? 1 : 0) +
+      (downloadable && onDownload ? 1 : 0),
+    [downloadable, onDownload, showClearSort, showColumnManager, showFilters, showResetView]
+  );
+
+  useEffect(() => {
+    const node = toolbarRef.current;
+    if (!node || typeof ResizeObserver === "undefined") {
+      return undefined;
+    }
+
+    const updateCompactMode = () => {
+      const width = node.clientWidth;
+      const threshold = (showSearch ? 420 : 180) + visibleButtonCount * 96;
+      setCompactButtons(width > 0 && width < threshold);
+    };
+
+    updateCompactMode();
+    const observer = new ResizeObserver(updateCompactMode);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [showSearch, visibleButtonCount]);
+
+  if (!hasLeadingControls && !hasTrailingControls) {
+    return null;
+  }
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 bg-slate-50/80 px-4 py-3 backdrop-blur-sm">
+    <div ref={toolbarRef} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 bg-slate-50/80 px-4 py-3 backdrop-blur-sm">
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {showSearch ? (
-          <div className="relative min-w-[220px] max-w-[360px] flex-1">
+          <div className={`relative flex-1 ${compactButtons ? "min-w-[160px] max-w-none" : "min-w-[220px] max-w-[360px]"}`}>
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
               value={viewState.search}
               onChange={(event) => onSearchChange(event.target.value)}
-              placeholder="Search rows..."
+              placeholder={compactButtons ? "Search..." : "Search rows..."}
               className="border-slate-200 bg-white pl-8 shadow-sm"
             />
           </div>
@@ -73,10 +113,24 @@ export const GridToolbar: React.FC<GridToolbarProps> = ({
         {showFilters ? (
           <Popover>
             <PopoverTrigger asChild>
-              <Button type="button" variant="outline" size="sm" className="gap-1 border-slate-200 bg-white shadow-sm">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={`relative border-slate-200 bg-white shadow-sm ${compactButtons ? "h-9 w-9 px-0" : "gap-1"}`}
+                aria-label="Filters"
+                title="Filters"
+              >
                 <Filter className="h-4 w-4" />
-                Filters
-                {viewState.filters.length ? <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-[10px]">{viewState.filters.length}</Badge> : null}
+                {compactButtons ? <span className="sr-only">Filters</span> : "Filters"}
+                {viewState.filters.length ? (
+                  <Badge
+                    variant="secondary"
+                    className={compactButtons ? "absolute -right-1 -top-1 h-4 min-w-4 px-1 py-0 text-[9px]" : "ml-1 px-1.5 py-0 text-[10px]"}
+                  >
+                    {viewState.filters.length}
+                  </Badge>
+                ) : null}
               </Button>
             </PopoverTrigger>
             <PopoverContent align="start" className="w-[420px] space-y-3">
@@ -187,102 +241,138 @@ export const GridToolbar: React.FC<GridToolbarProps> = ({
           </Popover>
         ) : null}
 
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button type="button" variant="outline" size="sm" className="gap-1 border-slate-200 bg-white shadow-sm">
-              <Eye className="h-4 w-4" />
-              Columns
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="start" className="w-[360px] space-y-3">
-            <div>
-              <p className="text-sm font-semibold text-slate-900">Columns</p>
-              <p className="text-xs text-slate-500">Show, hide, pin and reorder visible columns.</p>
-            </div>
-            <Separator />
-            <div className="space-y-2">
-              {viewState.columnOrder.map((columnName, index) => {
-                const column = columns.find((item) => item.name === columnName);
-                if (!column) return null;
-                const pinned = viewState.pinnedColumns[column.name] ?? column.pinned ?? null;
-                return (
-                  <div key={column.name} className="rounded-md border border-slate-200 p-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <label className="flex min-w-0 items-center gap-2 text-sm text-slate-700">
-                        <Checkbox
-                          checked={!hidden.has(column.name)}
-                          onCheckedChange={(checked) => {
-                            const next = checked === true
-                              ? viewState.hiddenColumns.filter((item) => item !== column.name)
-                              : [...viewState.hiddenColumns, column.name];
-                            onHiddenColumnsChange(Array.from(new Set(next)));
-                          }}
-                        />
-                        <span className="truncate">{column.label || column.name}</span>
-                      </label>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7"
-                          disabled={index === 0}
-                          onClick={() => {
-                            const next = [...viewState.columnOrder];
-                            [next[index - 1], next[index]] = [next[index], next[index - 1]];
-                            onColumnOrderChange(next);
-                          }}
-                        >
-                          <ArrowUpWideNarrow className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7"
-                          disabled={index === viewState.columnOrder.length - 1}
-                          onClick={() => {
-                            const next = [...viewState.columnOrder];
-                            [next[index], next[index + 1]] = [next[index + 1], next[index]];
-                            onColumnOrderChange(next);
-                          }}
-                        >
-                          <ArrowDownWideNarrow className="h-4 w-4" />
-                        </Button>
-                        <Select value={pinned ?? "none"} onValueChange={(value) => onPinnedChange(column.name, value === "none" ? null : (value as GridPinned))}>
-                          <SelectTrigger className="h-7 w-[96px] text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">Unpinned</SelectItem>
-                            <SelectItem value="left">Pin left</SelectItem>
-                            <SelectItem value="right">Pin right</SelectItem>
-                          </SelectContent>
-                        </Select>
+        {showColumnManager ? (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={`border-slate-200 bg-white shadow-sm ${compactButtons ? "h-9 w-9 px-0" : "gap-1"}`}
+                aria-label="Columns"
+                title="Columns"
+              >
+                <Eye className="h-4 w-4" />
+                {compactButtons ? <span className="sr-only">Columns</span> : "Columns"}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-[360px] space-y-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Columns</p>
+                <p className="text-xs text-slate-500">Show, hide, pin and reorder visible columns.</p>
+              </div>
+              <Separator />
+              <div className="space-y-2">
+                {viewState.columnOrder.map((columnName, index) => {
+                  const column = columns.find((item) => item.name === columnName);
+                  if (!column) return null;
+                  const pinned = viewState.pinnedColumns[column.name] ?? column.pinned ?? null;
+                  return (
+                    <div key={column.name} className="rounded-md border border-slate-200 p-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="flex min-w-0 items-center gap-2 text-sm text-slate-700">
+                          <Checkbox
+                            checked={!hidden.has(column.name)}
+                            onCheckedChange={(checked) => {
+                              const next = checked === true
+                                ? viewState.hiddenColumns.filter((item) => item !== column.name)
+                                : [...viewState.hiddenColumns, column.name];
+                              onHiddenColumnsChange(Array.from(new Set(next)));
+                            }}
+                          />
+                          <span className="truncate">{column.label || column.name}</span>
+                        </label>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7"
+                            disabled={index === 0}
+                            onClick={() => {
+                              const next = [...viewState.columnOrder];
+                              [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                              onColumnOrderChange(next);
+                            }}
+                          >
+                            <ArrowUpWideNarrow className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7"
+                            disabled={index === viewState.columnOrder.length - 1}
+                            onClick={() => {
+                              const next = [...viewState.columnOrder];
+                              [next[index], next[index + 1]] = [next[index + 1], next[index]];
+                              onColumnOrderChange(next);
+                            }}
+                          >
+                            <ArrowDownWideNarrow className="h-4 w-4" />
+                          </Button>
+                          <Select value={pinned ?? "none"} onValueChange={(value) => onPinnedChange(column.name, value === "none" ? null : (value as GridPinned))}>
+                            <SelectTrigger className="h-7 w-[96px] text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">Unpinned</SelectItem>
+                              <SelectItem value="left">Pin left</SelectItem>
+                              <SelectItem value="right">Pin right</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          </PopoverContent>
-        </Popover>
+                  );
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
+        ) : null}
       </div>
 
       <div className="flex items-center gap-2">
-        {viewState.sorts.length ? (
-          <Button type="button" variant="outline" size="sm" className="border-slate-200 bg-white shadow-sm" onClick={() => onSortsChange([])}>
-            Clear sort
+        {showClearSort ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={`border-slate-200 bg-white shadow-sm ${compactButtons ? "h-9 w-9 px-0" : "gap-1"}`}
+            onClick={() => onSortsChange([])}
+            aria-label="Clear sort"
+            title="Clear sort"
+          >
+            <ArrowUpWideNarrow className="h-4 w-4" />
+            {compactButtons ? <span className="sr-only">Clear sort</span> : "Clear sort"}
           </Button>
         ) : null}
-        <Button type="button" variant="outline" size="sm" className="gap-1 border-slate-200 bg-white shadow-sm" onClick={onReset}>
-          <RotateCcw className="h-4 w-4" />
-          Reset view
-        </Button>
+        {showResetView ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={`border-slate-200 bg-white shadow-sm ${compactButtons ? "h-9 w-9 px-0" : "gap-1"}`}
+            onClick={onReset}
+            aria-label="Reset view"
+            title="Reset view"
+          >
+            <RotateCcw className="h-4 w-4" />
+            {compactButtons ? <span className="sr-only">Reset view</span> : "Reset view"}
+          </Button>
+        ) : null}
         {downloadable && onDownload ? (
-          <Button type="button" variant="outline" size="sm" className="gap-1 border-slate-200 bg-white shadow-sm" onClick={onDownload}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={`border-slate-200 bg-white shadow-sm ${compactButtons ? "h-9 w-9 px-0" : "gap-1"}`}
+            onClick={onDownload}
+            aria-label="CSV export"
+            title="CSV export"
+          >
             <Download className="h-4 w-4" />
-            CSV
+            {compactButtons ? <span className="sr-only">CSV</span> : "CSV"}
           </Button>
         ) : null}
       </div>

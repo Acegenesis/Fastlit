@@ -20,6 +20,7 @@ import { useResolvedPropText } from "../../context/WidgetStore";
 const DEFAULT_ROW_HEIGHT = 48;
 const HEADER_HEIGHT = 48;
 const TOOLBAR_HEIGHT = 49;
+const FOOTER_HEIGHT = 38;
 const DEFAULT_HEIGHT = 420;
 const SELECTION_WIDTH = 48;
 const INDEX_WIDTH = 72;
@@ -91,6 +92,9 @@ interface DataFrameProps {
   toolbar?: boolean;
   showSearch?: boolean;
   showFilters?: boolean;
+  showColumnManager?: boolean;
+  showResetView?: boolean;
+  showFooterSummary?: boolean;
   downloadable?: boolean;
   persistView?: boolean;
 }
@@ -283,9 +287,15 @@ async function parseDataframeResponse(
   return response.json();
 }
 
-function resolveGridHeight(height: number | string | undefined, rowCount: number, rowHeight: number, showToolbar: boolean): number {
+function resolveGridHeight(
+  height: number | string | undefined,
+  rowCount: number,
+  rowHeight: number,
+  showToolbar: boolean,
+  showFooter: boolean
+): number {
   if (typeof height === "number" && Number.isFinite(height)) return height;
-  const chrome = HEADER_HEIGHT + (showToolbar ? TOOLBAR_HEIGHT : 0) + 2;
+  const chrome = HEADER_HEIGHT + (showToolbar ? TOOLBAR_HEIGHT : 0) + (showFooter ? FOOTER_HEIGHT : 0) + 2;
   const content = chrome + Math.max(rowHeight, rowCount * rowHeight);
   return Math.min(DEFAULT_HEIGHT, Math.max(chrome + rowHeight, content));
 }
@@ -298,12 +308,12 @@ function resolveRowHeight(rowHeight: number | null | undefined): number {
 
 function resolveOuterStyle(width: number | string | undefined, useContainerWidth: boolean | undefined): React.CSSProperties {
   if (useContainerWidth || width === "stretch" || width === undefined) {
-    return { width: "100%", maxWidth: "100%" };
+    return { width: "100%", maxWidth: "100%", minWidth: 0 };
   }
   if (typeof width === "number" && Number.isFinite(width)) {
-    return { width, maxWidth: width };
+    return { width, maxWidth: "100%", minWidth: 0 };
   }
-  return { width: "auto", maxWidth: "100%" };
+  return { width: "auto", maxWidth: "100%", minWidth: 0 };
 }
 
 function readOnlyIndexColumn(hasIndex: boolean) {
@@ -338,6 +348,9 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     toolbar = !isStatic,
     showSearch = true,
     showFilters = true,
+    showColumnManager = true,
+    showResetView = true,
+    showFooterSummary = true,
     downloadable = !isStatic,
     persistView = true,
   } = props as DataFrameProps;
@@ -389,6 +402,7 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
   });
   const effectiveSearch = showSearch ? viewState.search : "";
   const effectiveFilters = showFilters ? viewState.filters : [];
+  const toolbarVisible = toolbar && (showSearch || showFilters || showColumnManager || showResetView || downloadable);
 
   const selectionModes = useMemo(() => normalizeSelectionModes(selectionMode), [selectionMode]);
   const rowSelectionMode = selectionModes.find((mode) => ROW_SELECTION_MODES.has(mode));
@@ -399,6 +413,7 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
   const allowsCellSelection = selectable && !!cellSelectionMode;
   const selectionColumnVisible = allowsRowSelection && rowSelectionMode !== "single-row";
   const isServerPaged = !!sourceId && (typeof totalRows === "number" ? totalRows : initialRows.length) > initialRows.length;
+  const footerVisible = !isStatic && (showFooterSummary || truncated || (isServerPaged && loadingWindow));
   const effectiveIndex = isServerPaged ? serverIndex : initialIndex;
   const hasIndex = Array.isArray(effectiveIndex) && effectiveIndex.length > 0;
   const effectiveRowHeight = resolveRowHeight(rowHeight);
@@ -447,7 +462,13 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
   const displayRows = isServerPaged ? currentWindowModels : filteredLocalRows;
   const effectiveTotalRows = isServerPaged ? serverTotalRows : displayRows.length;
   const outerStyle = resolveOuterStyle(width, useContainerWidth);
-  const containerHeight = resolveGridHeight(height, Math.max(displayRows.length, 1), effectiveRowHeight, toolbar && !isStatic);
+  const containerHeight = resolveGridHeight(
+    height,
+    Math.max(displayRows.length, 1),
+    effectiveRowHeight,
+    toolbarVisible && !isStatic,
+    footerVisible
+  );
   const rowVirtualizer = useGridVirtualRows({ rowCount: displayRows.length, parentRef, rowHeight: effectiveRowHeight });
   const shouldVirtualize = isServerPaged || displayRows.length > 100;
   const selectedSet = useMemo(() => new Set(selectedRowPositions), [selectedRowPositions]);
@@ -855,14 +876,16 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
   };
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm ring-1 ring-slate-950/[0.03]" style={outerStyle}>
-      {toolbar && !isStatic ? (
+    <div className="w-full min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm ring-1 ring-slate-950/[0.03]" style={outerStyle}>
+      {toolbarVisible && !isStatic ? (
         <GridToolbar
           columns={baseColumns}
           viewState={viewState}
           downloadable={downloadable}
           showSearch={showSearch}
           showFilters={showFilters}
+          showColumnManager={showColumnManager}
+          showResetView={showResetView}
           onSearchChange={(value) => updateViewState((current) => ({ ...current, search: value }))}
           onReset={resetViewState}
           onDownload={downloadable ? handleDownload : undefined}
@@ -878,7 +901,7 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
       ) : null}
 
       <div ref={headerScrollRef} className="overflow-hidden">
-        <div className="flex border-b border-slate-200/80 bg-slate-50/90 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500" style={{ height: HEADER_HEIGHT, width: contentWidth }}>
+        <div className="flex border-b border-slate-200/80 bg-slate-50/90 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500" style={{ height: HEADER_HEIGHT, width: contentWidth, minWidth: "100%" }}>
           {selectionColumnVisible ? (
             <div className="sticky left-0 z-30 flex items-center justify-center border-r border-slate-200/80 bg-slate-100/95" style={{ width: SELECTION_WIDTH, minWidth: SELECTION_WIDTH }}>
               Sel
@@ -944,7 +967,7 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
         <div
           ref={parentRef}
           className="overflow-auto"
-          style={{ height: containerHeight - HEADER_HEIGHT - (toolbar && !isStatic ? TOOLBAR_HEIGHT : 0) }}
+          style={{ height: containerHeight - HEADER_HEIGHT - (toolbarVisible && !isStatic ? TOOLBAR_HEIGHT : 0) - (footerVisible ? FOOTER_HEIGHT : 0) }}
           onScroll={(event) => {
             const target = event.currentTarget;
             if (headerScrollRef.current) {
@@ -954,7 +977,7 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
           }}
         >
           {shouldVirtualize ? (
-          <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: contentWidth, position: "relative" }}>
+          <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: contentWidth, minWidth: "100%", position: "relative" }}>
               {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                 const row = displayRows[virtualRow.index];
                 if (!row) return null;
@@ -966,17 +989,21 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
               })}
             </div>
           ) : (
-            <div style={{ width: contentWidth }}>
+            <div style={{ width: contentWidth, minWidth: "100%" }}>
               {displayRows.map((row, rowIndex) => renderRow(row, rowIndex))}
             </div>
           )}
         </div>
       )}
 
-      {!isStatic ? (
+      {footerVisible ? (
         <div className="flex flex-wrap items-center gap-2 border-t border-slate-200/80 bg-slate-50/90 px-3 py-2 text-xs text-slate-500">
-          <Badge variant="outline" className="font-normal">{effectiveTotalRows.toLocaleString()} rows</Badge>
-          <Badge variant="outline" className="font-normal">{resolvedColumns.length} columns</Badge>
+          {showFooterSummary ? (
+            <>
+              <Badge variant="outline" className="font-normal">{effectiveTotalRows.toLocaleString()} rows</Badge>
+              <Badge variant="outline" className="font-normal">{resolvedColumns.length} columns</Badge>
+            </>
+          ) : null}
           {isServerPaged && loadingWindow ? <span className="ml-2 text-sky-600">(loading window...)</span> : null}
           {truncated ? <span className="ml-2 text-amber-700">(preview truncated)</span> : null}
         </div>

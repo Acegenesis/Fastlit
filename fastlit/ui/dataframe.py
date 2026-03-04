@@ -110,6 +110,9 @@ def dataframe(
     toolbar: bool = True,
     show_search: bool = True,
     show_filters: bool = True,
+    show_column_manager: bool = True,
+    show_reset_view: bool = True,
+    show_footer_summary: bool = True,
     downloadable: bool = True,
     persist_view: bool = True,
     max_rows: int | None = None,
@@ -132,6 +135,9 @@ def dataframe(
         toolbar: If True, show the grid toolbar.
         show_search: If True, show the search input in the toolbar.
         show_filters: If True, show filter controls in the toolbar.
+        show_column_manager: If True, show the columns management control.
+        show_reset_view: If True, show the reset-view control.
+        show_footer_summary: If True, show the footer row/column summary badges.
         downloadable: If True, expose CSV export for the current view.
         persist_view: If True, persist the grid view state in sessionStorage.
         max_rows: Maximum number of rows to serialize for display.
@@ -206,6 +212,9 @@ def dataframe(
         "toolbar": toolbar,
         "showSearch": show_search,
         "showFilters": show_filters,
+        "showColumnManager": show_column_manager,
+        "showResetView": show_reset_view,
+        "showFooterSummary": show_footer_summary,
         "downloadable": downloadable,
         "persistView": persist_view,
         "totalRows": total_rows,
@@ -583,6 +592,10 @@ def data_editor(
     toolbar: bool = True,
     show_search: bool = True,
     show_filters: bool = True,
+    show_column_manager: bool = True,
+    show_reset_view: bool = True,
+    show_footer_summary: bool = True,
+    show_row_actions: bool = True,
     downloadable: bool = True,
     persist_view: bool = True,
     key: str | None = None,
@@ -607,6 +620,10 @@ def data_editor(
         toolbar: If True, show the grid toolbar.
         show_search: If True, show the search input in the toolbar.
         show_filters: If True, show filter controls in the toolbar.
+        show_column_manager: If True, show the columns management control.
+        show_reset_view: If True, show the reset-view control.
+        show_footer_summary: If True, show the footer row/column summary badges.
+        show_row_actions: If True, show the per-row actions column in dynamic mode.
         downloadable: If True, allow exporting the current edited view as CSV.
         persist_view: If True, persist the editor view state in sessionStorage.
         key: Optional key for stable identity.
@@ -672,6 +689,10 @@ def data_editor(
         "toolbar": toolbar,
         "showSearch": show_search,
         "showFilters": show_filters,
+        "showColumnManager": show_column_manager,
+        "showResetView": show_reset_view,
+        "showFooterSummary": show_footer_summary,
+        "showRowActions": show_row_actions,
         "downloadable": downloadable,
         "persistView": persist_view,
         "totalRows": total_rows,

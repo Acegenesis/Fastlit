@@ -25,9 +25,9 @@ export const Columns: React.FC<NodeComponentProps> = ({ props, children }) => {
 
   return (
     <div
-      className={`grid ${gap} ${valign} mb-3 w-full`}
+      className={`grid ${gap} ${valign} mb-3 w-full min-w-0`}
       style={{
-        gridTemplateColumns: widths.map((w) => `${w}fr`).join(" "),
+        gridTemplateColumns: widths.map((w) => `minmax(0, ${w}fr)`).join(" "),
       }}
     >
       {children}
