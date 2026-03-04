@@ -1,66 +1,38 @@
 # Fastlit
 
-Streamlit-compatible, Python-first UI framework with a faster runtime model.
+Fastlit is a Python-first app framework with a Streamlit-compatible API and a patch-based runtime.
 
-Fastlit keeps the familiar `st.*` API, but uses an incremental patch protocol over WebSocket instead of full-page rerenders for every interaction.
+It preserves the `st.*` programming model, but replaces full-page rerenders with incremental UI updates over WebSocket. This makes interactions more targeted, keeps larger screens responsive, and gives the runtime clearer production boundaries.
 
-## What Fastlit provides
+## Overview
 
-- Streamlit-style API across text, widgets, layout, charts, data, media, chat, state, status, cache, auth, and custom components.
-- Incremental UI updates (diff/patch) with bounded event queues and coalescing.
-- Fragment reruns with `@st.fragment` and live output streaming with `st.write_stream`.
-- Virtualized tables (`st.dataframe`) with optional server-side row windows for large datasets.
-- Caching primitives:
-  - `@st.cache_data` (TTL + max entries + optional copy behavior)
-  - `@st.cache_resource` (shared singleton resources)
-- Custom components compatibility layer: `st.components.v1.html`, `iframe`, `declare_component`.
-- OIDC auth support (`st.user`, `st.require_login`, `st.logout`) via `secrets.toml`.
-- Connection system (`st.connection`, `st.connections`) with built-in SQL connector and custom connector support.
-- Runtime and security controls for production:
-  - session limits, run timeout, concurrency caps
-  - HTTP/WS rate limiting controls
-  - CSP/security headers middleware
-  - cache-control policies for static assets and components
-- Built-in metrics endpoint: `/_fastlit/metrics`.
+- Streamlit-compatible API across text, inputs, layout, charts, data, media, chat, state, cache, auth, and components
+- Incremental UI patches instead of rerendering the full page on every interaction
+- Partial reruns with `@st.fragment` and progressive output with `st.write_stream`
+- File-based routing, nested layouts, guards, and page navigation for larger apps
+- Production controls for concurrency, rate limiting, security headers, and runtime metrics
 
-## Installation
+## Quickstart
 
-Requirements:
-- Python 3.11+
-
-Install package:
+Install:
 
 ```bash
 pip install fastlit
 ```
-
-Optional extras:
-
-```bash
-pip install "fastlit[dataframe]"   # pandas + pyarrow
-pip install "fastlit[sql]"         # sqlalchemy + pandas
-pip install "fastlit[auth]"        # httpx (OIDC auth — beta)
-pip install "fastlit[dev]"         # watchfiles
-```
-
-With `pyarrow` installed, large `st.dataframe` payloads automatically switch to
-Apache Arrow transport for the initial preview window and server-paged fetches.
-
-## Quick start
 
 Create `app.py`:
 
 ```python
 import fastlit as st
 
-st.set_page_config(page_title="Fastlit App", layout="wide")
+st.set_page_config(page_title="Fastlit", layout="wide")
 st.title("Hello Fastlit")
 
-name = st.text_input("Your name")
-n = st.slider("Pick a number", 0, 100, 42)
+name = st.text_input("Name")
+value = st.slider("Value", 0, 100, 42)
 
 if st.button("Run"):
-    st.success(f"Hello {name or 'world'} - value={n}")
+    st.success(f"Hello {name or 'world'} - value={value}")
 ```
 
 Run:
@@ -69,339 +41,95 @@ Run:
 fastlit run app.py
 ```
 
-Development mode (fullstack dev: backend reload + frontend HMR):
+Development mode:
 
 ```bash
 fastlit run app.py --dev
 ```
 
-With explicit frontend dev server options:
+`--dev` starts backend autoreload and the frontend dev server with HMR.
+
+## Installation
+
+Requirements:
+
+- Python 3.11+
+
+Optional extras:
 
 ```bash
-fastlit run app.py --dev --frontend-port 5173 --frontend-host 127.0.0.1
+pip install "fastlit[dataframe]"   # pandas + pyarrow
+pip install "fastlit[sql]"         # sqlalchemy + pandas
+pip install "fastlit[auth]"        # httpx
+pip install "fastlit[dev]"         # watchfiles + pytest
 ```
 
-## File-based pages
+With `pyarrow` installed, `st.dataframe` can use Arrow transport and server-paged row windows for larger datasets.
 
-Fastlit supports file-based multi-page apps out of the box.
+## Programming Model
 
-This mode is optional. If a sibling `pages/` directory exists next to your
-entry script, Fastlit treats your app as a file-based multi-page app.
-
-Project layout:
-
-```text
-app.py
-pages/
-  index.py
-  charts.py
-  status_feedback.py
-```
-
-`app.py`:
-
-```python
-import fastlit as st
-
-st.set_page_config(page_title="My App", layout="wide")
-st.sidebar.navigation()
-```
-
-`pages/charts.py`:
-
-```python
-import fastlit as st
-
-PAGE_CONFIG = {
-    "title": "Charts",
-    "icon": "📈",
-    "order": 20,
-}
+Fastlit keeps the Streamlit authoring model, but changes how updates are executed:
 
-st.title("Charts")
-st.write("Auto-discovered from pages/charts.py")
-```
+1. A widget updates the local client-side store immediately.
+2. The browser sends an async event to the backend.
+3. Fastlit reruns the full app or only the affected fragment subtree.
+4. The runtime computes a patch against the previous UI tree.
+5. The client reconciles the tree while preserving local widget state.
 
-### How it works
-
-1. `app.py` stays your entry script and global layout.
-2. Fastlit scans `pages/*.py` automatically.
-3. The filename becomes the route slug by default.
-4. `st.sidebar.navigation()` builds the sidebar navigation.
-5. In auto-discovery mode, the selected page is rendered implicitly inside `app.py`.
-
-Example:
-
-```python
-import fastlit as st
-
-st.set_page_config(page_title="My App", layout="wide")
-
-st.sidebar.title("My App")
-st.sidebar.navigation()
-
-st.caption("This footer stays visible on every page.")
-```
-
-In that example:
-- `app.py` is the shared shell
-- `pages/index.py` maps to `/`
-- `pages/charts.py` becomes `/charts`
-- `pages/status_feedback.py` becomes `/status_feedback`
-
-Supported page metadata:
-- `PAGE_CONFIG = {"title": "...", "icon": "...", "order": 10, "default": True, "hidden": False, "url_path": "..."}`
-- Or individual constants: `PAGE_TITLE`, `PAGE_ICON`, `PAGE_ORDER`, `PAGE_DEFAULT`, `PAGE_HIDDEN`, `PAGE_URL_PATH`
-
-By default, the route slug is the filename. For example, `pages/status_feedback.py` maps to `/status_feedback`.
-When Fastlit auto-discovers a sibling `pages/` directory, the selected page is rendered implicitly inside `app.py`.
-If you build your own `st.Page(...)` list manually, you can still use `selected_page.run()` for explicit page outlets.
-
-### Advanced routing
-
-Fastlit also supports a more structured file-based router:
-
-- root index pages: `pages/index.py` -> `/`
-- parent pages: `pages/admin/index.py` -> `/admin`
-- nested routes from subfolders: `pages/admin/users.py` -> `/admin/users`
-- nested pages grouped automatically in the sidebar
-- sidebar groups remember their open/closed state
-- dynamic segments: `pages/blog/[id].py` -> `/blog/42`
-- catch-all segments: `pages/docs/[...slug].py` -> `/docs/guides/routing`
-- custom `404.py` and `403.py` pages at the root of `pages/`
-- nested layouts from a sibling `layouts/` directory
-- finer nested layouts like `layouts/admin/default.py`
-- per-page guards for auth and roles
-- route helpers like `st.page_path(...)` and param-aware `st.switch_page(...)`
+## Capabilities
 
-Example project:
+### App Structure
 
-```text
-app.py
-layouts/
-  default.py
-  admin.py
-  admin/
-    default.py
-pages/
-  index.py
-  403.py
-  404.py
-  admin/
-    index.py
-    users.py
-    secure.py
-  blog/
-    [id].py
-  docs/
-    [...slug].py
-```
+- Familiar `st.*` API
+- Sidebar navigation with `st.sidebar.navigation()`
+- File-based multi-page apps with a sibling `pages/` directory
+- Nested routes, dynamic segments, catch-all routes, and page metadata
+- Layout composition with `st.page_outlet()`
+- Route helpers such as `st.page_path(...)` and `st.switch_page(...)`
 
-`layouts/default.py`:
+### Runtime
 
-```python
-import fastlit as st
+- Incremental diff/patch protocol over WebSocket
+- Fragment reruns with `@st.fragment`
+- Progressive streaming with `st.write_stream`
+- `st.session_state`, `st.query_params`, and fragment-aware reruns
+- Background execution with `st.run_in_thread(...)`
+- Lifecycle hooks with `st.on_startup(...)` and `st.on_shutdown(...)`
 
-st.caption("Default nested layout")
-st.page_outlet()
-```
+### Data and Integrations
 
-`layouts/admin.py`:
+- `st.dataframe`, `st.data_editor`, `st.table`
+- Virtualized data display with Arrow transport and server-paged row windows
+- Chart support for Plotly, Altair/Vega-Lite, Matplotlib, Bokeh, Graphviz, PyDeck, and maps
+- SQL connections through `st.connection(...)`
+- Caching via `@st.cache_data` and `@st.cache_resource`
+- Custom components through `st.components.v1`
 
-```python
-import fastlit as st
+### Authentication
 
-st.info("Admin layout")
-st.page_outlet()
-```
+- OIDC support through `st.user`, `st.require_login()`, and `st.logout()`
+- Current status: beta
 
-`pages/admin/secure.py`:
+## Frontend Runtime
 
-```python
-import fastlit as st
+- State management uses React Context plus a custom external store for widget values
+- Per-widget subscriptions use `useSyncExternalStore`, which keeps rerenders localized
+- Server patches reconcile UI structure; widget state remains client-side and syncs asynchronously back to the backend
+- Heavy or optional surfaces use `React.lazy` and `Suspense`
+- Vite code splitting is configured explicitly for heavier dependency groups
+- Likely chunks are prefetched during browser idle time
+- Expensive chart surfaces can be deferred until they are near the viewport
+- Frontend Web Vitals are not instrumented yet; current built-in observability is server-side runtime metrics
 
-PAGE_CONFIG = {
-    "title": "Admin Secure",
-    "hidden": True,
-    "guard": {
-        "auth": True,
-        "roles": ["admin"],
-    },
-}
-
-st.title("Admin Secure")
-```
-
-Available routing metadata now includes:
-- `guard`: `{"auth": True, "roles": ["admin"]}`
-- `PAGE_GUARD`
-- `PAGE_AUTH` / `PAGE_REQUIRE_LOGIN`
-- `PAGE_ROLES`
-- `PAGE_LAYOUT` / `PAGE_LAYOUTS`
-
-Inside a page or layout, Fastlit exposes route context through `st.context`:
+## Operating Fastlit
 
-- `st.context.path`
-- `st.context.route_params`
-- `st.context.layout_stack`
-- `st.context.guard_failure`
+- Session caps, concurrency limits, backlog controls, and run timeouts
+- HTTP and WebSocket rate limiting
+- Security headers and optional CSP middleware
+- Runtime metrics at `/_fastlit/metrics`
+- Payload and state guardrails through environment limits such as `FASTLIT_MAX_SESSION_STATE_BYTES`, `FASTLIT_MAX_WIDGET_STORE_BYTES`, and `FASTLIT_MAX_UPLOAD_MB`
 
-`st.page_outlet()` renders the next nested layout or page in the current route chain.
-
-### When to use it
-
-- Use a single `app.py` if your app is small and linear.
-- Use `app.py` + `pages/` if your app is growing and you want one file per screen.
-- Use manual `st.Page(...)` definitions if you want full control over page registration.
-
-In `--dev` mode, Fastlit now:
-- starts the Python backend with autoreload
-- starts the Vite frontend dev server with HMR
-- redirects SPA page requests to the Vite server
-
-Notes:
-- Python changes trigger backend reload
-- `frontend/src/*`, `frontend/index.html`, and CSS changes use Vite HMR/reload
-- `st.components.v1.declare_component(url=...)` keeps its separate dev-server workflow
-
-## Demo app
-
-The full showcase is in:
-
-- `examples/app.py`
-
-Run it:
-
-```bash
-fastlit run examples/app.py --dev
-```
-
-## API reference
-
-Auto-generated signatures are in:
-
-- `docs/API_REFERENCE.md`
-
-Regenerate from real Python signatures:
-
-```bash
-python scripts/generate_api_reference.py
-```
-
-## Core API categories
-
-- Text: `st.title`, `st.header`, `st.markdown`, `st.write`, `st.help`, `st.write_stream`, `st.badge`, etc.
-- Inputs: buttons, sliders, text inputs, selectors, uploads, camera/audio, feedback, segmented controls.
-- Layout: `st.sidebar`, `st.columns`, `st.tabs`, `st.form`, `st.dialog`, `st.popover`, `st.navigation`, `st.Page`, `st.switch_page`.
-- Data: `st.dataframe`, `st.data_editor`, `st.table`, column config helpers.
-- Charts: native and embedded chart APIs (`plotly`, `altair/vega-lite`, `pyplot`, `bokeh`, `graphviz`, `pydeck`, map).
-- Media: `st.image`, `st.audio`, `st.video`, `st.logo`, `st.pdf`.
-- Chat: `st.chat_message`, `st.chat_input`.
-- State/control: `st.session_state`, `st.query_params`, `st.context`, `st.rerun`, `st.stop`.
-- Runtime/lifecycle: `st.run_in_thread`, `st.run_with_session_context`, `st.on_startup`, `st.on_shutdown`.
-- Cache: `st.cache_data`, `st.cache_resource`.
-- Auth: `st.user`, `st.require_login`, `st.logout`.
-- Connections: `st.connection`, `st.connections`.
-- Components: `st.components.v1`.
-
-## Auth (OIDC) — Beta
-
-> **Status: Beta — not yet production-tested.**
-> The implementation is complete on paper (Authorization Code + PKCE, HMAC-signed cookies, `AuthMiddleware`) but has not been validated against a live IdP. Use with caution and report issues.
-
-Requires the `auth` extra:
-
-```bash
-pip install "fastlit[auth]"
-```
-
-`secrets.toml`:
-
-```toml
-[auth]
-provider = "oidc"
-issuer_url = "https://accounts.google.com"   # or Azure AD, Okta, Keycloak…
-client_id = "your-client-id"
-client_secret = "your-client-secret"
-redirect_uri = "http://localhost:8501/auth/callback"
-cookie_secret = "change-me-32-chars-minimum"
-# Optional
-scopes = ["openid", "profile", "email"]
-cookie_name = "fl_session"    # default
-cookie_max_age = 86400        # seconds (default: 24h)
-```
-
-In app:
-
-```python
-import fastlit as st
-
-st.require_login()   # redirects to /auth/login if not authenticated
-st.write("Hello", st.user.name, st.user.email)
-
-if st.button("Sign out"):
-    st.logout()
-```
-
-Available claims on `st.user`:
-
-| Property | OIDC claim | Description |
-|---|---|---|
-| `st.user.is_logged_in` | — | `True` if auth cookie is valid |
-| `st.user.email` | `email` | User email |
-| `st.user.name` | `name` / `preferred_username` | Display name |
-| `st.user.sub` | `sub` | Unique subject identifier |
-| `st.user.<claim>` | any | Arbitrary claim from the ID token |
-
-Auth flow:
-1. Unauthenticated request → redirect to `/auth/login?next=<url>`
-2. `/auth/login` → redirect to IdP with PKCE challenge
-3. IdP callback → `/auth/callback` → HMAC-signed session cookie → redirect to original URL
-4. `/auth/logout` → cookie cleared → redirect to `/`
-
-Without `[auth]` in `secrets.toml`, auth is fully disabled and the app works normally.
-
-## SQL connection example
-
-`secrets.toml`:
-
-```toml
-[connections.mydb]
-type = "sql"
-url = "sqlite:///app.db"
-```
-
-In app:
-
-```python
-import fastlit as st
-
-conn = st.connection("mydb")
-df = conn.query("SELECT 1 AS ok", ttl=30)
-st.dataframe(df)
-```
-
-## Custom component (`st.components.v1`) example
-
-```python
-import fastlit as st
-
-counter = st.components.v1.declare_component(
-    "my_counter",
-    path="./frontend_build",
-)
-
-value = counter(step=1, key="counter", default=0)
-st.write("Value:", value)
-```
-
-Protocol messages for interactive components:
-- parent to child: `streamlit:render`
-- child to parent: `streamlit:componentReady`
-- child to parent: `streamlit:setComponentValue`
-- child to parent: `streamlit:setFrameHeight`
-
-## Production run profile
+Example production profile:
 
 ```bash
 fastlit run app.py \
@@ -415,35 +143,90 @@ fastlit run app.py \
   --run-timeout-seconds 45
 ```
 
-Metrics endpoint:
+## Status
 
-- `GET /_fastlit/metrics`
+| Surface | Status | Notes |
+|---|---|---|
+| Core app model, widgets, layout, state, and routing | Primary | Main framework surface exposed across the demo app and API reference |
+| Data display and editing | Primary | Includes virtualization, large-data transport paths, and interactive tables |
+| Caching, connections, components, and lifecycle hooks | Available | Supported as first-class APIs |
+| OIDC authentication | Beta | Implemented but still explicitly marked beta |
+| Frontend Web Vitals instrumentation | Not yet implemented | Server-side runtime metrics are available today |
 
-## Contributor notes
+## Multi-Page Apps
 
-Install editable package:
+Fastlit supports file-based routing out of the box.
 
-```bash
-pip install -e .
+Project layout:
+
+```text
+app.py
+pages/
+  index.py
+  charts.py
+  admin/
+    index.py
+    users.py
 ```
 
-Build frontend assets:
+`app.py`:
 
-```bash
-cd frontend
-npm install
-npm run build
+```python
+import fastlit as st
+
+st.set_page_config(page_title="My App", layout="wide")
+st.sidebar.navigation()
 ```
 
-Then run demo:
+This model scales from a simple `app.py` to nested route trees with layouts and guards.
+
+## Examples
+
+The repository includes a full showcase app:
 
 ```bash
 fastlit run examples/app.py --dev
 ```
 
-For fullstack dev mode, make sure frontend dependencies are installed first:
+Relevant example areas:
+
+- `examples/pages/text_elements.py`
+- `examples/pages/input_widgets.py`
+- `examples/pages/data_display.py`
+- `examples/pages/streaming_fragments.py`
+- `examples/pages/page_system.py`
+- `examples/pages/auth_beta.py`
+- `examples/pages/advanced_features.py`
+- `examples/pages/custom_components.py`
+- `examples/pages/state_control.py`
+
+## API Reference
+
+Generated API signatures live in `docs/API_REFERENCE.md`.
+
+Regenerate them from the codebase:
+
+```bash
+python scripts/generate_api_reference.py
+```
+
+## Development
+
+Install the package in editable mode:
+
+```bash
+pip install -e .
+```
+
+Install frontend dependencies:
 
 ```bash
 cd frontend
 npm install
+```
+
+Build frontend assets:
+
+```bash
+npm run build
 ```
