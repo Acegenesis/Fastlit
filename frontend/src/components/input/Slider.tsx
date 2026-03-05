@@ -14,6 +14,8 @@ export const Slider: React.FC<NodeComponentProps> = ({
   const help = useResolvedPropText(props, "help");
   const [value, setValue] = useWidgetValue(nodeId, props.value);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isArrowDemoSlider =
+    nodeId === "k:arrow_demo_rows" || label === "Number of rows to generate";
 
   const nextWidgetValue = (values: number[]) =>
     isRange ? values : values[0];
@@ -21,11 +23,23 @@ export const Slider: React.FC<NodeComponentProps> = ({
   const handleChange = (values: number[]) => {
     if (disabled) return;
     const nextValue = nextWidgetValue(values);
-    // Update WidgetStore immediately for instant local feedback (e.g. direct refs like st.metric value=threshold)
+    if (isArrowDemoSlider) {
+      console.log("[Fastlit][Slider:change]", {
+        nodeId,
+        label,
+        nextValue,
+      });
+    }
     setValue(nextValue);
-    // Debounce server rerun so Python-computed values update during drag
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
+      if (isArrowDemoSlider) {
+        console.log("[Fastlit][Slider:debounced-send]", {
+          nodeId,
+          label,
+          nextValue,
+        });
+      }
       sendEvent(nodeId, nextValue);
       debounceRef.current = null;
     }, 150);
@@ -34,8 +48,14 @@ export const Slider: React.FC<NodeComponentProps> = ({
   const handleCommit = (values: number[]) => {
     if (disabled) return;
     const nextValue = nextWidgetValue(values);
+    if (isArrowDemoSlider) {
+      console.log("[Fastlit][Slider:commit]", {
+        nodeId,
+        label,
+        nextValue,
+      });
+    }
     setValue(nextValue);
-    // Cancel any pending debounced event and send immediately on release
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
       debounceRef.current = null;

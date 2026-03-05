@@ -19,6 +19,18 @@ import type { UINode, ErrorMessage, RuntimeEventPayload } from "./runtime/types"
 
 type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
+const ARROW_DEBUG_SLIDER_ID = "k:arrow_demo_rows";
+
+function isArrowDebugId(id: string | null | undefined): boolean {
+  return !!id && (id === ARROW_DEBUG_SLIDER_ID || id.startsWith("k:arrow_demo_df_"));
+}
+
+function treeHasArrowDemo(node: UINode | null | undefined): boolean {
+  if (!node) return false;
+  if (isArrowDebugId(node.id)) return true;
+  return (node.children ?? []).some((child) => treeHasArrowDemo(child));
+}
+
 function isLikelyNavigationSyncPatch(ops: Array<{ op?: string }> | undefined): boolean {
   if (!Array.isArray(ops) || ops.length === 0) return false;
   if (ops.length > 8) return true;
@@ -236,11 +248,19 @@ export const App: React.FC = () => {
       clearTimeout(timer);
       const pendingValue = pendingValuesRef.current.get(widgetId);
       if (pendingValue !== undefined) {
+        if (isArrowDebugId(widgetId)) {
+          console.log("[Fastlit][flushPendingEvents]", {
+            widgetId,
+            pendingValue,
+            path: getCurrentPathname(),
+          });
+        }
         wsRef.current?.send({
           type: "widget_event",
           id: widgetId,
           value: pendingValue,
           noRerun: true,
+          path: getCurrentPathname(),
         });
       }
     }
@@ -330,11 +350,31 @@ export const App: React.FC = () => {
         pendingValuesRef.current.set(id, value);
         const existing = debounceTimersRef.current.get(id);
         if (existing) clearTimeout(existing);
+        if (isArrowDebugId(id)) {
+          console.log("[Fastlit][sendEvent:queue]", {
+            id,
+            value,
+            noRerun: true,
+            path: getCurrentPathname(),
+          });
+        }
 
         const timer = setTimeout(() => {
           debounceTimersRef.current.delete(id);
           pendingValuesRef.current.delete(id);
-          wsRef.current?.send({ type: "widget_event", id, value });
+          if (isArrowDebugId(id)) {
+            console.log("[Fastlit][sendEvent:debounced-fire]", {
+              id,
+              value,
+              path: getCurrentPathname(),
+            });
+          }
+          wsRef.current?.send({
+            type: "widget_event",
+            id,
+            value,
+            path: getCurrentPathname(),
+          });
         }, DEBOUNCE_MS);
 
         debounceTimersRef.current.set(id, timer);
@@ -346,12 +386,37 @@ export const App: React.FC = () => {
         clearTimeout(t);
         const pv = pendingValuesRef.current.get(widgetId);
         if (pv !== undefined) {
-          wsRef.current?.send({ type: "widget_event", id: widgetId, value: pv, noRerun: true });
+          if (isArrowDebugId(widgetId)) {
+            console.log("[Fastlit][sendEvent:flush-before-action]", {
+              widgetId,
+              value: pv,
+              path: getCurrentPathname(),
+            });
+          }
+          wsRef.current?.send({
+            type: "widget_event",
+            id: widgetId,
+            value: pv,
+            noRerun: true,
+            path: getCurrentPathname(),
+          });
         }
       }
       debounceTimersRef.current.clear();
       pendingValuesRef.current.clear();
-      wsRef.current?.send({ type: "widget_event", id, value });
+      if (isArrowDebugId(id)) {
+        console.log("[Fastlit][sendEvent:immediate]", {
+          id,
+          value,
+          path: getCurrentPathname(),
+        });
+      }
+      wsRef.current?.send({
+        type: "widget_event",
+        id,
+        value,
+        path: getCurrentPathname(),
+      });
     },
     [] // stable forever — all deps accessed via refs
   );
@@ -369,6 +434,13 @@ export const App: React.FC = () => {
     });
 
     ws.onRenderFull((msg) => {
+      if (treeHasArrowDemo(msg.tree)) {
+        console.log("[Fastlit][render_full]", {
+          rev: msg.rev,
+          path: getCurrentPathname(),
+          hasArrowDemo: true,
+        });
+      }
       // New epoch: invalidate any in-flight patch chain handlers.
       patchEpochRef.current += 1;
       patchChainRef.current = Promise.resolve(msg.tree);
@@ -493,6 +565,14 @@ export const App: React.FC = () => {
     });
 
     ws.onRenderPatch((msg) => {
+      const arrowOps = msg.ops.filter((op) => isArrowDebugId(op.id));
+      if (arrowOps.length > 0) {
+        console.log("[Fastlit][render_patch]", {
+          rev: msg.rev,
+          path: getCurrentPathname(),
+          arrowOps,
+        });
+      }
       lastServerRevRef.current = Math.max(lastServerRevRef.current, msg.rev);
       // After cached navigation, the backend reruns to sync _previous_tree.
       // The patch it sends is based on (old page → new page) diff, but the

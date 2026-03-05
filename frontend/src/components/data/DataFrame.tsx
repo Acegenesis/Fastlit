@@ -3,6 +3,15 @@ import { tableFromIPC } from "apache-arrow";
 import type { NodeComponentProps } from "../../registry/registry";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import { GridToolbar } from "./grid/GridToolbar";
 import { GridEmptyState } from "./grid/GridEmptyState";
 import { normalizeGridColumnType } from "./grid/columnTypes";
@@ -21,6 +30,7 @@ const DEFAULT_ROW_HEIGHT = 48;
 const HEADER_HEIGHT = 48;
 const TOOLBAR_HEIGHT = 49;
 const FOOTER_HEIGHT = 38;
+const PAGINATION_HEIGHT = 44;
 const DEFAULT_HEIGHT = 420;
 const SELECTION_WIDTH = 48;
 const INDEX_WIDTH = 72;
@@ -97,6 +107,9 @@ interface DataFrameProps {
   showFooterSummary?: boolean;
   downloadable?: boolean;
   persistView?: boolean;
+  pagination?: boolean | string;
+  paginationMode?: string;
+  pageSize?: number;
 }
 
 interface DecodedFramePayload {
@@ -292,10 +305,16 @@ function resolveGridHeight(
   rowCount: number,
   rowHeight: number,
   showToolbar: boolean,
-  showFooter: boolean
+  showFooter: boolean,
+  showPagination: boolean
 ): number {
   if (typeof height === "number" && Number.isFinite(height)) return height;
-  const chrome = HEADER_HEIGHT + (showToolbar ? TOOLBAR_HEIGHT : 0) + (showFooter ? FOOTER_HEIGHT : 0) + 2;
+  const chrome =
+    HEADER_HEIGHT +
+    (showToolbar ? TOOLBAR_HEIGHT : 0) +
+    (showFooter ? FOOTER_HEIGHT : 0) +
+    (showPagination ? PAGINATION_HEIGHT : 0) +
+    2;
   const content = chrome + Math.max(rowHeight, rowCount * rowHeight);
   return Math.min(DEFAULT_HEIGHT, Math.max(chrome + rowHeight, content));
 }
@@ -353,8 +372,26 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     showFooterSummary = true,
     downloadable = !isStatic,
     persistView = true,
+    pagination = false,
+    paginationMode,
+    pageSize = 25,
   } = props as DataFrameProps;
   const resolvedPlaceholder = useResolvedPropText(props as Record<string, any>, "placeholder");
+  const isArrowDebug = nodeId.startsWith("k:arrow_demo_df_");
+  const resolvedPaginationMode = useMemo(() => {
+    const raw = String(paginationMode ?? (typeof pagination === "string" ? pagination : "text"))
+      .trim()
+      .toLowerCase();
+    if (raw === "text" || raw === "number" || raw === "icon") return raw;
+    return "text";
+  }, [pagination, paginationMode]);
+  const paginationEnabled = (typeof pagination === "boolean" ? pagination : true) && !isStatic;
+  const showTextPagination = paginationEnabled && resolvedPaginationMode === "text";
+  const showNumberPagination = paginationEnabled && resolvedPaginationMode === "number";
+  const showIconPagination = paginationEnabled && resolvedPaginationMode === "icon";
+  const resolvedPageSize = Number.isFinite(Number(pageSize))
+    ? Math.max(1, Math.floor(Number(pageSize)))
+    : 25;
 
   const decodedPreview = useMemo(() => {
     if (!arrowData) return null;
@@ -384,6 +421,7 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
   const [selectedRowPositions, setSelectedRowPositions] = useState<number[]>(Array.isArray(selectedRows) ? [...selectedRows] : []);
   const [selectedColumnNames, setSelectedColumnNames] = useState<string[]>(Array.isArray(selectedColumns) ? [...selectedColumns] : []);
   const [selectedCellValues, setSelectedCellValues] = useState<SelectedCell[]>(normalizeSelectedCells(selectedCells));
+  const [currentPage, setCurrentPage] = useState(1);
   const [columnSelectionAnchor, setColumnSelectionAnchor] = useState<string | null>(null);
   const [cellSelectionAnchor, setCellSelectionAnchor] = useState<SelectedCell | null>(null);
   const fetchAbortRef = useRef<AbortController | null>(null);
@@ -419,12 +457,20 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
   const effectiveRowHeight = resolveRowHeight(rowHeight);
 
   useEffect(() => {
+    if (isArrowDebug) {
+      console.log("[Fastlit][ArrowDF:reset-window]", {
+        nodeId,
+        sourceId,
+        totalRows,
+        initialRows: initialRows.length,
+      });
+    }
     setServerOffset(0);
     setServerRows(initialRows);
     setServerIndex(initialIndex);
     setServerPositions(initialPositions);
     setServerTotalRows(typeof totalRows === "number" ? totalRows : initialRows.length);
-  }, [initialIndex, initialPositions, initialRows, sourceId, totalRows]);
+  }, [initialIndex, initialPositions, initialRows, isArrowDebug, nodeId, sourceId, totalRows]);
 
   useEffect(() => {
     setSelectedRowPositions(Array.isArray(selectedRows) ? [...selectedRows] : []);
@@ -459,18 +505,71 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     return applyGridSorts(searched, viewState.sorts, columnIndexMap);
   }, [baseRowModels, columnIndexMap, currentWindowModels, effectiveFilters, effectiveSearch, isServerPaged, viewState.sorts]);
 
-  const displayRows = isServerPaged ? currentWindowModels : filteredLocalRows;
-  const effectiveTotalRows = isServerPaged ? serverTotalRows : displayRows.length;
+  const localTotalRows = filteredLocalRows.length;
+  const totalRowsForPagination = isServerPaged ? serverTotalRows : localTotalRows;
+  const totalPages = paginationEnabled ? Math.max(1, Math.ceil(totalRowsForPagination / resolvedPageSize)) : 1;
+
+  useEffect(() => {
+    if (!paginationEnabled) return;
+    setCurrentPage((previous) => Math.min(Math.max(1, previous), totalPages));
+  }, [paginationEnabled, totalPages]);
+
+  const localPageRows = useMemo(() => {
+    if (!paginationEnabled || isServerPaged) return filteredLocalRows;
+    const pageOffset = (currentPage - 1) * resolvedPageSize;
+    return filteredLocalRows.slice(pageOffset, pageOffset + resolvedPageSize);
+  }, [currentPage, filteredLocalRows, isServerPaged, paginationEnabled, resolvedPageSize]);
+
+  const displayRows = isServerPaged
+    ? currentWindowModels
+    : paginationEnabled
+      ? localPageRows
+      : filteredLocalRows;
+  const effectiveTotalRows = isServerPaged ? serverTotalRows : localTotalRows;
+  const virtualRowCount = paginationEnabled
+    ? displayRows.length
+    : isServerPaged
+      ? effectiveTotalRows
+      : displayRows.length;
+  const paginationStartRow = paginationEnabled && effectiveTotalRows > 0
+    ? (currentPage - 1) * resolvedPageSize + 1
+    : 0;
+  const paginationEndRow = paginationEnabled
+    ? Math.min(effectiveTotalRows, currentPage * resolvedPageSize)
+    : 0;
+  const paginationItems = useMemo(() => {
+    if (!paginationEnabled) return [] as Array<number | "ellipsis" | "empty">;
+    const slotCount = 7;
+
+    if (totalPages <= slotCount) {
+      const pages = Array.from({ length: totalPages }, (_, idx) => idx + 1) as Array<number | "ellipsis" | "empty">;
+      while (pages.length < slotCount) pages.push("empty");
+      return pages;
+    }
+
+    if (currentPage <= 4) {
+      return [1, 2, 3, 4, 5, "ellipsis", totalPages];
+    }
+    if (currentPage >= totalPages - 3) {
+      return [1, "ellipsis", totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+    }
+    return [1, "ellipsis", currentPage - 1, currentPage, currentPage + 1, "ellipsis", totalPages];
+  }, [currentPage, paginationEnabled, totalPages]);
   const outerStyle = resolveOuterStyle(width, useContainerWidth);
   const containerHeight = resolveGridHeight(
     height,
     Math.max(displayRows.length, 1),
     effectiveRowHeight,
     toolbarVisible && !isStatic,
-    footerVisible
+    footerVisible,
+    paginationEnabled
   );
-  const rowVirtualizer = useGridVirtualRows({ rowCount: displayRows.length, parentRef, rowHeight: effectiveRowHeight });
-  const shouldVirtualize = isServerPaged || displayRows.length > 100;
+  const rowVirtualizer = useGridVirtualRows({ rowCount: virtualRowCount, parentRef, rowHeight: effectiveRowHeight });
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const virtualRangeKey = virtualItems.length
+    ? `${virtualItems[0]!.index}:${virtualItems[virtualItems.length - 1]!.index}`
+    : "empty";
+  const shouldVirtualize = !paginationEnabled && (isServerPaged || displayRows.length > 100);
   const selectedSet = useMemo(() => new Set(selectedRowPositions), [selectedRowPositions]);
   const selectedColumnSet = useMemo(() => new Set(selectedColumnNames), [selectedColumnNames]);
   const selectedCellSet = useMemo(
@@ -504,16 +603,48 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     params.set("filters", encodeGridFilters(effectiveFilters));
     return params.toString();
   }, [effectiveFilters, effectiveSearch, viewState.sorts]);
+
+  useEffect(() => {
+    if (!paginationEnabled) return;
+    setCurrentPage(1);
+  }, [paginationEnabled, queryString, resolvedPageSize, sourceId]);
+
   const requestKey = useMemo(
-    () => `${sourceId ?? ""}::${windowSize}::${queryString}`,
-    [queryString, sourceId, windowSize]
+    () => `${sourceId ?? ""}::${windowSize}::${resolvedPageSize}::${queryString}`,
+    [queryString, resolvedPageSize, sourceId, windowSize]
   );
   const [activeRequestKey, setActiveRequestKey] = useState(requestKey);
 
   useEffect(() => {
+    if (!isArrowDebug) return;
+    console.log("[Fastlit][ArrowDF:state]", {
+      nodeId,
+      sourceId,
+      isServerPaged,
+      totalRows,
+      serverTotalRows,
+      initialRows: initialRows.length,
+      serverRows: serverRows.length,
+      requestKey,
+      activeRequestKey,
+    });
+  }, [
+    activeRequestKey,
+    initialRows.length,
+    isArrowDebug,
+    isServerPaged,
+    nodeId,
+    requestKey,
+    serverRows.length,
+    serverTotalRows,
+    sourceId,
+    totalRows,
+  ]);
+
+  useEffect(() => {
+    if (paginationEnabled) return;
     if (!isServerPaged || !sourceId) return;
     if (activeRequestKey !== requestKey) return;
-    const virtualItems = rowVirtualizer.getVirtualItems();
     if (virtualItems.length === 0) return;
 
     const first = virtualItems[0]!.index;
@@ -530,6 +661,19 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     const controller = new AbortController();
     fetchAbortRef.current = controller;
     setLoadingWindow(true);
+    if (isArrowDebug) {
+      console.log("[Fastlit][ArrowDF:fetch-window]", {
+        nodeId,
+        sourceId,
+        fetchOffset,
+        fetchLimit,
+        requestKey,
+        needStart,
+        needEnd,
+        haveStart,
+        haveEnd,
+      });
+    }
     fetch(`/_fastlit/dataframe/${encodeURIComponent(sourceId)}?offset=${fetchOffset}&limit=${fetchLimit}&format=arrow&${queryString}`, {
       signal: controller.signal,
     })
@@ -538,19 +682,38 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
         return parseDataframeResponse(res, columns, fetchOffset, fetchLimit);
       })
       .then((payload) => {
+        if (isArrowDebug) {
+          console.log("[Fastlit][ArrowDF:fetch-window:response]", {
+            nodeId,
+            sourceId,
+            offset: payload.offset,
+            totalRows: payload.totalRows,
+            rows: Array.isArray(payload.rows) ? payload.rows.length : 0,
+          });
+        }
         setServerOffset(payload.offset ?? fetchOffset);
         setServerRows(Array.isArray(payload.rows) ? payload.rows : []);
         setServerIndex(Array.isArray(payload.index) ? payload.index : undefined);
         setServerPositions(Array.isArray(payload.positions) ? payload.positions.map((value: any) => Number(value)) : undefined);
         setServerTotalRows(typeof payload.totalRows === "number" ? payload.totalRows : 0);
       })
-      .catch(() => undefined)
+      .catch((error) => {
+        if (isArrowDebug) {
+          console.log("[Fastlit][ArrowDF:fetch-window:error]", {
+            nodeId,
+            sourceId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        return undefined;
+      })
       .finally(() => {
         if (!controller.signal.aborted) setLoadingWindow(false);
       });
-  }, [activeRequestKey, columns, effectiveTotalRows, isServerPaged, queryString, requestKey, rowVirtualizer, serverOffset, serverRows.length, sourceId, windowSize]);
+  }, [activeRequestKey, columns, effectiveTotalRows, isArrowDebug, isServerPaged, nodeId, paginationEnabled, queryString, requestKey, serverOffset, serverRows.length, sourceId, virtualItems, virtualRangeKey, windowSize]);
 
   useEffect(() => {
+    if (paginationEnabled) return;
     if (!isServerPaged || !sourceId) return;
     if (!didMountServerPagingRef.current) {
       didMountServerPagingRef.current = true;
@@ -561,6 +724,14 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     fetchAbortRef.current = controller;
     setActiveRequestKey("");
     setLoadingWindow(true);
+    if (isArrowDebug) {
+      console.log("[Fastlit][ArrowDF:refetch-initial-window]", {
+        nodeId,
+        sourceId,
+        windowSize,
+        requestKey,
+      });
+    }
     fetch(`/_fastlit/dataframe/${encodeURIComponent(sourceId)}?offset=0&limit=${windowSize}&format=arrow&${queryString}`, {
       signal: controller.signal,
     })
@@ -569,7 +740,60 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
         return parseDataframeResponse(res, columns, 0, windowSize);
       })
       .then((payload) => {
+        if (isArrowDebug) {
+          console.log("[Fastlit][ArrowDF:refetch-initial-window:response]", {
+            nodeId,
+            sourceId,
+            offset: payload.offset,
+            totalRows: payload.totalRows,
+            rows: Array.isArray(payload.rows) ? payload.rows.length : 0,
+          });
+        }
         setServerOffset(payload.offset ?? 0);
+        setServerRows(Array.isArray(payload.rows) ? payload.rows : []);
+        setServerIndex(Array.isArray(payload.index) ? payload.index : undefined);
+        setServerPositions(Array.isArray(payload.positions) ? payload.positions.map((value: any) => Number(value)) : undefined);
+        setServerTotalRows(typeof payload.totalRows === "number" ? payload.totalRows : 0);
+      })
+      .catch((error) => {
+        if (isArrowDebug) {
+          console.log("[Fastlit][ArrowDF:refetch-initial-window:error]", {
+            nodeId,
+            sourceId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        return undefined;
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setActiveRequestKey(requestKey);
+          setLoadingWindow(false);
+        }
+      });
+  }, [columns, isArrowDebug, isServerPaged, nodeId, paginationEnabled, queryString, requestKey, sourceId, windowSize]);
+
+  useEffect(() => {
+    if (!paginationEnabled || !isServerPaged || !sourceId) return;
+
+    const pageOffset = Math.max(0, (currentPage - 1) * resolvedPageSize);
+    fetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    fetchAbortRef.current = controller;
+    setLoadingWindow(true);
+
+    fetch(
+      `/_fastlit/dataframe/${encodeURIComponent(sourceId)}?offset=${pageOffset}&limit=${resolvedPageSize}&format=arrow&${queryString}`,
+      {
+        signal: controller.signal,
+      }
+    )
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return parseDataframeResponse(res, columns, pageOffset, resolvedPageSize);
+      })
+      .then((payload) => {
+        setServerOffset(payload.offset ?? pageOffset);
         setServerRows(Array.isArray(payload.rows) ? payload.rows : []);
         setServerIndex(Array.isArray(payload.index) ? payload.index : undefined);
         setServerPositions(Array.isArray(payload.positions) ? payload.positions.map((value: any) => Number(value)) : undefined);
@@ -577,12 +801,13 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
       })
       .catch(() => undefined)
       .finally(() => {
-        if (!controller.signal.aborted) {
-          setActiveRequestKey(requestKey);
-          setLoadingWindow(false);
-        }
+        if (!controller.signal.aborted) setLoadingWindow(false);
       });
-  }, [columns, isServerPaged, queryString, requestKey, sourceId, windowSize]);
+
+    return () => {
+      controller.abort();
+    };
+  }, [columns, currentPage, isServerPaged, paginationEnabled, queryString, resolvedPageSize, sourceId]);
 
   const emitSelection = useCallback((payload: {
     rows?: number[];
@@ -802,6 +1027,58 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
   }
 
   const contentWidth = totalWidth + (selectionColumnVisible ? SELECTION_WIDTH : 0) + readOnlyIndexColumn(hasIndex);
+  const resolveVirtualRowModel = useCallback((virtualIndex: number) => {
+    if (!isServerPaged) {
+      return displayRows[virtualIndex] ?? null;
+    }
+    const localIndex = virtualIndex - serverOffset;
+    if (localIndex < 0 || localIndex >= currentWindowModels.length) {
+      return null;
+    }
+    return currentWindowModels[localIndex] ?? null;
+  }, [currentWindowModels, displayRows, isServerPaged, serverOffset]);
+
+  const renderLoadingRow = (virtualIndex: number, layoutStyle?: React.CSSProperties) => (
+    <div
+      key={`loading-${virtualIndex}`}
+      className={cn(
+        "left-0 top-0 flex w-full border-b border-slate-100",
+        virtualIndex % 2 === 0 ? "bg-white" : "bg-slate-50/60",
+        shouldVirtualize && "absolute"
+      )}
+      style={layoutStyle}
+    >
+      {selectionColumnVisible ? (
+        <div className="sticky left-0 z-20 border-r border-slate-100 bg-inherit" style={{ width: SELECTION_WIDTH, minWidth: SELECTION_WIDTH }} />
+      ) : null}
+      {hasIndex ? (
+        <div
+          className="sticky z-10 border-r border-slate-100 bg-inherit"
+          style={{ width: INDEX_WIDTH, minWidth: INDEX_WIDTH, left: selectionColumnVisible ? SELECTION_WIDTH : 0 }}
+        />
+      ) : null}
+      {resolvedColumns.map((column) => {
+        const style: React.CSSProperties = { width: column.widthPx, minWidth: column.widthPx };
+        if (column.pinned === "left") {
+          style.position = "sticky";
+          style.left = (column.leftOffset ?? 0) + (selectionColumnVisible ? SELECTION_WIDTH : 0) + readOnlyIndexColumn(hasIndex);
+          style.zIndex = 10;
+          style.background = virtualIndex % 2 === 0 ? "rgba(255,255,255,0.96)" : "rgba(248,250,252,0.96)";
+        } else if (column.pinned === "right") {
+          style.position = "sticky";
+          style.right = column.rightOffset ?? 0;
+          style.zIndex = 10;
+          style.background = virtualIndex % 2 === 0 ? "rgba(255,255,255,0.96)" : "rgba(248,250,252,0.96)";
+        }
+        return (
+          <div key={`loading-${virtualIndex}-${column.name}`} className="flex min-w-0 items-center border-r border-slate-100 px-4 py-2 last:border-r-0" style={style}>
+            <div className="h-4 w-full animate-pulse rounded bg-slate-200/80" />
+          </div>
+        );
+      })}
+    </div>
+  );
+
   const renderRow = (row: GridRowModel, rowIndex: number, layoutStyle?: React.CSSProperties) => {
     const isSelected = selectedSet.has(row.originalPosition);
     const background = isSelected ? "bg-sky-50" : rowIndex % 2 === 0 ? "bg-white" : "bg-slate-50/60";
@@ -967,7 +1244,14 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
         <div
           ref={parentRef}
           className="overflow-auto"
-          style={{ height: containerHeight - HEADER_HEIGHT - (toolbarVisible && !isStatic ? TOOLBAR_HEIGHT : 0) - (footerVisible ? FOOTER_HEIGHT : 0) }}
+          style={{
+            height:
+              containerHeight -
+              HEADER_HEIGHT -
+              (toolbarVisible && !isStatic ? TOOLBAR_HEIGHT : 0) -
+              (footerVisible ? FOOTER_HEIGHT : 0) -
+              (paginationEnabled ? PAGINATION_HEIGHT : 0),
+          }}
           onScroll={(event) => {
             const target = event.currentTarget;
             if (headerScrollRef.current) {
@@ -979,8 +1263,14 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
           {shouldVirtualize ? (
           <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: contentWidth, minWidth: "100%", position: "relative" }}>
               {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                const row = displayRows[virtualRow.index];
-                if (!row) return null;
+                const row = resolveVirtualRowModel(virtualRow.index);
+                if (!row) {
+                  return renderLoadingRow(virtualRow.index, {
+                    height: `${virtualRow.size}px`,
+                    transform: `translateY(${virtualRow.start}px)`,
+                    position: "absolute",
+                  });
+                }
                 return renderRow(row, virtualRow.index, {
                   height: `${virtualRow.size}px`,
                   transform: `translateY(${virtualRow.start}px)`,
@@ -995,6 +1285,132 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
           )}
         </div>
       )}
+
+      {paginationEnabled ? (
+        <div className="flex h-11 items-center justify-between border-t border-slate-200/80 bg-slate-50/90 px-3">
+          <span className="text-xs text-slate-600">
+            {paginationStartRow > 0
+              ? `Rows ${paginationStartRow}-${paginationEndRow} of ${effectiveTotalRows.toLocaleString()}`
+              : "Rows 0-0 of 0"}
+          </span>
+          <div className="flex items-center gap-2 rounded-lg border border-slate-200/90 bg-white/90 px-2 py-1 shadow-sm">
+            <Badge variant="outline" className="font-normal">{`Page ${currentPage}/${totalPages}`}</Badge>
+            {showTextPagination ? (
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious
+                      href="#"
+                      aria-disabled={currentPage <= 1}
+                      tabIndex={currentPage <= 1 ? -1 : undefined}
+                      className={cn(currentPage <= 1 && "pointer-events-none opacity-50")}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        if (currentPage <= 1) return;
+                        setCurrentPage((previous) => Math.max(1, previous - 1));
+                      }}
+                    />
+                  </PaginationItem>
+                  <PaginationItem>
+                    <PaginationNext
+                      href="#"
+                      aria-disabled={currentPage >= totalPages}
+                      tabIndex={currentPage >= totalPages ? -1 : undefined}
+                      className={cn(currentPage >= totalPages && "pointer-events-none opacity-50")}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        if (currentPage >= totalPages) return;
+                        setCurrentPage((previous) => Math.min(totalPages, previous + 1));
+                      }}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            ) : null}
+            {showIconPagination ? (
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious
+                      href="#"
+                      aria-disabled={currentPage <= 1}
+                      tabIndex={currentPage <= 1 ? -1 : undefined}
+                      className={cn(
+                        "h-9 w-9 p-0 [&>span]:sr-only",
+                        currentPage <= 1 && "pointer-events-none opacity-50"
+                      )}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        if (currentPage <= 1) return;
+                        setCurrentPage((previous) => Math.max(1, previous - 1));
+                      }}
+                    />
+                  </PaginationItem>
+                  <PaginationItem>
+                    <PaginationNext
+                      href="#"
+                      aria-disabled={currentPage >= totalPages}
+                      tabIndex={currentPage >= totalPages ? -1 : undefined}
+                      className={cn(
+                        "h-9 w-9 p-0 [&>span]:sr-only",
+                        currentPage >= totalPages && "pointer-events-none opacity-50"
+                      )}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        if (currentPage >= totalPages) return;
+                        setCurrentPage((previous) => Math.min(totalPages, previous + 1));
+                      }}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            ) : null}
+            {showNumberPagination ? (
+              <div className="w-[320px]">
+                <Pagination>
+                  <PaginationContent className="grid w-full grid-cols-7 justify-items-center">
+                {paginationItems.map((item, idx) => {
+                  if (item === "empty") {
+                    return (
+                      <PaginationItem key={`empty-${idx}`} className="h-9 w-9" />
+                    );
+                  }
+                  if (item === "ellipsis") {
+                    return (
+                      <PaginationItem key={`ellipsis-${idx}`}>
+                        <PaginationEllipsis />
+                      </PaginationItem>
+                    );
+                  }
+                  const page = Number(item);
+                  const isActive = page === currentPage;
+                  return (
+                    <PaginationItem key={`page-${item}`}>
+                    <PaginationLink
+                      key={`page-${item}`}
+                      href="#"
+                      isActive={isActive}
+                      className={cn(
+                        "h-9 w-9 min-w-9 p-0",
+                        isActive ? "bg-slate-900 text-white hover:bg-slate-900" : "border border-slate-200"
+                      )}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        setCurrentPage(page);
+                      }}
+                    >
+                      {page}
+                    </PaginationLink>
+                    </PaginationItem>
+                  );
+                })}
+                  </PaginationContent>
+                </Pagination>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       {footerVisible ? (
         <div className="flex flex-wrap items-center gap-2 border-t border-slate-200/80 bg-slate-50/90 px-3 py-2 text-xs text-slate-500">

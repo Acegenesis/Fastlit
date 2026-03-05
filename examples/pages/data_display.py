@@ -26,6 +26,40 @@ USERS_DATA = {
 USERS_DF = pd.DataFrame(USERS_DATA)
 
 
+def _build_paginated_users(total_rows: int = 120) -> pd.DataFrame:
+    names = USERS_DATA["Name"]
+    ages = USERS_DATA["Age"]
+    cities = USERS_DATA["City"]
+    scores = USERS_DATA["Score"]
+    active_flags = USERS_DATA["Active"]
+    joined_dates = USERS_DATA["Joined"]
+
+    records: list[dict[str, object]] = []
+    source_len = len(names)
+
+    for idx in range(total_rows):
+        base_idx = idx % source_len
+        cycle = idx // source_len
+        joined_at = pd.Timestamp(joined_dates[base_idx]) + pd.Timedelta(days=7 * cycle)
+
+        records.append(
+            {
+                "User ID": idx + 1,
+                "Name": names[base_idx],
+                "Age": ages[base_idx] + (cycle % 4),
+                "City": cities[base_idx],
+                "Score": round(min(100.0, scores[base_idx] + (cycle % 6) * 1.2), 1),
+                "Active": active_flags[base_idx] if cycle % 2 == 0 else not active_flags[base_idx],
+                "Joined": joined_at.strftime("%Y-%m-%d"),
+            }
+        )
+
+    return pd.DataFrame(records)
+
+
+PAGINATED_USERS_DF = _build_paginated_users()
+
+
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
@@ -90,6 +124,53 @@ st.subheader("Basic display")
 st.code("""st.dataframe(df, height=260, hide_index=True)""", language="python")
 with st.container(border=True):
     st.dataframe(USERS_DF, height=260, hide_index=True)
+
+st.subheader("Pagination")
+st.caption(
+    "Native pagination supports modes: `pagination='text'`, "
+    "`pagination='number'`, or `pagination='icon'`."
+)
+st.code(
+    """st.dataframe(
+    df,
+    pagination="text",
+    page_size=10,
+    hide_index=True,
+)""",
+    language="python",
+)
+with st.container(border=True):
+    mode_col_a, mode_col_b = st.columns(2)
+    with mode_col_a:
+        st.caption("Mode: text")
+        st.dataframe(
+            PAGINATED_USERS_DF,
+            height=300,
+            hide_index=True,
+            pagination="text",
+            page_size=8,
+            key="df_paginated_text",
+        )
+    with mode_col_b:
+        st.caption("Mode: number")
+        st.dataframe(
+            PAGINATED_USERS_DF,
+            height=300,
+            hide_index=True,
+            pagination="number",
+            page_size=8,
+            key="df_paginated_number",
+        )
+
+    st.caption("Mode: icon")
+    st.dataframe(
+        PAGINATED_USERS_DF,
+        height=320,
+        hide_index=True,
+        pagination="icon",
+        page_size=10,
+        key="df_paginated_icon",
+    )
 
 st.subheader("With column_config")
 st.code(
@@ -760,37 +841,23 @@ FASTLIT_DF_ARROW_PREVIEW_ROWS=200  # initial preview rows before windowing
         """
     )
 
-n_rows = st.slider("Number of rows to generate", 500, 10_000, 2_000, step=500, key="arrow_demo_rows")
-
-st.code(
-    f"""import numpy as np
-import pandas as pd
-
-# Generates {n_rows} rows - Arrow activates automatically above 1,000
-large_df = pd.DataFrame({{
-    "id": range({n_rows}),
-    "value": np.random.randn({n_rows}),
-    "label": [f"item_{{i}}" for i in range({n_rows})],
-    "score": np.random.uniform(0, 100, {n_rows}),
-}})
-
-st.dataframe(large_df, height=400)""",
-    language="python",
-)
-
 with st.container(border=True):
     import numpy as np
-
+    row_count = 2000
     rng = np.random.default_rng(seed=42)
     large_df = pd.DataFrame(
         {
-            "id": range(n_rows),
-            "value": rng.standard_normal(n_rows).round(4),
-            "label": [f"item_{i}" for i in range(n_rows)],
-            "score": rng.uniform(0, 100, n_rows).round(2),
-            "active": rng.integers(0, 2, n_rows).astype(bool),
+            "id": range(row_count),
+            "value": rng.standard_normal(row_count).round(4),
+            "label": [f"item_{i}" for i in range(row_count)],
+            "score": rng.uniform(0, 100, row_count).round(2),
+            "active": rng.integers(0, 2, row_count).astype(bool),
         }
     )
-    transport_mode = "Arrow IPC (binary)" if n_rows >= 1000 else "JSON (fallback)"
-    st.info(f"**{n_rows} rows** · Transport: `{transport_mode}`")
-    st.dataframe(large_df, height=380)
+    transport_mode = "Arrow IPC (binary)" if row_count >= 1000 else "JSON (fallback)"
+    st.dataframe(
+        large_df,
+        height=380,
+        persist_view=False,
+        key="arrow_demo_df",
+    )

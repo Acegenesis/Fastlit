@@ -115,6 +115,8 @@ def dataframe(
     show_footer_summary: bool = True,
     downloadable: bool = True,
     persist_view: bool = True,
+    pagination: bool | str = False,
+    page_size: int = 25,
     max_rows: int | None = None,
     on_select: str | Callable[[DataframeState], None] | None = "ignore",
     selection_mode: str | Iterable[str] = "multi-row",
@@ -140,6 +142,10 @@ def dataframe(
         show_footer_summary: If True, show the footer row/column summary badges.
         downloadable: If True, expose CSV export for the current view.
         persist_view: If True, persist the grid view state in sessionStorage.
+        pagination: Enable page navigation controls below the grid.
+            - bool: True/False
+            - str: "text", "number", or "icon"
+        page_size: Number of rows per page when pagination is enabled.
         max_rows: Maximum number of rows to serialize for display.
             If None, uses FASTLIT_MAX_DF_ROWS (default: 50_000).
         on_select: "ignore" (default), "rerun", or a callable callback.
@@ -163,6 +169,8 @@ def dataframe(
         if max_rows is None
         else max(1, int(max_rows))
     )
+    resolved_page_size = max(1, int(page_size))
+    pagination_enabled, pagination_mode = _normalize_pagination_mode(pagination)
     server_paging_enabled = _dataframe_server_paging_enabled()
     estimated_row_count = _estimate_tabular_row_count(data)
     use_arrow_transport = (
@@ -217,6 +225,9 @@ def dataframe(
         "showFooterSummary": show_footer_summary,
         "downloadable": downloadable,
         "persistView": persist_view,
+        "pagination": pagination_enabled,
+        "paginationMode": pagination_mode,
+        "pageSize": resolved_page_size,
         "totalRows": total_rows,
         "truncated": truncated,
     }
@@ -293,6 +304,29 @@ def dataframe(
                 on_select()
 
     return state
+
+
+def _normalize_pagination_mode(pagination: bool | str) -> tuple[bool, str]:
+    if isinstance(pagination, bool):
+        return pagination, "text"
+
+    raw = str(pagination).strip().lower()
+    if raw in {"", "false", "off", "none", "0"}:
+        return False, "text"
+
+    mode_aliases = {
+        "text": "text",
+        "number": "number",
+        "numeric": "number",
+        "numbers": "number",
+        "icon": "icon",
+        "icons": "icon",
+    }
+    mode = mode_aliases.get(raw)
+    if mode is None:
+        allowed = ", ".join(sorted({"text", "number", "icon"}))
+        raise ValueError(f"pagination must be a bool or one of: {allowed}")
+    return True, mode
 
 
 def _default_max_dataframe_rows() -> int:
