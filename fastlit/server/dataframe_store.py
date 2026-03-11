@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import threading
 import time
@@ -17,6 +18,7 @@ _SOURCES: dict[str, "_DataFrameSource"] = {}
 _MAX_SOURCES = max(32, int(os.environ.get("FASTLIT_DF_MAX_SOURCES", "512")))
 _TTL_SECONDS = max(60, int(os.environ.get("FASTLIT_DF_TTL_SECONDS", "1800")))
 _QUERY_CACHE_LIMIT = max(8, int(os.environ.get("FASTLIT_DF_QUERY_CACHE_LIMIT", "64")))
+logger = logging.getLogger("fastlit.dataframe")
 
 
 @dataclass(frozen=True)
@@ -126,6 +128,7 @@ def register_source(
 
 def get_slice(source_id: str, query: DataframeQuery) -> dict[str, Any] | None:
     """Return a row window for a registered source."""
+    started_at = time.perf_counter()
     with _LOCK:
         src = _SOURCES.get(source_id)
         if src is None:
@@ -135,7 +138,12 @@ def get_slice(source_id: str, query: DataframeQuery) -> dict[str, Any] | None:
         cache_key = query.cache_key()
         cached = src.query_cache.get(cache_key)
         if cached is not None:
-            return cached[1]
+            payload = dict(cached[1])
+            payload["_fastlitMeta"] = {
+                "cacheHit": True,
+                "elapsedMs": round((time.perf_counter() - started_at) * 1000, 3),
+            }
+            return payload
 
         total = src.total_rows
         safe_offset = max(0, min(int(query.offset), total))
@@ -153,6 +161,10 @@ def get_slice(source_id: str, query: DataframeQuery) -> dict[str, Any] | None:
             payload.setdefault("sourceId", source_id)
             payload.setdefault("columns", src.columns)
             payload.setdefault("schemaVersion", src.schema_version)
+            payload["_fastlitMeta"] = {
+                "cacheHit": False,
+                "elapsedMs": round((time.perf_counter() - started_at) * 1000, 3),
+            }
             _set_query_cache(src, cache_key, payload)
             return payload
 
@@ -175,6 +187,10 @@ def get_slice(source_id: str, query: DataframeQuery) -> dict[str, Any] | None:
             "index": out_index,
             "positions": list(range(safe_offset, end)),
             "schemaVersion": src.schema_version,
+            "_fastlitMeta": {
+                "cacheHit": False,
+                "elapsedMs": round((time.perf_counter() - started_at) * 1000, 3),
+            },
         }
         _set_query_cache(src, cache_key, payload)
         return payload

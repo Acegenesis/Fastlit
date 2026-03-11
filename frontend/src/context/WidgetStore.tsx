@@ -14,6 +14,7 @@ import React, {
   useContext,
   useCallback,
   useMemo,
+  useRef,
   useSyncExternalStore,
 } from "react";
 
@@ -158,6 +159,15 @@ function collectExpressionWidgetIds(expr?: LiveExpression): string[] {
     default:
       return [];
   }
+}
+
+function areStringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    if (left[i] !== right[i]) return false;
+  }
+  return true;
 }
 
 function evaluateExpression(expr: LiveExpression | undefined, store: WidgetStoreImpl): any {
@@ -325,6 +335,7 @@ export function useResolvedTextList(
   exprsList?: Array<Record<string, LiveExpression> | null | undefined>,
 ): string[] {
   const store = useContext(StoreContext);
+  const cachedSnapshotRef = useRef<string[]>([]);
   const widgetIds = useMemo(() => {
     const direct = (refsList ?? []).flatMap((refs) => refs ? Object.values(refs) : []);
     const computed = (exprsList ?? []).flatMap((exprs) =>
@@ -342,7 +353,7 @@ export function useResolvedTextList(
   );
 
   const getSnapshot = useCallback(() => {
-    return texts.map((text, index) =>
+    const nextSnapshot = texts.map((text, index) =>
       resolveTemplateText(
         String(text ?? ""),
         tpls?.[index] ?? undefined,
@@ -351,6 +362,12 @@ export function useResolvedTextList(
         store,
       )
     );
+    const cachedSnapshot = cachedSnapshotRef.current;
+    if (areStringArraysEqual(cachedSnapshot, nextSnapshot)) {
+      return cachedSnapshot;
+    }
+    cachedSnapshotRef.current = nextSnapshot;
+    return nextSnapshot;
   }, [exprsList, refsList, store, texts, tpls]);
 
   return useSyncExternalStore(subscribe, getSnapshot);

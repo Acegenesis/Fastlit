@@ -13,6 +13,7 @@ from fastlit.runtime.dataframe_arrow import (
     default_arrow_preview_rows,
     encode_arrow_frame_base64,
 )
+from fastlit.server.dataframe_store import DataframeFilter, DataframeQuery, DataframeSort
 from fastlit.ui.base import _emit_node
 from fastlit.ui.text import _live_text_props
 
@@ -63,6 +64,52 @@ class DataframeState(_AttrDict):
         return self.selection.cells
 
 
+@dataclass(frozen=True)
+class DataframeQueryRequest:
+    """Public request payload passed to dataframe on_query callbacks."""
+
+    offset: int = 0
+    limit: int = 200
+    search: str = ""
+    sorts: tuple[DataframeSort, ...] = ()
+    filters: tuple[DataframeFilter, ...] = ()
+    source_id: str | None = None
+    page: int | None = None
+    page_size: int | None = None
+
+
+@dataclass(frozen=True)
+class DataframeQueryResult:
+    """Normalized result returned by dataframe on_query callbacks."""
+
+    rows: list[list[Any]]
+    total_rows: int
+    index: list[Any] | None = None
+    positions: list[int] | None = None
+    columns: list[dict[str, Any]] | None = None
+    schema_version: str | None = None
+    diagnostics: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class DataEditorCellEdit:
+    """Structured cell edit returned by data_editor when requested."""
+
+    row_id: str
+    column: str
+    before: Any
+    after: Any
+
+
+@dataclass(frozen=True)
+class DataEditorChangeSet:
+    """Structured edit diff for data_editor."""
+
+    added_rows: list[dict[str, Any]]
+    edited_cells: list[DataEditorCellEdit]
+    deleted_rows: list[dict[str, Any]]
+
+
 class DataframeElement:
     """Streamlit-like dataframe element handle supporting add_rows()."""
 
@@ -97,7 +144,7 @@ class DataframeElement:
 
 
 def dataframe(
-    data: Any,
+    data: Any = None,
     *,
     width: int | str = "stretch",
     height: int | str = "auto",
@@ -118,6 +165,7 @@ def dataframe(
     pagination: bool | str = False,
     page_size: int = 25,
     max_rows: int | None = None,
+    on_query: Callable[[DataframeQueryRequest], DataframeQueryResult | dict[str, Any]] | None = None,
     on_select: str | Callable[[DataframeState], None] | None = "ignore",
     selection_mode: str | Iterable[str] = "multi-row",
     key: str | None = None,
@@ -126,6 +174,7 @@ def dataframe(
 
     Args:
         data: A pandas DataFrame, dict, list, or other tabular data.
+            Optional when ``on_query`` provides the backing rows.
         width: "stretch" (default), "content", or a fixed pixel width.
         height: "auto" (default), "content", or a fixed pixel height.
         use_container_width: Legacy alias for width="stretch".
@@ -148,6 +197,8 @@ def dataframe(
         page_size: Number of rows per page when pagination is enabled.
         max_rows: Maximum number of rows to serialize for display.
             If None, uses FASTLIT_MAX_DF_ROWS (default: 50_000).
+        on_query: Optional Fastlit extension for manual server-backed querying.
+            Receives a DataframeQueryRequest and returns rows for the active query.
         on_select: "ignore" (default), "rerun", or a callable callback.
         selection_mode: Selection mode(s) used when on_select is enabled.
         key: Optional key for stable identity.
@@ -157,10 +208,15 @@ def dataframe(
         >>> df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
         >>> st.dataframe(df)
     """
-    data = _coerce_tabular_data(data)
+    if data is None and on_query is None:
+        raise ValueError("st.dataframe requires either data or on_query")
+
+    data = _coerce_tabular_data(data) if data is not None else None
     selection_modes = _normalize_selection_modes(selection_mode)
     if on_select is not None and on_select not in {"ignore", "rerun"} and not callable(on_select):
         raise ValueError("on_select must be 'ignore', 'rerun', or a callable")
+    if on_query is not None and not callable(on_query):
+        raise ValueError("on_query must be callable")
 
     hide_index_value = bool(hide_index)
     width_value, use_container_width_value = _resolve_width(width, use_container_width)
@@ -172,12 +228,18 @@ def dataframe(
     resolved_page_size = max(1, int(page_size))
     pagination_enabled, pagination_mode = _normalize_pagination_mode(pagination)
     server_paging_enabled = _dataframe_server_paging_enabled()
-    estimated_row_count = _estimate_tabular_row_count(data)
+    server_query_enabled = server_paging_enabled or on_query is not None
+    estimated_row_count = _estimate_tabular_row_count(data) if data is not None else None
     use_arrow_transport = (
-        server_paging_enabled
+        server_query_enabled
         and arrow_transport_available()
-        and estimated_row_count is not None
-        and estimated_row_count >= default_arrow_min_rows()
+        and (
+            on_query is not None
+            or (
+                estimated_row_count is not None
+                and estimated_row_count >= default_arrow_min_rows()
+            )
+        )
     )
     preview_max_rows = resolved_max_rows
     if use_arrow_transport:
@@ -185,9 +247,23 @@ def dataframe(
             resolved_max_rows,
             default_arrow_preview_rows(_default_dataframe_window_size()),
         )
-    columns, rows, index, total_rows, truncated = _serialize_dataframe_preview(
-        data, hide_index_value, preview_max_rows
-    )
+    initial_query_result = None
+    if on_query is not None:
+        initial_query_result = _load_initial_query_result(
+            on_query=on_query,
+            page_size=resolved_page_size,
+            preview_rows=preview_max_rows,
+        )
+        columns, rows, index, total_rows, truncated = _query_result_preview_to_serialized(
+            initial_query_result,
+            data=data,
+            hide_index=hide_index_value,
+            column_config=column_config,
+        )
+    else:
+        columns, rows, index, total_rows, truncated = _serialize_dataframe_preview(
+            data, hide_index_value, preview_max_rows
+        )
     columns, index_names = _coerce_index_metadata(columns, data)
     normalized_column_order = _normalize_column_order(columns, column_order)
     serialized_column_config, index_config = _serialize_column_config(
@@ -195,6 +271,11 @@ def dataframe(
         columns=columns,
         index_names=index_names,
     )
+    if on_query is not None:
+        _validate_column_config_targets(
+            column_config,
+            columns=columns,
+        )
     if index_config.get("hidden"):
         hide_index_value = True
         index = None
@@ -206,7 +287,10 @@ def dataframe(
         hide_index=hide_index_value,
         total_rows=total_rows,
         preview_rows=len(rows),
-        force=use_arrow_transport and total_rows > len(rows),
+        force=(use_arrow_transport and total_rows > len(rows)) or on_query is not None,
+        on_query=on_query,
+        initial_query_result=initial_query_result,
+        page_size=resolved_page_size,
     )
 
     props = {
@@ -230,6 +314,8 @@ def dataframe(
         "pageSize": resolved_page_size,
         "totalRows": total_rows,
         "truncated": truncated,
+        "exportMaxRows": _default_dataframe_export_max_rows(),
+        "debugDataframe": _dataframe_debug_enabled(),
     }
 
     has_arrow_preview = False
@@ -518,9 +604,183 @@ def _default_dataframe_window_size() -> int:
     return max(50, min(value, 5000))
 
 
+def _default_dataframe_export_max_rows() -> int:
+    """Maximum number of rows exported from server-backed dataframes."""
+    try:
+        value = int(os.environ.get("FASTLIT_DF_EXPORT_MAX_ROWS", "100000"))
+    except ValueError:
+        value = 100000
+    return max(1, value)
+
+
+def _dataframe_debug_enabled() -> bool:
+    raw = os.environ.get("FASTLIT_DEVTOOLS_DATAFRAME", "0")
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _editor_allows_truncation() -> bool:
     raw = os.environ.get("FASTLIT_ALLOW_TRUNCATED_EDITOR", "0")
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _load_initial_query_result(
+    *,
+    on_query: Callable[[DataframeQueryRequest], DataframeQueryResult | dict[str, Any]],
+    page_size: int,
+    preview_rows: int,
+) -> DataframeQueryResult:
+    request = DataframeQueryRequest(
+        offset=0,
+        limit=max(1, min(page_size, preview_rows)),
+        search="",
+        sorts=(),
+        filters=(),
+        source_id=None,
+        page=1,
+        page_size=page_size,
+    )
+    return _normalize_on_query_result(on_query(request))
+
+
+def _normalize_on_query_result(
+    result: DataframeQueryResult | dict[str, Any],
+) -> DataframeQueryResult:
+    if isinstance(result, DataframeQueryResult):
+        payload = result
+    elif isinstance(result, dict):
+        payload = DataframeQueryResult(
+            rows=list(result.get("rows", [])),
+            total_rows=int(result.get("total_rows", result.get("totalRows", 0))),
+            index=result.get("index"),
+            positions=result.get("positions"),
+            columns=result.get("columns"),
+            schema_version=result.get("schema_version", result.get("schemaVersion")),
+            diagnostics=result.get("diagnostics"),
+        )
+    else:
+        raise ValueError("on_query must return a DataframeQueryResult or dict payload")
+
+    if not isinstance(payload.rows, list):
+        raise ValueError("on_query result rows must be a list")
+    normalized_rows = [list(row) if isinstance(row, (list, tuple)) else [row] for row in payload.rows]
+    total_rows = max(len(normalized_rows), int(payload.total_rows))
+    index = payload.index if isinstance(payload.index, list) else None
+    positions = payload.positions if isinstance(payload.positions, list) else None
+    columns = payload.columns if isinstance(payload.columns, list) else None
+    diagnostics = payload.diagnostics if isinstance(payload.diagnostics, dict) else None
+    return DataframeQueryResult(
+        rows=normalized_rows,
+        total_rows=total_rows,
+        index=index,
+        positions=positions,
+        columns=columns,
+        schema_version=payload.schema_version,
+        diagnostics=diagnostics,
+    )
+
+
+def _query_result_preview_to_serialized(
+    result: DataframeQueryResult,
+    *,
+    data: Any,
+    hide_index: bool,
+    column_config: dict | None,
+) -> tuple[list[dict[str, Any]], list[list[Any]], list[Any] | None, int, bool]:
+    rows = [[_to_json_safe(value) for value in row] for row in result.rows]
+    columns = result.columns
+    if not columns:
+        if data is not None:
+            columns, _, _index = _serialize_dataframe(data, hide_index)
+        elif isinstance(column_config, dict) and column_config:
+            columns = _columns_from_column_config(column_config)
+        else:
+            columns = _infer_columns_from_query_rows(rows)
+    index = None if hide_index else (
+        [_to_json_safe(value) for value in result.index]
+        if isinstance(result.index, list)
+        else list(range(len(rows)))
+    )
+    return columns, rows, index, int(result.total_rows), False
+
+
+def _infer_columns_from_query_rows(rows: list[list[Any]]) -> list[dict[str, Any]]:
+    if not rows:
+        raise ValueError("on_query must provide columns or preview rows for the initial render")
+    column_count = max(len(row) for row in rows)
+    return [
+        {"name": f"Column {idx + 1}", "type": "auto"}
+        for idx in range(column_count)
+    ]
+
+
+def _columns_from_column_config(column_config: dict[str, Any]) -> list[dict[str, Any]]:
+    columns: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for key, value in column_config.items():
+        if key == "_index" or isinstance(key, int):
+            continue
+        payload = value.to_dict() if hasattr(value, "to_dict") else dict(value)
+        name = str(key)
+        if name in seen:
+            continue
+        seen.add(name)
+        columns.append(
+            {
+                "name": name,
+                "type": str(payload.get("type", "auto")),
+                "_sourceKey": key,
+            }
+        )
+    if not columns:
+        raise ValueError("on_query requires columns, preview data, or named column_config entries")
+    return columns
+
+
+def _validate_column_config_targets(
+    column_config: dict | None,
+    *,
+    columns: list[dict[str, Any]],
+) -> None:
+    if not column_config:
+        return
+    valid_names = {str(column.get("name", "")) for column in columns}
+    valid_sources = {
+        column.get("_sourceKey", column.get("name"))
+        for column in columns
+    }
+    invalid: list[str] = []
+    for key in column_config.keys():
+        if key == "_index" or isinstance(key, int):
+            continue
+        if key in valid_sources or str(key) in valid_names:
+            continue
+        invalid.append(str(key))
+    if invalid:
+        raise ValueError(
+            "column_config contains unknown columns for on_query: "
+            + ", ".join(sorted(invalid))
+        )
+
+
+def _build_query_request(
+    query: DataframeQuery,
+    *,
+    page_size: int,
+    source_id: str | None = None,
+) -> DataframeQueryRequest:
+    safe_limit = max(1, int(query.limit))
+    resolved_page_size = max(1, int(page_size or safe_limit))
+    page = (max(0, int(query.offset)) // resolved_page_size) + 1
+    return DataframeQueryRequest(
+        offset=max(0, int(query.offset)),
+        limit=safe_limit,
+        search=query.search,
+        sorts=tuple(query.sorts),
+        filters=tuple(query.filters),
+        source_id=source_id,
+        page=page,
+        page_size=resolved_page_size,
+    )
 
 
 def _resolve_width(
@@ -632,6 +892,7 @@ def data_editor(
     show_row_actions: bool = True,
     downloadable: bool = True,
     persist_view: bool = True,
+    return_changes: bool = False,
     key: str | None = None,
     on_change: Callable | None = None,
     args: list | tuple | None = None,
@@ -660,6 +921,7 @@ def data_editor(
         show_row_actions: If True, show the per-row actions column in dynamic mode.
         downloadable: If True, allow exporting the current edited view as CSV.
         persist_view: If True, persist the editor view state in sessionStorage.
+        return_changes: If True, return ``(edited_data, DataEditorChangeSet)``.
         key: Optional key for stable identity.
         on_change: Callback when data changes.
         args: Positional arguments passed to on_change.
@@ -729,6 +991,7 @@ def data_editor(
         "showRowActions": show_row_actions,
         "downloadable": downloadable,
         "persistView": persist_view,
+        "returnChanges": return_changes,
         "totalRows": total_rows,
         "truncated": truncated,
     }
@@ -779,14 +1042,19 @@ def data_editor(
                 session.widget_store[prev_key] = stored
                 _invoke_callback(on_change, callback_args, callback_kwargs)
         # Return edited data in original format
-        return _deserialize_to_original(
+        edited_value = _deserialize_to_original(
             stored,
             data,
             columns=columns,
             fallback_index=index,
             hide_index=hide_index_value,
         )
+        if return_changes:
+            return edited_value, _extract_editor_changes(stored, columns=columns)
+        return edited_value
 
+    if return_changes:
+        return data, DataEditorChangeSet(added_rows=[], edited_cells=[], deleted_rows=[])
     return data
 
 
@@ -835,6 +1103,52 @@ def _extract_editor_payload(
         index if isinstance(index, list) else fallback_index
     )
     return normalized_rows, normalized_index
+
+
+def _extract_editor_changes(
+    stored: Any,
+    *,
+    columns: list[dict[str, Any]],
+) -> DataEditorChangeSet:
+    if not isinstance(stored, dict):
+        return DataEditorChangeSet(added_rows=[], edited_cells=[], deleted_rows=[])
+
+    raw_changes = stored.get("changes", {})
+    if not isinstance(raw_changes, dict):
+        return DataEditorChangeSet(added_rows=[], edited_cells=[], deleted_rows=[])
+
+    added_rows: list[dict[str, Any]] = []
+    for item in raw_changes.get("addedRows", []):
+        if isinstance(item, dict):
+            added_rows.append(dict(item))
+
+    edited_cells: list[DataEditorCellEdit] = []
+    for item in raw_changes.get("editedCells", []):
+        if not isinstance(item, dict):
+            continue
+        row_id = str(item.get("rowId", "")).strip()
+        column = str(item.get("column", "")).strip()
+        if not row_id or not column:
+            continue
+        edited_cells.append(
+            DataEditorCellEdit(
+                row_id=row_id,
+                column=column,
+                before=item.get("before"),
+                after=item.get("after"),
+            )
+        )
+
+    deleted_rows: list[dict[str, Any]] = []
+    for item in raw_changes.get("deletedRows", []):
+        if isinstance(item, dict):
+            deleted_rows.append(dict(item))
+
+    return DataEditorChangeSet(
+        added_rows=added_rows,
+        edited_cells=edited_cells,
+        deleted_rows=deleted_rows,
+    )
 
 
 def _deserialize_to_original(
@@ -1136,11 +1450,14 @@ def _maybe_register_server_source(
     total_rows: int,
     preview_rows: int,
     force: bool = False,
+    on_query: Callable[[DataframeQueryRequest], DataframeQueryResult | dict[str, Any]] | None = None,
+    initial_query_result: DataframeQueryResult | None = None,
+    page_size: int = 25,
 ) -> str | None:
     """Register a server-side source for large tables to support window fetches."""
     if total_rows <= preview_rows and not force:
         return None
-    if not _dataframe_server_paging_enabled():
+    if on_query is None and not _dataframe_server_paging_enabled():
         return None
 
     try:
@@ -1148,7 +1465,52 @@ def _maybe_register_server_source(
     except Exception:
         return None
 
-    column_names = [str(col.get("name", "")) for col in columns]
+    if on_query is not None:
+        initial_schema_version = (
+            initial_query_result.schema_version
+            if initial_query_result is not None and initial_query_result.schema_version
+            else _schema_version(columns)
+        )
+
+        def manual_query_fn(query: DataframeQuery) -> dict[str, Any]:
+            request = _build_query_request(
+                query,
+                page_size=page_size,
+            )
+            result = _normalize_on_query_result(on_query(request))
+            result_columns = columns
+            if result.columns:
+                if _schema_version(result.columns) != _schema_version(columns):
+                    raise ValueError("on_query returned columns incompatible with the registered schema")
+                result_columns = result.columns
+            safe_offset = max(0, min(query.offset, result.total_rows))
+            safe_limit = max(1, int(query.limit))
+            payload_rows = result.rows[:safe_limit]
+            payload_index = None if hide_index else result.index
+            payload_positions = result.positions
+            if payload_positions is None:
+                payload_positions = list(range(safe_offset, safe_offset + len(payload_rows)))
+            return {
+                "offset": safe_offset,
+                "limit": safe_limit,
+                "totalRows": result.total_rows,
+                "rows": [[_to_json_safe(value) for value in row] for row in payload_rows],
+                "index": None if payload_index is None else [_to_json_safe(value) for value in payload_index[:len(payload_rows)]],
+                "positions": [_to_json_safe(value) for value in payload_positions[:len(payload_rows)]],
+                "columns": result_columns,
+                "schemaVersion": result.schema_version or initial_schema_version,
+                "diagnostics": result.diagnostics,
+            }
+
+        return register_source(
+            columns=columns,
+            rows=None,
+            index=None,
+            slice_fn=None,
+            total_rows=total_rows,
+            query_fn=manual_query_fn,
+            schema_version=initial_schema_version,
+        )
 
     # Pandas path: keep raw dataframe server-side and query lazily.
     try:

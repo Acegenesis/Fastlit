@@ -58,7 +58,15 @@ from fastlit.ui.layout import (
 )
 from fastlit.ui.chat import chat_message, chat_input
 from fastlit.ui.fragment import fragment
-from fastlit.ui.dataframe import dataframe, data_editor, table
+from fastlit.ui.dataframe import (
+    DataEditorCellEdit,
+    DataEditorChangeSet,
+    DataframeQueryRequest,
+    DataframeQueryResult,
+    data_editor,
+    dataframe,
+    table,
+)
 from fastlit.ui import column_config
 from fastlit.ui.charts import (
     line_chart,
@@ -341,6 +349,10 @@ __all__ = [
     "dataframe",
     "data_editor",
     "table",
+    "DataframeQueryRequest",
+    "DataframeQueryResult",
+    "DataEditorCellEdit",
+    "DataEditorChangeSet",
     "column_config",
     # Charts
     "line_chart",

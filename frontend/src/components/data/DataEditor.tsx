@@ -50,6 +50,8 @@ interface ColumnConfig {
   step?: number | string | null;
   maxChars?: number | null;
   validate?: string | null;
+  validateMessage?: string | null;
+  validateOn?: string | null;
   options?: string[];
   displayText?: string | null;
   format?: string | null;
@@ -83,6 +85,25 @@ interface DataEditorProps {
   showRowActions?: boolean;
   downloadable?: boolean;
   persistView?: boolean;
+  returnChanges?: boolean;
+}
+
+interface DataEditorCellEditPayload {
+  rowId: string;
+  column: string;
+  before: any;
+  after: any;
+}
+
+interface DataEditorChangesPayload {
+  addedRows: Array<Record<string, any>>;
+  editedCells: DataEditorCellEditPayload[];
+  deletedRows: Array<Record<string, any>>;
+}
+
+interface EditorSnapshot {
+  rows: GridRowModel[];
+  index: any[];
 }
 
 const DEFAULT_ROW_HEIGHT = 50;
@@ -120,6 +141,8 @@ function normalizeColumns(columns: Column[], columnConfig: Record<string, Column
       step: cfg.step,
       maxChars: cfg.maxChars,
       validate: cfg.validate,
+      validateMessage: cfg.validateMessage,
+      validateOn: cfg.validateOn,
       yMin: cfg.yMin,
       yMax: cfg.yMax,
     };
@@ -379,6 +402,55 @@ function clampNumber(value: number, column: GridResolvedColumn): number {
     if (Number.isFinite(max)) next = Math.min(next, max);
   }
   return next;
+}
+
+function validateEditorValue(value: any, column: GridResolvedColumn): string | null {
+  const normalizedType = normalizeGridColumnType(column.type);
+  const textValue = typeof value === "string" ? value.trim() : "";
+  const errorMessage = column.validateMessage || "Invalid value";
+
+  if (column.required) {
+    const isEmptyList = Array.isArray(value) && value.length === 0;
+    const isEmptyText = typeof value === "string" && textValue === "";
+    if (value === null || value === undefined || isEmptyList || isEmptyText) {
+      return errorMessage;
+    }
+  }
+
+  if (typeof value === "string" && column.maxChars && value.length > column.maxChars) {
+    return column.validateMessage || `Maximum ${column.maxChars} characters`;
+  }
+
+  if (column.validate && typeof value === "string" && textValue) {
+    try {
+      const matcher = new RegExp(column.validate);
+      if (!matcher.test(textValue)) return errorMessage;
+    } catch {
+      return errorMessage;
+    }
+  }
+
+  if (["number", "integer", "progress"].includes(normalizedType) && value !== null && value !== undefined && value !== "") {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return errorMessage;
+    if (column.min !== undefined && column.min !== null && column.min !== "" && numeric < Number(column.min)) {
+      return errorMessage;
+    }
+    if (column.max !== undefined && column.max !== null && column.max !== "" && numeric > Number(column.max)) {
+      return errorMessage;
+    }
+  }
+
+  if (["date", "time", "datetime"].includes(normalizedType) && value) {
+    const parsed = parseDateValue(value);
+    if (!parsed) return errorMessage;
+    const min = parseDateValue(column.min);
+    const max = parseDateValue(column.max);
+    if (min && parsed < min) return errorMessage;
+    if (max && parsed > max) return errorMessage;
+  }
+
+  return null;
 }
 
 function parseCellValue(raw: string, column: GridResolvedColumn, previousValue: any): any {
@@ -1015,6 +1087,7 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
     showRowActions = true,
     downloadable = true,
     persistView = true,
+    returnChanges = false,
   } = props as DataEditorProps;
   const resolvedPlaceholder = useResolvedPropText(props as Record<string, any>, "placeholder");
 
@@ -1044,19 +1117,29 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
   const [localRows, setLocalRows] = useState<GridRowModel[]>(() => normalizeRows(rows, index));
   const [localIndex, setLocalIndex] = useState<any[]>(() => (Array.isArray(index) ? [...index] : []));
   const [draftValues, setDraftValues] = useState<Record<string, string>>({});
+  const [cellErrors, setCellErrors] = useState<Record<string, string>>({});
   const [compactFooterActions, setCompactFooterActions] = useState(false);
   const localRowsRef = useRef<GridRowModel[]>(normalizeRows(rows, index));
   const localIndexRef = useRef<any[]>(Array.isArray(index) ? [...index] : []);
+  const baselineRowsRef = useRef<GridRowModel[]>(normalizeRows(rows, index));
+  const baselineIndexRef = useRef<any[]>(Array.isArray(index) ? [...index] : []);
+  const historyRef = useRef<EditorSnapshot[]>([]);
+  const futureRef = useRef<EditorSnapshot[]>([]);
 
   useEffect(() => {
     const normalized = normalizeRows(rows, index);
     nextRowIdRef.current = normalized.length;
     localRowsRef.current = normalized;
+    baselineRowsRef.current = normalized.map((row) => ({ ...row, cells: [...row.cells] }));
     setLocalRows(normalized);
     const normalizedIndex = Array.isArray(index) ? [...index] : [];
     localIndexRef.current = normalizedIndex;
+    baselineIndexRef.current = [...normalizedIndex];
     setLocalIndex(normalizedIndex);
     setDraftValues({});
+    setCellErrors({});
+    historyRef.current = [];
+    futureRef.current = [];
   }, [index, rows]);
 
   const hasIndex = Array.isArray(index) && index.length > 0;
@@ -1122,6 +1205,58 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
     return () => observer.disconnect();
   }, [footerVisible, isDynamic]);
 
+  const snapshotState = useCallback((nextRows: GridRowModel[], nextIndex: any[]): EditorSnapshot => ({
+    rows: nextRows.map((row) => ({ ...row, cells: [...row.cells] })),
+    index: [...nextIndex],
+  }), []);
+
+  const pushHistorySnapshot = useCallback((nextRows: GridRowModel[], nextIndex: any[]) => {
+    historyRef.current = [...historyRef.current, snapshotState(localRowsRef.current, localIndexRef.current)].slice(-50);
+    futureRef.current = [];
+    localRowsRef.current = nextRows;
+    localIndexRef.current = nextIndex;
+  }, [snapshotState]);
+
+  const buildChangesPayload = useCallback((nextRows: GridRowModel[], nextIndex: any[]): DataEditorChangesPayload => {
+    const columnNames = baseColumns.map((column) => column.name);
+    const baselineMap = new Map(baselineRowsRef.current.map((row) => [row.rowId, row]));
+    const nextMap = new Map(nextRows.map((row) => [row.rowId, row]));
+
+    const addedRows = nextRows
+      .filter((row) => !baselineMap.has(row.rowId))
+      .map((row) => Object.fromEntries(columnNames.map((name, index) => [name, row.cells[index]])));
+
+    const editedCells: DataEditorCellEditPayload[] = [];
+    for (const row of nextRows) {
+      const baselineRow = baselineMap.get(row.rowId);
+      if (!baselineRow) continue;
+      for (let index = 0; index < columnNames.length; index += 1) {
+        if (baselineRow.cells[index] === row.cells[index]) continue;
+        editedCells.push({
+          rowId: row.rowId,
+          column: columnNames[index] ?? String(index),
+          before: baselineRow.cells[index],
+          after: row.cells[index],
+        });
+      }
+    }
+
+    const deletedRows = baselineRowsRef.current.flatMap((row, baselineIndex) => {
+      if (nextMap.has(row.rowId)) return [];
+      const payload = Object.fromEntries(columnNames.map((name, columnIndex) => [name, row.cells[columnIndex]]));
+        if (hasIndex) {
+          payload._index = baselineIndexRef.current[baselineIndex];
+        }
+        return [payload];
+      });
+
+    return {
+      addedRows,
+      editedCells,
+      deletedRows,
+    };
+  }, [baseColumns, hasIndex]);
+
   const emitRows = useCallback((nextRows: GridRowModel[], nextIndex: any[], commit: boolean) => {
     const payload: Record<string, any> = {
       rows: nextRows.map((row) => row.cells),
@@ -1129,8 +1264,11 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
     if (hasIndex) {
       payload.index = nextIndex;
     }
+    if (returnChanges) {
+      payload.changes = buildChangesPayload(nextRows, nextIndex);
+    }
     sendEvent(nodeId, payload, commit && rerunOnChange ? undefined : { noRerun: true });
-  }, [hasIndex, nodeId, rerunOnChange, sendEvent]);
+  }, [buildChangesPayload, hasIndex, nodeId, rerunOnChange, returnChanges, sendEvent]);
 
   const setLocalCellValue = useCallback((rowId: string, columnName: string, nextValue: any) => {
     const columnIndex = columnIndexMap[columnName];
@@ -1154,10 +1292,14 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
       cells[columnIndex] = nextValue;
       return { ...row, cells };
     });
-    localRowsRef.current = nextRows;
+    if (commit) {
+      pushHistorySnapshot(nextRows, localIndexRef.current);
+    } else {
+      localRowsRef.current = nextRows;
+    }
     setLocalRows(nextRows);
     emitRows(nextRows, localIndexRef.current, commit);
-  }, [columnIndexMap, emitRows]);
+  }, [columnIndexMap, emitRows, pushHistorySnapshot]);
 
   const clearLiveCommitTimer = useCallback((cellKey: string) => {
     const timer = liveCommitTimersRef.current.get(cellKey);
@@ -1185,15 +1327,14 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
       const nextRows = currentRows.filter((row) => row.rowId !== rowId);
       const currentIndex = localIndexRef.current;
       const nextIndex = hasIndex ? currentIndex.filter((_, idx) => idx !== removedIndex) : currentIndex;
-      localRowsRef.current = nextRows;
+      pushHistorySnapshot(nextRows, nextIndex);
       setLocalRows(nextRows);
       if (hasIndex) {
-        localIndexRef.current = nextIndex;
         setLocalIndex(nextIndex);
       }
       emitRows(nextRows, nextIndex, true);
     }
-  }, [emitRows, hasIndex]);
+  }, [emitRows, hasIndex, pushHistorySnapshot]);
 
   const addRow = useCallback(() => {
     const currentRows = localRowsRef.current;
@@ -1209,14 +1350,37 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
     };
     const nextRows = [...currentRows, nextRow];
     const nextIndex = hasIndex ? [...currentIndex, nextRow.indexValue] : currentIndex;
-    localRowsRef.current = nextRows;
+    pushHistorySnapshot(nextRows, nextIndex);
     setLocalRows(nextRows);
     if (hasIndex) {
-      localIndexRef.current = nextIndex;
       setLocalIndex(nextIndex);
     }
     emitRows(nextRows, nextIndex, true);
-  }, [emitRows, hasIndex, resolvedColumns]);
+  }, [emitRows, hasIndex, pushHistorySnapshot, resolvedColumns]);
+
+  const applySnapshot = useCallback((snapshot: EditorSnapshot) => {
+    localRowsRef.current = snapshot.rows.map((row) => ({ ...row, cells: [...row.cells] }));
+    localIndexRef.current = [...snapshot.index];
+    setLocalRows(localRowsRef.current);
+    setLocalIndex(localIndexRef.current);
+    emitRows(localRowsRef.current, localIndexRef.current, true);
+  }, [emitRows]);
+
+  const undoEdit = useCallback(() => {
+    const previous = historyRef.current[historyRef.current.length - 1];
+    if (!previous) return;
+    historyRef.current = historyRef.current.slice(0, -1);
+    futureRef.current = [...futureRef.current, snapshotState(localRowsRef.current, localIndexRef.current)].slice(-50);
+    applySnapshot(previous);
+  }, [applySnapshot, snapshotState]);
+
+  const redoEdit = useCallback(() => {
+    const next = futureRef.current[futureRef.current.length - 1];
+    if (!next) return;
+    futureRef.current = futureRef.current.slice(0, -1);
+    historyRef.current = [...historyRef.current, snapshotState(localRowsRef.current, localIndexRef.current)].slice(-50);
+    applySnapshot(next);
+  }, [applySnapshot, snapshotState]);
 
   const startResize = useCallback((event: React.MouseEvent<HTMLDivElement>, column: GridResolvedColumn) => {
     if (!column.resizable) return;
@@ -1262,7 +1426,17 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
     clearLiveCommitTimer(key);
     const raw = draftValues[key] ?? serializeEditorValue(row.cells[column.originalIndex], column.type);
     const nextValue = parseCellValue(raw, column, row.cells[column.originalIndex]);
+    const validationError = validateEditorValue(nextValue, column);
+    if (validationError) {
+      setCellErrors((current) => ({ ...current, [key]: validationError }));
+      return;
+    }
     setDraftValues((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    setCellErrors((current) => {
       const next = { ...current };
       delete next[key];
       return next;
@@ -1285,12 +1459,34 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
     const disabled = !editable || disabledColumns.includes(column.name) || !!column.disabled;
     const columnType = normalizeGridColumnType(column.type);
     const draft = draftValues[cellKey] ?? serializeEditorValue(value, columnType);
+    const cellError = cellErrors[cellKey];
     const commitImmediateValue = (nextValue: any) => {
+      const validationError = validateEditorValue(nextValue, column);
+      if (validationError) {
+        setCellErrors((current) => ({ ...current, [cellKey]: validationError }));
+        return;
+      }
+      setCellErrors((current) => {
+        const next = { ...current };
+        delete next[cellKey];
+        return next;
+      });
       updateCell(row.rowId, column.name, nextValue, rerunOnChange);
     };
     const handleDraftChange = (nextValue: string) => {
       setDraftValues((current) => ({ ...current, [cellKey]: nextValue }));
       const parsed = parseCellValue(nextValue, column, value);
+      if ((column.validateOn ?? "blur") === "change") {
+        const validationError = validateEditorValue(parsed, column);
+        setCellErrors((current) => {
+          if (!validationError) {
+            const next = { ...current };
+            delete next[cellKey];
+            return next;
+          }
+          return { ...current, [cellKey]: validationError };
+        });
+      }
       if (rerunOnChange) {
         scheduleLiveCommit(row, column, parsed);
       } else {
@@ -1441,7 +1637,9 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
           <Input
             value={draft}
             type="url"
-            className="h-8 min-w-0"
+            aria-invalid={!!cellError}
+            title={cellError ?? undefined}
+            className={cn("h-8 min-w-0", cellError && "border-rose-300 ring-1 ring-rose-200")}
             placeholder="https://image..."
             onChange={(event) => handleDraftChange(event.target.value)}
             onBlur={() => commitDraft(row, column)}
@@ -1481,7 +1679,9 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
           <Input
             value={draft}
             type="url"
-            className="h-8 min-w-0"
+            aria-invalid={!!cellError}
+            title={cellError ?? undefined}
+            className={cn("h-8 min-w-0", cellError && "border-rose-300 ring-1 ring-rose-200")}
             placeholder="https://example.com"
             onChange={(event) => handleDraftChange(event.target.value)}
             onBlur={() => commitDraft(row, column)}
@@ -1513,7 +1713,9 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
       <Input
         value={draft}
         type={inputType}
-        className="h-8 min-w-0"
+        aria-invalid={!!cellError}
+        title={cellError ?? undefined}
+        className={cn("h-8 min-w-0", cellError && "border-rose-300 ring-1 ring-rose-200")}
         min={column.min ?? undefined}
         max={column.max ?? undefined}
         step={column.step ?? undefined}
@@ -1535,7 +1737,7 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
         }}
       />
     );
-  }, [clearLiveCommitTimer, commitDraft, disabledColumns, draftValues, editable, resolvedColumns, rerunOnChange, scheduleLiveCommit, updateCell]);
+  }, [cellErrors, clearLiveCommitTimer, commitDraft, disabledColumns, draftValues, editable, resolvedColumns, rerunOnChange, scheduleLiveCommit, updateCell]);
 
   if (!resolvedColumns.length) {
     return <GridEmptyState message={resolvedPlaceholder || "Empty editor"} />;
@@ -1585,7 +1787,23 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
   };
 
   return (
-    <div className="w-full min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm ring-1 ring-slate-950/[0.03]" style={outerStyle}>
+    <div
+      role="grid"
+      tabIndex={0}
+      className="w-full min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm ring-1 ring-slate-950/[0.03]"
+      style={outerStyle}
+      onKeyDown={(event) => {
+        const key = event.key.toLowerCase();
+        const modifier = event.metaKey || event.ctrlKey;
+        if (!modifier || key !== "z") return;
+        event.preventDefault();
+        if (event.shiftKey) {
+          redoEdit();
+          return;
+        }
+        undoEdit();
+      }}
+    >
       {toolbarVisible ? (
         <GridToolbar
           columns={baseColumns}
@@ -1633,13 +1851,19 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
             return (
               <div
                 key={column.name}
+                role="columnheader"
+                aria-sort={isSorted ? (isSorted.direction === "asc" ? "ascending" : "descending") : "none"}
                 className="relative flex items-center gap-2 border-r border-slate-200/80 px-3 last:border-r-0"
                 style={style}
                 title={column.help ?? column.name}
                 onClick={(event) => updateViewState((current) => ({ ...current, sorts: toggleGridSort(current.sorts, column.name, event.shiftKey) }))}
               >
                 <span className="truncate">{column.label}</span>
-                {isSorted ? <span className="text-[10px] text-sky-600">{isSorted.direction === "asc" ? "ASC" : "DESC"}</span> : null}
+                {isSorted ? (
+                  <span className="text-[10px] text-sky-600">
+                    {isSorted.direction === "asc" ? "ASC" : "DESC"} {viewState.sorts.findIndex((item) => item.column === column.name) + 1}
+                  </span>
+                ) : null}
                 {column.resizable ? (
                   <div role="separator" aria-orientation="vertical" className="absolute right-0 top-0 h-full w-3 cursor-col-resize" onMouseDown={(event) => startResize(event, column)}>
                     <div className="absolute right-1 top-2 bottom-2 w-px rounded-full bg-slate-300 hover:bg-sky-500" />

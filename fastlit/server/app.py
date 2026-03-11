@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import threading
 import time
@@ -45,6 +46,7 @@ _static_dir: str = ""
 
 # Custom component static file registry: name → abs build directory
 _component_paths: dict[str, str] = {}
+logger = logging.getLogger("fastlit.app")
 
 
 def register_component_path(name: str, path: str) -> None:
@@ -512,6 +514,22 @@ async def dataframe_slice_endpoint(request):
     )
     if data is None:
         return JSONResponse({"error": "unknown dataframe source"}, status_code=404)
+    meta = data.pop("_fastlitMeta", {}) if isinstance(data, dict) else {}
+    logger.debug(
+        "dataframe query source_id=%s offset=%s limit=%s search_len=%s sort_count=%s filter_count=%s transport=%s schema_version=%s cache_hit=%s elapsed_ms=%s result_rows=%s total_rows=%s",
+        source_id,
+        offset,
+        limit,
+        len(search),
+        len(sorts),
+        len(filters),
+        response_format,
+        data.get("schemaVersion"),
+        meta.get("cacheHit"),
+        meta.get("elapsedMs"),
+        len(data.get("rows", [])) if isinstance(data.get("rows"), list) else 0,
+        data.get("totalRows"),
+    )
     if response_format == "arrow":
         arrow_payload = serialize_arrow_frame(
             columns=data.get("columns", []),

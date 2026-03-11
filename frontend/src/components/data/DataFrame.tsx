@@ -3,6 +3,7 @@ import { tableFromIPC } from "apache-arrow";
 import type { NodeComponentProps } from "../../registry/registry";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { toast } from "sonner";
 import {
   Pagination,
   PaginationContent,
@@ -61,6 +62,8 @@ interface ColumnConfig {
   step?: number | string | null;
   maxChars?: number | null;
   validate?: string | null;
+  validateMessage?: string | null;
+  validateOn?: string | null;
   options?: string[];
   displayText?: string | null;
   format?: string | null;
@@ -110,12 +113,27 @@ interface DataFrameProps {
   pagination?: boolean | string;
   paginationMode?: string;
   pageSize?: number;
+  exportMaxRows?: number;
+  debugDataframe?: boolean;
 }
 
 interface DecodedFramePayload {
   rows: any[][];
   index?: any[];
   positions?: number[];
+}
+
+interface ServerFramePayload extends DecodedFramePayload {
+  offset: number;
+  limit: number;
+  totalRows: number;
+  schemaVersion?: string;
+}
+
+interface CachedPageEntry {
+  page: number;
+  payload: ServerFramePayload;
+  touchedAt: number;
 }
 
 const ROW_SELECTION_MODES = new Set(["single-row", "multi-row"]);
@@ -193,6 +211,8 @@ function normalizeColumns(columns: Column[], columnConfig: Record<string, Column
       step: cfg.step,
       maxChars: cfg.maxChars,
       validate: cfg.validate,
+      validateMessage: cfg.validateMessage,
+      validateOn: cfg.validateOn,
       yMin: cfg.yMin,
       yMax: cfg.yMax,
     };
@@ -283,7 +303,7 @@ async function parseDataframeResponse(
   columns: Column[],
   fallbackOffset: number,
   fallbackLimit: number
-): Promise<any> {
+): Promise<ServerFramePayload> {
   const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
   if (contentType.includes(ARROW_MEDIA_TYPE)) {
     const payload = decodeArrowPayload(new Uint8Array(await response.arrayBuffer()), columns);
@@ -297,7 +317,7 @@ async function parseDataframeResponse(
       schemaVersion: response.headers.get("X-Fastlit-Schema-Version") ?? undefined,
     };
   }
-  return response.json();
+  return response.json() as Promise<ServerFramePayload>;
 }
 
 function resolveGridHeight(
@@ -375,6 +395,8 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     pagination = false,
     paginationMode,
     pageSize = 25,
+    exportMaxRows = 100000,
+    debugDataframe = false,
   } = props as DataFrameProps;
   const resolvedPlaceholder = useResolvedPropText(props as Record<string, any>, "placeholder");
   const isArrowDebug = nodeId.startsWith("k:arrow_demo_df_");
@@ -422,9 +444,16 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
   const [selectedColumnNames, setSelectedColumnNames] = useState<string[]>(Array.isArray(selectedColumns) ? [...selectedColumns] : []);
   const [selectedCellValues, setSelectedCellValues] = useState<SelectedCell[]>(normalizeSelectedCells(selectedCells));
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageCache, setPageCache] = useState<Record<number, CachedPageEntry>>({});
+  const [pageError, setPageError] = useState<string | null>(null);
+  const [serverSchemaVersion, setServerSchemaVersion] = useState<string | undefined>(undefined);
   const [columnSelectionAnchor, setColumnSelectionAnchor] = useState<string | null>(null);
   const [cellSelectionAnchor, setCellSelectionAnchor] = useState<SelectedCell | null>(null);
   const fetchAbortRef = useRef<AbortController | null>(null);
+  const pageControllersRef = useRef<Map<number, AbortController>>(new Map());
+  const inFlightPagesRef = useRef<Set<string>>(new Set());
+  const lastQueryKeyRef = useRef<string | null>(null);
+  const currentPageRef = useRef(1);
   const didMountServerPagingRef = useRef(false);
   const baseColumns = useMemo(() => normalizeColumns(columns, columnConfig), [columnConfig, columns]);
   const initialColumnOrder = useMemo(
@@ -470,6 +499,9 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     setServerIndex(initialIndex);
     setServerPositions(initialPositions);
     setServerTotalRows(typeof totalRows === "number" ? totalRows : initialRows.length);
+    setPageCache({});
+    setPageError(null);
+    setServerSchemaVersion(undefined);
   }, [initialIndex, initialPositions, initialRows, isArrowDebug, nodeId, sourceId, totalRows]);
 
   useEffect(() => {
@@ -483,6 +515,10 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
   useEffect(() => {
     setSelectedCellValues(normalizeSelectedCells(selectedCells));
   }, [selectedCells]);
+
+  useEffect(() => {
+    currentPageRef.current = currentPage;
+  }, [currentPage]);
 
   const baseRowModels = useMemo(
     () => normalizeRows(initialRows, initialIndex, initialPositions),
@@ -604,16 +640,113 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     return params.toString();
   }, [effectiveFilters, effectiveSearch, viewState.sorts]);
 
+  const viewQueryKey = useMemo(
+    () => `${sourceId ?? ""}::${resolvedPageSize}::${queryString}`,
+    [queryString, resolvedPageSize, sourceId]
+  );
+
   useEffect(() => {
     if (!paginationEnabled) return;
+    if (lastQueryKeyRef.current === viewQueryKey) return;
+    lastQueryKeyRef.current = viewQueryKey;
     setCurrentPage(1);
-  }, [paginationEnabled, queryString, resolvedPageSize, sourceId]);
+    setPageCache({});
+    setPageError(null);
+    for (const controller of pageControllersRef.current.values()) {
+      controller.abort();
+    }
+    pageControllersRef.current.clear();
+    inFlightPagesRef.current.clear();
+  }, [paginationEnabled, viewQueryKey]);
 
   const requestKey = useMemo(
     () => `${sourceId ?? ""}::${windowSize}::${resolvedPageSize}::${queryString}`,
     [queryString, resolvedPageSize, sourceId, windowSize]
   );
   const [activeRequestKey, setActiveRequestKey] = useState(requestKey);
+
+  const applyServerPayload = useCallback((payload: ServerFramePayload) => {
+    setServerOffset(payload.offset ?? 0);
+    setServerRows(Array.isArray(payload.rows) ? payload.rows : []);
+    setServerIndex(Array.isArray(payload.index) ? payload.index : undefined);
+    setServerPositions(Array.isArray(payload.positions) ? payload.positions.map((value: any) => Number(value)) : undefined);
+    setServerTotalRows(typeof payload.totalRows === "number" ? payload.totalRows : 0);
+    setServerSchemaVersion(payload.schemaVersion ?? undefined);
+  }, []);
+
+  const updateCachedPage = useCallback((page: number, payload: ServerFramePayload) => {
+    setPageCache((current) => {
+      const now = Date.now();
+      const next: Record<number, CachedPageEntry> = {
+        ...current,
+        [page]: {
+          page,
+          payload,
+          touchedAt: now,
+        },
+      };
+      const entries = Object.values(next).sort((left, right) => right.touchedAt - left.touchedAt);
+      const trimmed = entries.slice(0, 5);
+      return Object.fromEntries(trimmed.map((entry) => [entry.page, entry]));
+    });
+  }, []);
+
+  const fetchServerPage = useCallback(async (page: number, prefetch = false) => {
+    if (!sourceId || !isServerPaged || !paginationEnabled) return null;
+    const pageKey = `${viewQueryKey}::${page}`;
+    if (inFlightPagesRef.current.has(pageKey)) return null;
+    const cached = pageCache[page];
+    if (cached) {
+      updateCachedPage(page, cached.payload);
+      return cached.payload;
+    }
+
+    const pageOffset = Math.max(0, (page - 1) * resolvedPageSize);
+    const controller = new AbortController();
+    pageControllersRef.current.set(page, controller);
+    inFlightPagesRef.current.add(pageKey);
+    if (!prefetch) {
+      setLoadingWindow(true);
+      setPageError(null);
+    }
+
+    try {
+      const response = await fetch(
+        `/_fastlit/dataframe/${encodeURIComponent(sourceId)}?offset=${pageOffset}&limit=${resolvedPageSize}&format=arrow&${queryString}`,
+        { signal: controller.signal }
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = await parseDataframeResponse(response, columns, pageOffset, resolvedPageSize);
+      updateCachedPage(page, payload);
+      if (!prefetch && currentPageRef.current === page) {
+        applyServerPayload(payload);
+      }
+      return payload;
+    } catch (error) {
+      if (!controller.signal.aborted && !prefetch) {
+        const message = error instanceof Error ? error.message : String(error);
+        setPageError(message);
+      }
+      return null;
+    } finally {
+      pageControllersRef.current.delete(page);
+      inFlightPagesRef.current.delete(pageKey);
+      if (!prefetch && !controller.signal.aborted) {
+        setLoadingWindow(false);
+      }
+    }
+  }, [
+    applyServerPayload,
+    columns,
+    isServerPaged,
+    pageCache,
+    paginationEnabled,
+    queryString,
+    resolvedPageSize,
+    sourceId,
+    updateCachedPage,
+    viewQueryKey,
+  ]);
 
   useEffect(() => {
     if (!isArrowDebug) return;
@@ -775,39 +908,33 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
 
   useEffect(() => {
     if (!paginationEnabled || !isServerPaged || !sourceId) return;
+    const cached = pageCache[currentPage];
+    if (cached) {
+      applyServerPayload(cached.payload);
+      updateCachedPage(currentPage, cached.payload);
+    } else {
+      void fetchServerPage(currentPage);
+    }
 
-    const pageOffset = Math.max(0, (currentPage - 1) * resolvedPageSize);
-    fetchAbortRef.current?.abort();
-    const controller = new AbortController();
-    fetchAbortRef.current = controller;
-    setLoadingWindow(true);
-
-    fetch(
-      `/_fastlit/dataframe/${encodeURIComponent(sourceId)}?offset=${pageOffset}&limit=${resolvedPageSize}&format=arrow&${queryString}`,
-      {
-        signal: controller.signal,
+    const neighbors = [currentPage - 1, currentPage + 1].filter((page) => page >= 1 && page <= totalPages);
+    for (const neighbor of neighbors) {
+      if (pageCache[neighbor]) {
+        updateCachedPage(neighbor, pageCache[neighbor]!.payload);
+        continue;
       }
-    )
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return parseDataframeResponse(res, columns, pageOffset, resolvedPageSize);
-      })
-      .then((payload) => {
-        setServerOffset(payload.offset ?? pageOffset);
-        setServerRows(Array.isArray(payload.rows) ? payload.rows : []);
-        setServerIndex(Array.isArray(payload.index) ? payload.index : undefined);
-        setServerPositions(Array.isArray(payload.positions) ? payload.positions.map((value: any) => Number(value)) : undefined);
-        setServerTotalRows(typeof payload.totalRows === "number" ? payload.totalRows : 0);
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        if (!controller.signal.aborted) setLoadingWindow(false);
-      });
-
-    return () => {
-      controller.abort();
-    };
-  }, [columns, currentPage, isServerPaged, paginationEnabled, queryString, resolvedPageSize, sourceId]);
+      void fetchServerPage(neighbor, true);
+    }
+  }, [
+    applyServerPayload,
+    currentPage,
+    fetchServerPage,
+    isServerPaged,
+    pageCache,
+    paginationEnabled,
+    sourceId,
+    totalPages,
+    updateCachedPage,
+  ]);
 
   const emitSelection = useCallback((payload: {
     rows?: number[];
@@ -1006,6 +1133,12 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
       triggerCsvDownload(defaultCsvFileName(isStatic ? "fastlit-table" : "fastlit-dataframe"), buildCsv(resolvedColumns, displayRows));
       return;
     }
+    if (serverTotalRows > exportMaxRows) {
+      toast("Export limit reached", {
+        description: `The current query has ${serverTotalRows.toLocaleString()} rows. Fastlit export is capped at ${exportMaxRows.toLocaleString()} rows.`,
+      });
+      return;
+    }
 
     const collected: GridRowModel[] = [];
     let offset = 0;
@@ -1020,7 +1153,7 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
       if (!rowsChunk.length) break;
     }
     triggerCsvDownload(defaultCsvFileName(isStatic ? "fastlit-table" : "fastlit-dataframe"), buildCsv(resolvedColumns, collected));
-  }, [columns, displayRows, isServerPaged, isStatic, queryString, resolvedColumns, serverTotalRows, sourceId]);
+  }, [columns, displayRows, exportMaxRows, isServerPaged, isStatic, queryString, resolvedColumns, serverTotalRows, sourceId]);
 
   if (!resolvedColumns.length) {
     return <GridEmptyState message={resolvedPlaceholder || (isStatic ? "Empty table" : "Empty DataFrame")} />;
@@ -1153,7 +1286,7 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
   };
 
   return (
-    <div className="w-full min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm ring-1 ring-slate-950/[0.03]" style={outerStyle}>
+    <div role="grid" aria-rowcount={effectiveTotalRows} className="w-full min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm ring-1 ring-slate-950/[0.03]" style={outerStyle}>
       {toolbarVisible && !isStatic ? (
         <GridToolbar
           columns={baseColumns}
@@ -1207,6 +1340,8 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
             return (
               <div
                 key={column.name}
+                role="columnheader"
+                aria-sort={isSorted ? (isSorted.direction === "asc" ? "ascending" : "descending") : "none"}
                 className={cn(
                   "relative flex items-center gap-2 border-r border-slate-200/80 px-3 last:border-r-0",
                   isColumnSelected && "bg-sky-100/80 text-sky-700"
@@ -1224,7 +1359,11 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
                 }}
               >
                 <span className="truncate">{column.label}</span>
-                {isSorted ? <span className="text-[10px] text-sky-600">{isSorted.direction === "asc" ? "ASC" : "DESC"}</span> : null}
+                {isSorted ? (
+                  <span className="text-[10px] text-sky-600">
+                    {isSorted.direction === "asc" ? "ASC" : "DESC"} {viewState.sorts.findIndex((item) => item.column === column.name) + 1}
+                  </span>
+                ) : null}
                 {column.resizable ? (
                   <div role="separator" aria-orientation="vertical" className="absolute right-0 top-0 h-full w-3 cursor-col-resize" onMouseDown={(event) => startResize(event, column)}>
                     <div className="absolute right-1 top-2 bottom-2 w-px rounded-full bg-slate-300 hover:bg-sky-500" />
@@ -1412,6 +1551,12 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
         </div>
       ) : null}
 
+      {pageError ? (
+        <div className="border-t border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+          {`Data request failed: ${pageError}`}
+        </div>
+      ) : null}
+
       {footerVisible ? (
         <div className="flex flex-wrap items-center gap-2 border-t border-slate-200/80 bg-slate-50/90 px-3 py-2 text-xs text-slate-500">
           {showFooterSummary ? (
@@ -1422,6 +1567,12 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
           ) : null}
           {isServerPaged && loadingWindow ? <span className="ml-2 text-sky-600">(loading window...)</span> : null}
           {truncated ? <span className="ml-2 text-amber-700">(preview truncated)</span> : null}
+        </div>
+      ) : null}
+
+      {debugDataframe ? (
+        <div className="border-t border-dashed border-slate-200 bg-slate-50/60 px-3 py-2 font-mono text-[11px] text-slate-600">
+          {`query=${viewQueryKey} page=${currentPage}/${totalPages} cachePages=${Object.keys(pageCache).sort((left, right) => Number(left) - Number(right)).join(",") || "none"} source=${sourceId ?? "local"} schema=${serverSchemaVersion ?? "n/a"}`}
         </div>
       ) : null}
     </div>

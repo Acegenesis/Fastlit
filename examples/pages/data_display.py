@@ -60,6 +60,33 @@ def _build_paginated_users(total_rows: int = 120) -> pd.DataFrame:
 PAGINATED_USERS_DF = _build_paginated_users()
 
 
+def _manual_users_query(query: st.DataframeQueryRequest) -> st.DataframeQueryResult:
+    view = PAGINATED_USERS_DF.copy()
+    if query.search:
+        lowered = query.search.lower()
+        mask = view.astype(str).apply(lambda series: series.str.lower().str.contains(lowered, regex=False))
+        view = view[mask.any(axis=1)]
+
+    for sort in reversed(query.sorts):
+        ascending = sort.direction != "desc"
+        if sort.column in view.columns:
+            view = view.sort_values(sort.column, ascending=ascending, kind="stable")
+
+    start = min(query.offset, len(view))
+    end = min(len(view), start + query.limit)
+    window = view.iloc[start:end]
+
+    return st.DataframeQueryResult(
+        rows=window.values.tolist(),
+        total_rows=len(view),
+        columns=[{"name": str(column), "type": "auto"} for column in view.columns],
+        index=window.index.tolist(),
+        positions=list(range(start, end)),
+        schema_version="users-v1",
+        diagnostics={"mode": "manual-demo"},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
@@ -112,6 +139,9 @@ with st.expander("📖 Parameters", expanded=False):
 | `show_footer_summary` | bool | Show footer row/column badges |
 | `downloadable` | bool | CSV export button |
 | `persist_view` | bool | Persist sort/filter/scroll |
+| `pagination` | bool / "text" / "number" / "icon" | Fastlit-only pagination UI |
+| `page_size` | int | Rows per page when pagination is enabled |
+| `on_query` | Callable | Fastlit-only server/manual query callback |
 | `on_select` | "rerun" / Callable / None | Selection mode |
 | `selection_mode` | "single-row" / "multi-row" | Selection behavior |
 | `key` | str | Stable key |
@@ -170,6 +200,31 @@ with st.container(border=True):
         pagination="icon",
         page_size=10,
         key="df_paginated_icon",
+    )
+
+st.subheader("Manual server query (`on_query`) - Fastlit extension")
+st.caption(
+    "`on_query` lets the app provide rows on demand from a DB, API, or warehouse. "
+    "The same search, sort, and pagination UI stays active in the grid."
+)
+st.code(
+    """st.dataframe(
+    on_query=_manual_users_query,
+    height=320,
+    pagination="number",
+    page_size=10,
+    hide_index=True,
+)""",
+    language="python",
+)
+with st.container(border=True):
+    st.dataframe(
+        on_query=_manual_users_query,
+        height=320,
+        pagination="number",
+        page_size=10,
+        hide_index=True,
+        key="df_manual_query",
     )
 
 st.subheader("With column_config")
@@ -332,6 +387,7 @@ with st.expander("📖 Parameters", expanded=False):
 | `show_footer_summary` | bool | Show footer row/column badges |
 | `show_row_actions` | bool | Show the per-row actions column |
 | `persist_view` | bool | Persist visual state |
+| `return_changes` | bool | Return `(edited_value, DataEditorChangeSet)` |
 
 **Returns**: DataFrame (or dict/list matching the input shape) with edits applied.
         """
@@ -371,6 +427,34 @@ with st.container(border=True):
     )
     n_active = sum(bool(v) for v in edited_basic["Active"]) if hasattr(edited_basic, "__getitem__") else 0
     st.caption(f"{len(edited_basic)} rows · {n_active} active")
+
+st.subheader("Structured diff (`return_changes=True`) - Fastlit extension")
+st.code(
+    """edited_value, changes = st.data_editor(
+    df,
+    return_changes=True,
+    column_config={
+        "Name": st.column_config.TextColumn("Name", required=True, validate_message="Name is required"),
+        "Score": st.column_config.NumberColumn("Score", min_value=0, max_value=100),
+    },
+)
+st.write(changes.edited_cells)""",
+    language="python",
+)
+with st.container(border=True):
+    edited_value, changes = st.data_editor(
+        USERS_DF.copy(),
+        return_changes=True,
+        height=280,
+        column_config={
+            "Name": st.column_config.TextColumn("Name", required=True, validate_message="Name is required"),
+            "Score": st.column_config.NumberColumn("Score", min_value=0, max_value=100),
+        },
+        key="editor_changes",
+    )
+    st.caption(
+        f"added={len(changes.added_rows)} · edited={len(changes.edited_cells)} · deleted={len(changes.deleted_rows)}"
+    )
 
 st.subheader("Minimal editor toolbar")
 st.caption("The footer summary can also be removed, while the Add row action stays available in dynamic mode.")

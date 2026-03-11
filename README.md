@@ -100,6 +100,7 @@ Fastlit keeps the Streamlit authoring model, but changes how updates are execute
 
 - `st.dataframe`, `st.data_editor`, `st.table`
 - Virtualized data display with Arrow transport and server-paged row windows
+- Fastlit-only data extensions such as `pagination=...`, `on_query=...`, and `data_editor(return_changes=True)`
 - Chart support for Plotly, Altair/Vega-Lite, Matplotlib, Bokeh, Graphviz, PyDeck, and maps
 - SQL connections through `st.connection(...)`
 - Caching via `@st.cache_data` and `@st.cache_resource`
@@ -152,6 +153,19 @@ fastlit run app.py \
 | Caching, connections, components, and lifecycle hooks | Available | Supported as first-class APIs |
 | OIDC authentication | Beta | Implemented but still explicitly marked beta |
 | Frontend Web Vitals instrumentation | Not yet implemented | Server-side runtime metrics are available today |
+
+## Streamlit Parity And Fastlit Extensions
+
+| Surface | Feature | Streamlit | Fastlit | Status | Notes |
+|---|---|---|---|---|---|
+| `st.dataframe` | Virtualized display, sort, filters, selection | Yes | Yes | Parity | Core table interactions are supported on both sides |
+| `st.dataframe` | Pagination UI | No native pagination | Yes | Fastlit extension | `pagination=True|"text"|"number"|"icon"` plus `page_size` |
+| `st.dataframe` | Manual server query callback | No | Yes | Fastlit extension | `on_query` lets apps fetch rows from DB/API/warehouse backends |
+| `st.dataframe` | Arrow/server-backed querying | Yes | Yes | Parity | Fastlit supports Arrow transport and server-backed row fetching |
+| `st.data_editor` | Inline editing | Yes | Yes | Parity | Editable tabular surface with typed column config |
+| `st.data_editor` | Structured change diff | No public diff object | Yes | Fastlit extension | `return_changes=True` returns `(edited_value, DataEditorChangeSet)` |
+| `st.data_editor` | Undo/redo and validation state | Limited | Yes | Fastlit extension | Local undo/redo and column-driven validation |
+| `st.table` | Static table rendering | Yes | Yes | Parity | Intended for smaller, static data presentations |
 
 ## Multi-Page Apps
 

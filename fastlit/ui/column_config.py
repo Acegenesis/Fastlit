@@ -49,6 +49,8 @@ class Column:
     required: bool = False
     default: Any = None
     hidden: bool = False
+    validate_message: str | None = None
+    validate_on: str | None = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
@@ -65,6 +67,8 @@ class Column:
             "required": self.required,
             "default": self.default,
             "hidden": self.hidden,
+            "validateMessage": self.validate_message,
+            "validateOn": self.validate_on,
         }
 
 

@@ -35,6 +35,8 @@ export interface GridColumn {
   step?: number | string | null;
   maxChars?: number | null;
   validate?: string | null;
+  validateMessage?: string | null;
+  validateOn?: string | null;
   yMin?: number | null;
   yMax?: number | null;
 }
