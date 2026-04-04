@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import copy
+import json
 import logging
+import os
 import threading
+import time
 import uuid
-from typing import Any
+from typing import Any, cast
 
 from fastlit.runtime.context import clear_current_session, set_current_session
 from fastlit.runtime.diff import diff_trees
@@ -18,10 +22,47 @@ from fastlit.runtime.tree import UINode, UITree
 logger = logging.getLogger("fastlit.session")
 
 
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+_PROGRESSIVE_RENDER_ENABLED = _env_flag("FASTLIT_PROGRESSIVE_RENDER", True)
+_PROGRESSIVE_FIRST_SNAPSHOT_NODES = max(
+    2, int(os.environ.get("FASTLIT_PROGRESSIVE_FIRST_SNAPSHOT_NODES", "3"))
+)
+_PROGRESSIVE_MIN_NODE_DELTA = max(
+    1, int(os.environ.get("FASTLIT_PROGRESSIVE_MIN_NODE_DELTA", "6"))
+)
+_PROGRESSIVE_MIN_INTERVAL_SECONDS = max(
+    0.0, float(os.environ.get("FASTLIT_PROGRESSIVE_MIN_INTERVAL_MS", "40")) / 1000.0
+)
+_PROGRESSIVE_MAX_EVENTS_PER_RUN = max(
+    1, int(os.environ.get("FASTLIT_PROGRESSIVE_MAX_EVENTS_PER_RUN", "12"))
+)
+
+
 class SessionState(dict):
-    """Dict-like object with attribute access, compatible with st.session_state."""
+    """Dict-like object with attribute access, compatible with st.session_state.
+
+    Thread-safety model: the script runner is the sole writer during execution.
+    Only write operations acquire the lock; reads are lock-free during a run.
+    This removes the per-operation RLock overhead from every dict access.
+    """
+
+    __slots__ = ("_write_lock",)
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self._write_lock = threading.Lock()
+        super().__init__()
+        if args or kwargs:
+            self.update(*args, **kwargs)
 
     def __getattr__(self, name: str) -> Any:
+        if name.startswith("_"):
+            raise AttributeError(name)
         try:
             return self[name]
         except KeyError:
@@ -31,13 +72,59 @@ class SessionState(dict):
             )
 
     def __setattr__(self, name: str, value: Any) -> None:
+        if name.startswith("_"):
+            object.__setattr__(self, name, value)
+            return
         self[name] = value
 
     def __delattr__(self, name: str) -> None:
+        if name.startswith("_"):
+            object.__delattr__(self, name)
+            return
         try:
             del self[name]
         except KeyError:
             raise AttributeError(name)
+
+    # --- write ops: acquire coarse lock ---
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        with self._write_lock:
+            super().__setitem__(key, value)
+
+    def __delitem__(self, key: Any) -> None:
+        with self._write_lock:
+            super().__delitem__(key)
+
+    def clear(self) -> None:
+        with self._write_lock:
+            super().clear()
+
+    def pop(self, key: Any, *args: Any) -> Any:
+        with self._write_lock:
+            return super().pop(key, *args)
+
+    def update(self, *args: Any, **kwargs: Any) -> None:
+        with self._write_lock:
+            super().update(*args, **kwargs)
+
+    def setdefault(self, key: Any, default: Any = None) -> Any:
+        with self._write_lock:
+            return super().setdefault(key, default)
+
+    # --- read ops: lock-free ---
+
+    def copy(self) -> dict[str, Any]:
+        return dict(super().items())
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> "SessionState":
+        return SessionState(copy.deepcopy(dict(super().items()), memo))
+
+    def __reduce__(self):
+        return (SessionState, (dict(super().items()),))
+
+    def __repr__(self) -> str:
+        return f"SessionState({dict(super().items())!r})"
 
 
 class Session:
@@ -62,6 +149,7 @@ class Session:
         self.current_tree: UITree | None = None
         self._previous_tree: UITree | None = None
         self._previous_tree_index: dict[str, UINode] | None = None
+        self._committed_tree_bytes: int = 0
         self.rev: int = 0
         # Per-run, per-location counter for generating stable IDs when
         # the same line is hit multiple times (e.g. in a loop).
@@ -71,6 +159,8 @@ class Session:
         self._fragment_subtrees: dict[str, UINode] = {}
         self._widget_to_fragment: dict[str, str] = {}
         self._current_fragment_id: str | None = None
+        self._deferred_fragment_ids: list[str] = []
+        self._deferred_fragment_epoch: int = 0
         # Deferred streaming: write_stream() registers (node_id, iterator) here;
         # the WS handler consumes them after sending each patch.
         self._deferred_streams: list[tuple[str, Any]] = []
@@ -80,6 +170,12 @@ class Session:
         # Runtime events emitted from script thread (e.g. spinner enter/exit).
         self._runtime_events: list[dict[str, Any]] = []
         self._runtime_events_lock = threading.Lock()
+        self._progressive_render_enabled = False
+        self._progressive_run_token = 0
+        self._progressive_last_emit_at = 0.0
+        self._progressive_last_emit_nodes = 0
+        self._progressive_events_emitted = 0
+        self._current_tree_node_count = 0
         # Multi-page metadata registered by st.navigation([...]).
         self._page_nav_id: str | None = None
         self._page_labels: list[str] = []
@@ -99,6 +195,147 @@ class Session:
         # Used for cases where incremental patching can be inconsistent with
         # highly interactive client-side views.
         self._force_full_render_widget_ids: set[str] = set()
+
+    @staticmethod
+    def _estimate_json_bytes(value: Any) -> int:
+        try:
+            return len(
+                json.dumps(
+                    value,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                    default=str,
+                ).encode("utf-8")
+            )
+        except Exception:
+            return 0
+
+    @classmethod
+    def _estimate_tree_bytes(cls, tree: UITree | None) -> int:
+        if tree is None:
+            return 0
+        return cls._estimate_json_bytes(tree.to_dict())
+
+    def committed_tree_bytes(self) -> int:
+        """Return the last known serialized size of the committed tree."""
+        return self._committed_tree_bytes
+
+    def _refresh_committed_tree_bytes(self) -> None:
+        self._committed_tree_bytes = self._estimate_tree_bytes(self._previous_tree)
+
+    def snapshot_state(self) -> dict[str, Any]:
+        """Capture a rollback-safe snapshot of the committed session state.
+
+        Uses shallow copies where values are effectively immutable during a run
+        (widget values, OIDC claims, route params, discovered pages).
+        Deep-copies only structures the script can mutate in-place.
+        """
+        return {
+            "script_path": self.script_path,
+            "entry_script_path": self.entry_script_path,
+            # widget_store values are Python scalars/lists set by widgets —
+            # shallow-copy the dict; individual values are replaced, not mutated.
+            "widget_store": dict(self.widget_store),
+            # session_state values may be mutable objects; copy one level deep.
+            "session_state": {k: copy.copy(v) for k, v in self.session_state.items()},
+            "query_params": dict(self.query_params),
+            "current_path": self.current_path,
+            "route_path": self.route_path,
+            # route_params is a simple str→str/int dict from URL parsing.
+            "route_params": dict(self.route_params),
+            "route_guard_failure": self.route_guard_failure,
+            "layout_stack": list(self.layout_stack),
+            "previous_tree": self._previous_tree.snapshot_dict()
+            if self._previous_tree is not None
+            else None,
+            "fragment_subtrees": {
+                fragment_id: node.snapshot_dict()
+                for fragment_id, node in self._fragment_subtrees.items()
+            },
+            "widget_to_fragment": dict(self._widget_to_fragment),
+            "fragment_run_every": dict(self._fragment_run_every),
+            "deferred_fragment_ids": list(self._deferred_fragment_ids),
+            "deferred_fragment_epoch": self._deferred_fragment_epoch,
+            "page_nav_id": self._page_nav_id,
+            "page_labels": list(self._page_labels),
+            "page_url_paths": list(self._page_url_paths),
+            "page_scripts": dict(self._page_scripts),
+            # _all_discovered_pages are frozen DiscoveredPage dataclasses — list copy suffices.
+            "all_discovered_pages": list(self._all_discovered_pages),
+            "page_default_index": self._page_default_index,
+            # user_claims come from a JWT and are immutable for the session lifetime.
+            "user_claims": dict(self.user_claims),
+            "rev": self.rev,
+            "force_full_render_widget_ids": set(self._force_full_render_widget_ids),
+            "current_tree": self.current_tree.snapshot_dict()
+            if self.current_tree is not None
+            else None,
+        }
+
+    def restore_snapshot(self, snapshot: dict[str, Any]) -> None:
+        """Restore a previously captured snapshot."""
+        self.script_path = snapshot["script_path"]
+        self.entry_script_path = snapshot["entry_script_path"]
+        self.widget_store = copy.deepcopy(snapshot["widget_store"])
+        self.session_state = SessionState(snapshot["session_state"])
+        self.query_params = dict(snapshot["query_params"])
+        self.current_path = snapshot["current_path"]
+        self.route_path = snapshot["route_path"]
+        self.route_params = copy.deepcopy(snapshot["route_params"])
+        self.route_guard_failure = snapshot["route_guard_failure"]
+        self.layout_stack = list(snapshot["layout_stack"])
+        previous_tree = snapshot.get("previous_tree")
+        self._previous_tree = UITree.from_dict(previous_tree) if previous_tree else None
+        self._previous_tree_index = (
+            self._previous_tree.build_index() if self._previous_tree is not None else None
+        )
+        self._fragment_subtrees = {
+            fragment_id: UINode.from_dict(node_dict)
+            for fragment_id, node_dict in snapshot.get("fragment_subtrees", {}).items()
+        }
+        self._widget_to_fragment = dict(snapshot.get("widget_to_fragment", {}))
+        self._fragment_run_every = dict(snapshot.get("fragment_run_every", {}))
+        self._deferred_fragment_ids = list(snapshot.get("deferred_fragment_ids", []))
+        self._deferred_fragment_epoch = int(snapshot.get("deferred_fragment_epoch", 0))
+        self._page_nav_id = snapshot.get("page_nav_id")
+        self._page_labels = list(snapshot.get("page_labels", []))
+        self._page_url_paths = list(snapshot.get("page_url_paths", []))
+        self._page_scripts = dict(snapshot.get("page_scripts", {}))
+        self._all_discovered_pages = copy.deepcopy(snapshot.get("all_discovered_pages", []))
+        self._page_default_index = int(snapshot.get("page_default_index", 0))
+        self.user_claims = copy.deepcopy(snapshot.get("user_claims", {}))
+        self.rev = int(snapshot.get("rev", 0))
+        self._force_full_render_widget_ids = set(
+            snapshot.get("force_full_render_widget_ids", set())
+        )
+        current_tree = snapshot.get("current_tree")
+        self.current_tree = UITree.from_dict(current_tree) if current_tree else None
+        self._refresh_committed_tree_bytes()
+
+    def _commit_render_tree(self, tree: UITree) -> None:
+        """Atomically publish a successful run as the new committed tree."""
+        self._previous_tree = tree
+        self._previous_tree_index = tree.build_index()
+        self._refresh_committed_tree_bytes()
+
+    def _commit_render_result(
+        self,
+        tree: UITree,
+        *,
+        force_full_render: bool,
+    ) -> RenderFull | RenderPatch:
+        next_rev = self.rev + 1
+        if self._previous_tree is None or force_full_render:
+            self.rev = next_rev
+            self._commit_render_tree(tree)
+            return RenderFull(rev=self.rev, tree=tree.to_dict())
+
+        self._adopt_shared_subtrees(self._previous_tree.root, tree.root)
+        ops = diff_trees(self._previous_tree.root, tree.root)
+        self.rev = next_rev
+        self._commit_render_tree(tree)
+        return RenderPatch(rev=self.rev, ops=ops or [])
 
     def register_navigation_pages(
         self,
@@ -178,6 +415,7 @@ class Session:
         # Reset UI tree/widget snapshots when changing script file.
         self._previous_tree = None
         self._previous_tree_index = None
+        self._committed_tree_bytes = 0
         self._fragment_subtrees.clear()
         self._fragment_registry.clear()
         self._widget_to_fragment.clear()
@@ -267,18 +505,33 @@ class Session:
         if next_index < len(self._route_chain):
             self._run_route_chain_step(next_index)
 
-    def run(self) -> RenderFull | RenderPatch:
+    def run(
+        self,
+        *,
+        force_full_render: bool = False,
+        progressive: bool = False,
+    ) -> RenderFull | RenderPatch:
         """Execute the script and return either a full render or a patch."""
         new_tree: UITree | None = None
         for _attempt in range(max(1, self._MAX_RERUNS)):
             self._pending_browser_redirect = None
             self._sync_script_path_from_navigation()
             self._deferred_streams.clear()
+            self._deferred_fragment_ids = []
+            self._deferred_fragment_epoch += 1
             self.clear_runtime_events()
             self._id_counters = {}
             self._fragment_registry.clear()
             self._widget_to_fragment.clear()
             self._current_fragment_id = None
+            self._progressive_render_enabled = bool(
+                progressive and _PROGRESSIVE_RENDER_ENABLED
+            )
+            self._progressive_run_token += 1
+            self._progressive_last_emit_at = time.monotonic()
+            self._progressive_last_emit_nodes = 0
+            self._progressive_events_emitted = 0
+            self._current_tree_node_count = 0
             self._inline_page_rendered = False
             self._inline_page_script_path = None
             self._inline_rendered_scripts.clear()
@@ -287,7 +540,11 @@ class Session:
             self._route_outlet_stack = []
             self._set_route_context(route_path="", params={}, guard_failure=None, layout_stack=[])
 
-            new_tree = UITree()
+            new_tree = UITree(
+                on_append=self._on_tree_node_appended
+                if self._progressive_render_enabled
+                else None
+            )
             self.current_tree = new_tree
             script_error: Exception | None = None
 
@@ -330,38 +587,35 @@ class Session:
                     continue
 
             self._prune_fragment_state()
-            self.rev += 1
-            if self._previous_tree is None:
-                self._previous_tree = new_tree
-                self._previous_tree_index = new_tree.build_index()
-                if script_error:
-                    self._deferred_streams.clear()
-                    raise script_error
-                return RenderFull(rev=self.rev, tree=new_tree.to_dict())
-
-            # Reuse unchanged node objects across runs to reduce retained allocations.
-            self._adopt_shared_subtrees(self._previous_tree.root, new_tree.root)
-            ops = diff_trees(self._previous_tree.root, new_tree.root)
-            self._previous_tree = new_tree
-            self._previous_tree_index = new_tree.build_index()
+            if self._progressive_render_enabled:
+                # Progressive snapshots serialize the tree mid-run, which can leave
+                # cached node dicts stale for the final render/diff.
+                new_tree.invalidate_caches()
             if script_error:
                 self._deferred_streams.clear()
                 raise script_error
-            return RenderPatch(rev=self.rev, ops=ops or [])
+            return self._commit_render_result(
+                new_tree,
+                force_full_render=force_full_render,
+            )
 
         # Exhausted reruns.
         if new_tree is None:
             new_tree = UITree()
-        self.rev += 1
-        if self._previous_tree is None:
-            self._previous_tree = new_tree
-            self._previous_tree_index = new_tree.build_index()
-            return RenderFull(rev=self.rev, tree=new_tree.to_dict())
-        self._adopt_shared_subtrees(self._previous_tree.root, new_tree.root)
-        ops = diff_trees(self._previous_tree.root, new_tree.root)
-        self._previous_tree = new_tree
-        self._previous_tree_index = new_tree.build_index()
-        return RenderPatch(rev=self.rev, ops=ops or [])
+        if self._progressive_render_enabled:
+            new_tree.invalidate_caches()
+        return self._commit_render_result(
+            new_tree,
+            force_full_render=force_full_render,
+        )
+
+    def register_deferred_fragment(self, fragment_id: str) -> None:
+        """Queue a fragment for background hydration after the current full render."""
+        self._deferred_fragment_ids.append(fragment_id)
+
+    def get_deferred_fragment_snapshot(self) -> tuple[int, list[str]]:
+        """Return the current deferred-fragment epoch and pending ids."""
+        return self._deferred_fragment_epoch, list(self._deferred_fragment_ids)
 
     def _prune_fragment_state(self) -> None:
         """Drop fragment state for fragments not registered in the latest full run."""
@@ -398,6 +652,51 @@ class Session:
         with self._runtime_events_lock:
             self._runtime_events.clear()
 
+    def _on_tree_node_appended(self, _node: UINode) -> None:
+        """Track tree growth and emit throttled progressive snapshots."""
+        self._current_tree_node_count += 1
+        self._maybe_emit_progressive_snapshot()
+
+    def _has_progressive_main_content(self) -> bool:
+        """Return True once the root tree contains visible main-area content."""
+        if self.current_tree is None:
+            return False
+        for child in self.current_tree.root.children:
+            if child.type not in {"sidebar", "page_config", "sidebar_state"}:
+                return True
+        return False
+
+    def _maybe_emit_progressive_snapshot(self) -> None:
+        if not self._progressive_render_enabled or self.current_tree is None:
+            return
+        if self._progressive_events_emitted >= _PROGRESSIVE_MAX_EVENTS_PER_RUN:
+            return
+        if self._current_tree_node_count < _PROGRESSIVE_FIRST_SNAPSHOT_NODES:
+            return
+        if not self._has_progressive_main_content():
+            return
+
+        now = time.monotonic()
+        node_delta = self._current_tree_node_count - self._progressive_last_emit_nodes
+        if self._progressive_events_emitted > 0:
+            if node_delta < _PROGRESSIVE_MIN_NODE_DELTA:
+                return
+            if (now - self._progressive_last_emit_at) < _PROGRESSIVE_MIN_INTERVAL_SECONDS:
+                return
+
+        snapshot = self.current_tree.snapshot_dict()
+        self.emit_runtime_event(
+            {
+                "kind": "render_progress",
+                "runToken": self._progressive_run_token,
+                "path": f"/{self.current_path.lstrip('/')}" if self.current_path else "/",
+                "tree": snapshot,
+            }
+        )
+        self._progressive_last_emit_at = now
+        self._progressive_last_emit_nodes = self._current_tree_node_count
+        self._progressive_events_emitted += 1
+
     def coerce_widget_event_result(
         self,
         result: RenderFull | RenderPatch,
@@ -425,10 +724,13 @@ class Session:
         if result is None:
             return None
         if result is self._FULL_RERUN_SENTINEL:
-            return self.run()
+            full_result = self.run()
+            if isinstance(full_result, RenderPatch):
+                return full_result
+            return None
 
         self.rev += 1
-        return RenderPatch(rev=self.rev, ops=result)
+        return RenderPatch(rev=self.rev, ops=cast(list[PatchOp], result))
 
     def run_fragments(
         self, fragment_ids: list[str]
@@ -449,7 +751,7 @@ class Session:
                 return None
             if result is self._FULL_RERUN_SENTINEL:
                 return self.run()
-            all_ops.extend(result)
+            all_ops.extend(cast(list[PatchOp], result))
 
         self.rev += 1
         return RenderPatch(rev=self.rev, ops=all_ops)
@@ -525,10 +827,10 @@ class Session:
 
         node = self._previous_tree_index.get(fragment_id)
         if node is not None:
-            node.children = new_container.children
-            node.invalidate_caches()
-            self._previous_tree.invalidate_caches()
+            node.replace_props(dict(new_container.props))
+            node.replace_children(list(new_container.children))
             self._previous_tree_index = self._previous_tree.build_index()
+            self._refresh_committed_tree_bytes()
 
     def _handle_switch_page(self, page_name: str) -> bool:
         """Update navigation state or request a browser redirect."""
@@ -653,8 +955,7 @@ class Session:
             new_children.append(adopted)
 
         if replaced_any:
-            new.children = new_children
-            new.invalidate_caches()
+            new.replace_children(new_children)
         return new
 
 
