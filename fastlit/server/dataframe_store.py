@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import os
+import random
 import threading
 import time
 import uuid
@@ -122,14 +123,15 @@ def _prune(now: float) -> None:
 def _estimate_payload_bytes(value: Any) -> int:
     """Estimate JSON byte size without serializing the full payload.
 
-    For large row arrays, samples the first 10 rows and extrapolates to avoid
+    For large row arrays, samples rows randomly and extrapolates to avoid
     serializing thousands of rows just to produce a size hint.
     """
     try:
         if isinstance(value, dict):
             rows = value.get("rows")
             if isinstance(rows, list) and len(rows) > 20:
-                sample = rows[:10]
+                sample_size = min(20, len(rows))
+                sample = random.sample(rows, sample_size)
                 sample_bytes = len(
                     json.dumps(
                         sample,
@@ -138,7 +140,7 @@ def _estimate_payload_bytes(value: Any) -> int:
                         default=str,
                     ).encode("utf-8")
                 )
-                row_estimate = sample_bytes * len(rows) // 10
+                row_estimate = sample_bytes * len(rows) // sample_size
                 # Add overhead for the rest of the payload (columns, meta, etc.)
                 overhead = {k: v for k, v in value.items() if k != "rows"}
                 overhead_bytes = len(
@@ -183,15 +185,19 @@ def _copy_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     Row cell values (str, int, float, bool, None) are immutable — copying the
     container structures (outer dict, rows list, each row list) is sufficient.
+    Column metadata dicts are also copied one level deep.
     If cells contain mutable objects, set FASTLIT_DF_DEEP_COPY_PAYLOAD=1 to
     restore deepcopy behaviour.
     """
     if os.environ.get("FASTLIT_DF_DEEP_COPY_PAYLOAD", "0").strip() in {"1", "true", "yes"}:
         return copy.deepcopy(payload)
     rows = payload.get("rows")
-    copied: dict[str, Any] = {k: v for k, v in payload.items() if k != "rows"}
+    columns = payload.get("columns")
+    copied: dict[str, Any] = {k: v for k, v in payload.items() if k not in ("rows", "columns")}
     if rows is not None:
         copied["rows"] = [list(row) for row in rows]
+    if columns is not None:
+        copied["columns"] = [dict(col) for col in columns]
     return copied
 
 

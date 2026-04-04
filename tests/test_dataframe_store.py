@@ -140,7 +140,7 @@ def test_estimate_payload_bytes_returns_reasonable_estimate() -> None:
     estimated = _estimate_payload_bytes(payload)
 
     # Within 50% of exact (sample-based estimates are approximate)
-    assert 0.5 * exact <= estimated <= 2.0 * exact, (
+    assert 0.5 * exact <= estimated <= 1.5 * exact, (
         f"estimate {estimated} is too far from exact {exact}"
     )
 
