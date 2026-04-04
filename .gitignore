@@ -40,4 +40,9 @@ claude.md
 
 tmp*
 
-tests/
+# tests/ is intentionally tracked — do not ignore
+# tests/
+
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
