@@ -1546,6 +1546,7 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
             metrics.record_run(
                 (t_run1 - t_run0) * 1000,
                 cpu_duration_ms=(cpu_run1 - cpu_run0) * 1000,
+                session_id=session.session_id,
             )
         except asyncio.TimeoutError:
             await _send_payload(
@@ -1872,6 +1873,7 @@ async def handle_websocket(websocket: WebSocket, script_path: str) -> None:
                 metrics.record_run(
                     (t3 - t2) * 1000,
                     cpu_duration_ms=(cpu_t3 - cpu_t2) * 1000,
+                    session_id=session.session_id,
                 )
                 result = session.coerce_widget_event_result(result, rerun_event_ids)
                 did_full_run = did_full_run or getattr(result, "type", None) == "render_full"
