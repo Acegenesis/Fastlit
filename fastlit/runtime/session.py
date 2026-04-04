@@ -277,7 +277,9 @@ class Session:
         """Restore a previously captured snapshot."""
         self.script_path = snapshot["script_path"]
         self.entry_script_path = snapshot["entry_script_path"]
-        self.widget_store = copy.deepcopy(snapshot["widget_store"])
+        self.widget_store = dict(snapshot["widget_store"])
+        # Note: snapshot["session_state"] values are shallow-copied; this snapshot is
+        # single-use. Do not retain the snapshot dict after calling restore_snapshot.
         self.session_state = SessionState(snapshot["session_state"])
         self.query_params = dict(snapshot["query_params"])
         self.current_path = snapshot["current_path"]
@@ -304,7 +306,7 @@ class Session:
         self._page_scripts = dict(snapshot.get("page_scripts", {}))
         self._all_discovered_pages = copy.deepcopy(snapshot.get("all_discovered_pages", []))
         self._page_default_index = int(snapshot.get("page_default_index", 0))
-        self.user_claims = copy.deepcopy(snapshot.get("user_claims", {}))
+        self.user_claims = dict(snapshot.get("user_claims", {}))
         self.rev = int(snapshot.get("rev", 0))
         self._force_full_render_widget_ids = set(
             snapshot.get("force_full_render_widget_ids", set())
