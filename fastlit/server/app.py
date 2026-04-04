@@ -8,11 +8,13 @@ import logging
 import os
 import threading
 import time
+import uuid
 from collections import deque
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import AsyncIterator
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
 from urllib.request import Request as UrlRequest, urlopen
 
 from starlette.applications import Starlette
@@ -20,7 +22,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
-from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.routing import Route, WebSocketRoute, Mount
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket
@@ -31,6 +33,8 @@ from fastlit.runtime.dataframe_arrow import (
     ARROW_STREAM_MEDIA_TYPE,
     serialize_arrow_frame,
 )
+from fastlit.runtime.script_runner import check_script_loadable
+from fastlit.cache import clear_resource_caches
 from fastlit.server import metrics
 from fastlit.server.dataframe_store import (
     DataframeFilter,
@@ -38,6 +42,8 @@ from fastlit.server.dataframe_store import (
     DataframeSort,
     get_slice as get_dataframe_slice,
 )
+from fastlit.server.logging_config import bind_log_context, configure_logging
+from fastlit.server.session_store import InMemorySessionStore
 from fastlit.server.websocket_handler import handle_websocket
 
 # Will be set by CLI before the app starts
@@ -58,6 +64,29 @@ _startup_handlers: list = []
 _shutdown_handlers: list = []
 _server_started: bool = False
 _registered_startup_keys: set = set()  # deduplicate by qualname across reruns
+_VALID_FILTER_OPS = frozenset(
+    {
+        "after",
+        "before",
+        "between",
+        "contains",
+        "contains_all",
+        "contains_any",
+        "equals",
+        "gt",
+        "gte",
+        "is_empty",
+        "is_false",
+        "is_true",
+        "lt",
+        "lte",
+        "not_contains",
+        "not_empty",
+        "not_equals",
+        "on_or_after",
+        "on_or_before",
+    }
+)
 _HOP_BY_HOP_HEADERS = {
     "connection",
     "keep-alive",
@@ -70,6 +99,18 @@ _HOP_BY_HOP_HEADERS = {
     "content-length",
     "content-encoding",
 }
+
+
+class RequestContextMiddleware(BaseHTTPMiddleware):
+    """Bind a request id to logs and response headers."""
+
+    async def dispatch(self, request: Request, call_next):
+        request_id = request.headers.get("x-request-id", "").strip() or uuid.uuid4().hex
+        request.state.request_id = request_id
+        with bind_log_context(request_id=request_id):
+            response = await call_next(request)
+        response.headers.setdefault("X-Request-ID", request_id)
+        return response
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -178,6 +219,25 @@ class HTTPRateLimitMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+class _StaticCacheMiddleware(BaseHTTPMiddleware):
+    """Serve immutable cache headers for content-hashed Vite assets (/assets/*),
+    and no-cache for index.html so the browser always re-validates the entry point."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if path.startswith("/assets/") and response.status_code == 200:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif path in ("/", "/index.html") and response.status_code == 200:
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+def _make_cache_control_middleware():
+    """Return the static cache middleware class (used for testing)."""
+    return _StaticCacheMiddleware
+
+
 class CacheControlMiddleware(BaseHTTPMiddleware):
     """Set cache headers for static assets and SPA shell responses."""
 
@@ -219,6 +279,14 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
 
 def _default_csp_policy() -> str:
+    strict_csp = _env_flag("FASTLIT_CSP_STRICT", default=True)
+    script_tokens = [
+        "'self'",
+        "'wasm-unsafe-eval'",
+        "blob:",
+    ]
+    if not strict_csp:
+        script_tokens.extend(["'unsafe-eval'", "https:"])
     directives = [
         "default-src 'self'",
         "base-uri 'self'",
@@ -231,13 +299,36 @@ def _default_csp_policy() -> str:
         # Bokeh/PyDeck (their HTML payloads include inline bootstrap code and
         # CDN-hosted assets).
         "style-src 'self' 'unsafe-inline' https:",
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: https:",
+        f"script-src {' '.join(script_tokens)}",
         "connect-src 'self' https: ws: wss:",
         "worker-src 'self' blob:",
         "frame-src 'self' blob: https:",
         "form-action 'self'",
     ]
     return "; ".join(directives)
+
+
+def _should_use_secure_cookies(request: Request) -> bool:
+    if _env_flag("FASTLIT_FORCE_SECURE_COOKIES", default=False):
+        return True
+    if request.url.scheme == "https":
+        return True
+    forwarded_proto = request.headers.get("x-forwarded-proto", "")
+    if forwarded_proto:
+        return forwarded_proto.split(",", 1)[0].strip().lower() == "https"
+    return False
+
+
+def _clean_request_url(request: Request, key_to_remove: str) -> str:
+    query_items = [
+        (key, value)
+        for key, value in request.query_params.multi_items()
+        if key != key_to_remove
+    ]
+    path = request.url.path or "/"
+    if not query_items:
+        return path
+    return f"{path}?{urlencode(query_items, doseq=True)}"
 
 
 def register_startup(fn) -> None:
@@ -356,6 +447,22 @@ async def _proxy_dev_server_http(request: Request) -> Response:
 
 async def homepage(request):
     """Serve the frontend SPA entry point."""
+    ws_token = request.query_params.get("fastlit_ws_token")
+    if ws_token:
+        response = RedirectResponse(
+            _clean_request_url(request, "fastlit_ws_token"),
+            status_code=307,
+        )
+        response.set_cookie(
+            "fastlit_ws_token",
+            ws_token,
+            path="/",
+            httponly=True,
+            samesite="lax",
+            secure=_should_use_secure_cookies(request),
+        )
+        return response
+
     if _env_flag("FASTLIT_DEV_MODE", default=False):
         return await _proxy_dev_server_http(request)
 
@@ -372,11 +479,9 @@ async def homepage(request):
     <title>Fastlit</title>
 </head>
 <body>
-    <div id="root"></div>
-    <script>
-        document.getElementById('root').innerHTML =
-            '<p style="font-family:sans-serif;padding:2rem;">Frontend not built. Run: cd frontend && npm install && npm run build</p>';
-    </script>
+    <div id="root">
+        <p>Frontend not built. Run: cd frontend && npm install && npm run build</p>
+    </div>
 </body>
 </html>""",
         status_code=200,
@@ -447,9 +552,31 @@ async def vite_hmr_proxy_endpoint(websocket: WebSocket):
         await websocket.close()
 
 
-async def metrics_endpoint(request):
+async def metrics_endpoint(_request: Request):
     """Expose in-memory runtime metrics as JSON."""
     return JSONResponse(metrics.snapshot())
+
+
+async def prometheus_metrics_endpoint(_request: Request) -> Response:
+    """Expose runtime metrics in Prometheus text format."""
+    return Response(metrics.prometheus_text(), media_type="text/plain; version=0.0.4")
+
+
+async def health_endpoint(_request: Request) -> Response:
+    """Basic liveness endpoint."""
+    snap = metrics.snapshot()
+    return JSONResponse({"status": "ok", "uptime_seconds": snap["uptime_seconds"]})
+
+
+async def ready_endpoint(_request: Request) -> Response:
+    """Readiness endpoint that verifies the configured app script is loadable."""
+    ready, error = check_script_loadable(_script_path)
+    if ready:
+        return JSONResponse({"status": "ready"})
+    return JSONResponse(
+        {"status": "error", "error": error or "script not ready"},
+        status_code=503,
+    )
 
 
 async def component_file_endpoint(request: Request) -> Response:
@@ -467,12 +594,14 @@ async def component_file_endpoint(request: Request) -> Response:
     if base is None:
         return Response(f"Component '{name}' not registered.", status_code=404)
 
-    # Resolve and sanitize path — prevent directory traversal
-    base_path = Path(base).resolve(strict=False)
-    requested_path = (base_path / file_path.lstrip("/\\")).resolve(strict=False)
+    # Resolve and sanitize path — prevent directory traversal (including symlinks)
+    base_path = Path(base).resolve(strict=True)
+    # Normalize first to collapse .. before resolving, preventing symlink bypass
+    raw_requested = (base_path / file_path.lstrip("/\\"))
     try:
+        requested_path = raw_requested.resolve(strict=True)
         requested_path.relative_to(base_path)
-    except ValueError:
+    except (ValueError, OSError):
         return Response("Forbidden", status_code=403)
 
     if not requested_path.is_file():
@@ -595,6 +724,9 @@ def _parse_dataframe_filters(raw: str) -> list[DataframeFilter]:
         op = str(item.get("op", "")).strip()
         if not column or not op:
             continue
+        if op not in _VALID_FILTER_OPS:
+            logger.warning("Ignoring invalid dataframe filter op=%s column=%s", op, column)
+            continue
         filters.append(DataframeFilter(column=column, op=op, value=item.get("value")))
     return filters
 
@@ -603,7 +735,29 @@ def _parse_dataframe_filters(raw: str) -> list[DataframeFilter]:
 async def _lifespan(app: Starlette) -> AsyncIterator[None]:
     """ASGI lifespan: run startup/shutdown hooks (B3)."""
     global _server_started
-    import asyncio
+    cleanup_task: asyncio.Task | None = None
+
+    async def _session_cleanup_loop() -> None:
+        session_store = getattr(app.state, "session_store", None)
+        if session_store is None:
+            return
+        timeout_seconds = max(
+            60.0,
+            float(os.environ.get("FASTLIT_SESSION_TIMEOUT_SECONDS", "3600")),
+        )
+        while True:
+            await asyncio.sleep(60.0)
+            stale = await session_store.evict_idle(idle_seconds=timeout_seconds)
+            for record in stale:
+                metrics.record_session_timeout(1)
+                metrics.on_session_closed()
+                logger.info(
+                    "Closing idle session %s after %.0fs",
+                    record.session.session_id,
+                    timeout_seconds,
+                )
+                with suppress(Exception):
+                    await record.websocket.close(code=1001, reason="Session idle timeout")
 
     for fn in _startup_handlers:
         if asyncio.iscoroutinefunction(fn):
@@ -612,16 +766,22 @@ async def _lifespan(app: Starlette) -> AsyncIterator[None]:
             fn()
 
     _server_started = True
+    cleanup_task = asyncio.create_task(_session_cleanup_loop())
     yield
     _server_started = False
     # Clear dedup set so hooks re-register correctly after hot reload
     _registered_startup_keys.clear()
+
+    if cleanup_task is not None:
+        cleanup_task.cancel()
+        await asyncio.gather(cleanup_task, return_exceptions=True)
 
     for fn in _shutdown_handlers:
         if asyncio.iscoroutinefunction(fn):
             await fn()
         else:
             fn()
+    await clear_resource_caches()
 
 
 def create_app(script_path: str | None = None, static_dir: str | None = None) -> Starlette:
@@ -635,6 +795,7 @@ def create_app(script_path: str | None = None, static_dir: str | None = None) ->
     import logging as _logging
     for _noisy in ("matplotlib", "matplotlib.font_manager", "PIL", "pydeck", "bokeh"):
         _logging.getLogger(_noisy).setLevel(_logging.WARNING)
+    configure_logging()
 
     if script_path is None:
         script_path = os.environ.get("FASTLIT_SCRIPT_PATH", "")
@@ -671,6 +832,9 @@ def create_app(script_path: str | None = None, static_dir: str | None = None) ->
 
     if os.environ.get("FASTLIT_ENABLE_METRICS", "1") not in {"0", "false", "False"}:
         routes.append(Route("/_fastlit/metrics", metrics_endpoint))
+        routes.append(Route("/_fastlit/metrics/prometheus", prometheus_metrics_endpoint))
+    routes.append(Route("/_fastlit/health", health_endpoint))
+    routes.append(Route("/_fastlit/ready", ready_endpoint))
     routes.append(Route("/_fastlit/dataframe/{source_id}", dataframe_slice_endpoint))
     # Custom component static assets (path-based components)
     routes.append(Route("/_components/{name}/{file_path:path}", component_file_endpoint))
@@ -687,16 +851,21 @@ def create_app(script_path: str | None = None, static_dir: str | None = None) ->
     routes.append(Route("/", homepage))
 
     app = Starlette(routes=routes, lifespan=_lifespan)
+    app.state.session_store = InMemorySessionStore()
+
+    app.state.auth_cfg = _auth_cfg
 
     # Attach auth state so route handlers and middleware can access config
     if _auth_cfg:
-        from fastlit.server.auth import OIDCClient, AuthMiddleware
+        from fastlit.server.auth import OIDCClient, AuthMiddleware, InMemoryAuthSessionStore
         _oidc = OIDCClient(_auth_cfg)
         app.state.oidc_client = _oidc
-        app.state.auth_cfg = _auth_cfg
+        app.state.auth_session_store = InMemoryAuthSessionStore()
 
+    app.add_middleware(RequestContextMiddleware)
     app.add_middleware(GZipMiddleware, minimum_size=500)
     app.add_middleware(CacheControlMiddleware)
+    app.add_middleware(_StaticCacheMiddleware)
 
     http_rate_limit = max(
         0, int(os.environ.get("FASTLIT_HTTP_RATE_LIMIT_PER_MINUTE", "0"))
@@ -717,7 +886,7 @@ def create_app(script_path: str | None = None, static_dir: str | None = None) ->
 
     if not _env_flag("FASTLIT_DEV_MODE", default=False):
         enable_csp = _env_flag("FASTLIT_ENABLE_CSP", default=True)
-        csp_policy = os.environ.get("FASTLIT_CSP", "").strip()
+        csp_policy: str | None = os.environ.get("FASTLIT_CSP", "").strip()
         if enable_csp and not csp_policy:
             csp_policy = _default_csp_policy()
         if not enable_csp:

@@ -10,12 +10,16 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import suppress
 from copy import deepcopy
+from importlib.util import find_spec
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import urlopen
 
 import click
+
+from fastlit.server.logging_config import apply_uvicorn_log_config
 
 
 @click.group()
@@ -133,6 +137,14 @@ def run(
     click.echo(f"  Run timeout (s): {max(1.0, run_timeout_seconds):.1f}")
     click.echo()
 
+    # Allow FASTLIT_WORKERS env var to override the --workers CLI option.
+    env_workers = os.environ.get("FASTLIT_WORKERS")
+    if env_workers is not None:
+        try:
+            workers = max(1, int(env_workers))
+        except ValueError:
+            pass
+
     # Expose script path via env so create_app can read it across workers.
     os.environ["FASTLIT_SCRIPT_PATH"] = script_path
     os.environ["FASTLIT_MAX_SESSIONS"] = str(max(0, max_sessions))
@@ -146,6 +158,7 @@ def run(
         handler = log_config.get("handlers", {}).get(handler_name)
         if isinstance(handler, dict):
             handler["stream"] = "ext://sys.stdout"
+    log_config = apply_uvicorn_log_config(log_config)
 
     if dev:
         if workers != 1:
@@ -255,6 +268,52 @@ def run(
         )
 
 
+@main.command()
+def build() -> None:
+    """Install frontend dependencies and build production assets."""
+    frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
+    npm_cmd = _resolve_npm_command()
+    if npm_cmd is None:
+        raise click.ClickException("Node.js and npm are required to build the frontend.")
+
+    click.echo(f"  Frontend: {frontend_dir}")
+    _run_checked_command([npm_cmd, "install"], workdir=str(frontend_dir))
+    _run_checked_command([npm_cmd, "run", "build"], workdir=str(frontend_dir))
+
+
+@main.command()
+def doctor() -> None:
+    """Run read-only environment checks for local Fastlit development."""
+    repo_root = Path(__file__).resolve().parent.parent
+    frontend_dir = repo_root / "frontend"
+    static_dir = repo_root / "fastlit" / "server" / "static"
+    npm_cmd = _resolve_npm_command()
+    checks: list[tuple[str, bool, str]] = [
+        (
+            "Python version",
+            sys.version_info >= (3, 11),
+            f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        ),
+        ("Node/npm available", npm_cmd is not None, npm_cmd or "missing"),
+        ("Frontend dependencies installed", (frontend_dir / "node_modules").exists(), str(frontend_dir / "node_modules")),
+        ("Built frontend assets present", (static_dir / "index.html").exists(), str(static_dir / "index.html")),
+        ("pytest installed", find_spec("pytest") is not None, "pytest"),
+        ("ruff installed", find_spec("ruff") is not None, "ruff"),
+        ("mypy installed", find_spec("mypy") is not None, "mypy"),
+        ("PyJWT installed", find_spec("jwt") is not None, "jwt"),
+    ]
+
+    has_failure = False
+    click.echo("Fastlit doctor")
+    click.echo()
+    for label, ok, detail in checks:
+        status = "OK" if ok else "FAIL"
+        click.echo(f"[{status}] {label}: {detail}")
+        has_failure = has_failure or not ok
+
+    if has_failure:
+        raise click.ClickException("One or more environment checks failed.")
+
 def _resolve_npm_command() -> str | None:
     """Resolve npm executable on the current platform."""
     candidates = ["npm.cmd", "npm"] if os.name == "nt" else ["npm"]
@@ -263,6 +322,14 @@ def _resolve_npm_command() -> str | None:
         if resolved:
             return resolved
     return None
+
+
+def _run_checked_command(command: list[str], *, workdir: str) -> None:
+    """Run a child process and raise a click exception on failure."""
+    proc = subprocess.run(command, cwd=workdir, check=False)
+    if proc.returncode != 0:
+        rendered = " ".join(command)
+        raise click.ClickException(f"Command failed ({proc.returncode}): {rendered}")
 
 
 def _resolve_vite_command(frontend_dir: Path) -> list[str] | None:
@@ -457,10 +524,8 @@ def _terminate_pid(pid: int) -> None:
             check=False,
         )
         return
-    try:
+    with suppress(OSError):
         os.kill(pid, 15)
-    except OSError:
-        pass
 
 
 def _wait_for_http_ready(
