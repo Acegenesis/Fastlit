@@ -79,9 +79,10 @@ def record_run(duration_ms: float, *, cpu_duration_ms: float | None = None, sess
     if duration_ms > _SLOW_RERUN_THRESHOLD_MS:
         session_id_str = session_id[:8] if session_id else "?"
         _perf_logger.warning(
-            "Slow rerun: %.1fms (session=%s) — set FASTLIT_SLOW_RERUN_MS to adjust threshold",
+            "Slow rerun detected: %.1fms (session=%s) — threshold=%dms, set FASTLIT_SLOW_RERUN_MS to adjust.",
             duration_ms,
             session_id_str,
+            int(_SLOW_RERUN_THRESHOLD_MS),
         )
     with _LOCK:
         _STATE["total_runs"] += 1
