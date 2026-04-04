@@ -78,7 +78,7 @@ def _diff_node(old: UINode, new: UINode, ops: list[PatchOp]) -> None:
 def _diff_children(
     old_parent: UINode, new_parent: UINode, ops: list[PatchOp]
 ) -> None:
-    """Diff child lists using ID-based matching (single-pass)."""
+    """Diff child lists using ID-based matching (O(n) via position dict)."""
     old_children = old_parent.children
     new_children = new_parent.children
 
@@ -95,14 +95,29 @@ def _diff_children(
             return
 
     old_by_id = {child.id: child for child in old_children}
-    new_ids: set[str] = set()
+    new_ids = {child.id for child in new_children}
 
-    # Single pass over new children: additions + updates
+    # Mutable tracking list + O(1) position index.
+    current_ids: list[str] = [child.id for child in old_children]
+    current_pos: dict[str, int] = {cid: idx for idx, cid in enumerate(current_ids)}
+
+    # Removals — keep current_pos in sync.
+    for child in old_children:
+        if child.id in new_ids:
+            continue
+        ops.append(PatchOp(op="remove", id=child.id))
+        pos = current_pos.pop(child.id)
+        current_ids.pop(pos)
+        for cid, p in current_pos.items():
+            if p > pos:
+                current_pos[cid] = p - 1
+
+    # Inserts and moves — O(1) lookup via current_pos.
     for i, child in enumerate(new_children):
-        new_ids.add(child.id)
         old_child = old_by_id.get(child.id)
+
         if old_child is None:
-            # New node — insert
+            # Brand-new child: insert at position i.
             ops.append(
                 PatchOp(
                     op="insertChild",
@@ -112,11 +127,41 @@ def _diff_children(
                     node=child.to_dict(),
                 )
             )
-        else:
-            # Existing node — recurse
-            _diff_node(old_child, child, ops)
+            current_ids.insert(i, child.id)
+            for cid, p in current_pos.items():
+                if p >= i:
+                    current_pos[cid] = p + 1
+            current_pos[child.id] = i
+            continue
 
-    # Removals: old children not present in new
-    for child in old_children:
-        if child.id not in new_ids:
-            ops.append(PatchOp(op="remove", id=child.id))
+        _diff_node(old_child, child, ops)
+
+        if i >= len(current_ids) or current_ids[i] == child.id:
+            continue
+
+        # Move: O(1) lookup instead of O(n) list.index().
+        current_index = current_pos[child.id]
+        current_ids.pop(current_index)
+        current_ids.insert(i, child.id)
+
+        # Update current_pos to reflect pop(current_index) + insert(i).
+        if current_index > i:
+            # Item moved left: positions in [i, current_index) shift right.
+            for cid, p in current_pos.items():
+                if i <= p < current_index:
+                    current_pos[cid] = p + 1
+        else:
+            # Item moved right: positions in (current_index, i] shift left.
+            for cid, p in current_pos.items():
+                if current_index < p <= i:
+                    current_pos[cid] = p - 1
+        current_pos[child.id] = i
+
+        ops.append(
+            PatchOp(
+                op="moveChild",
+                id=child.id,
+                parent_id=new_parent.id,
+                index=i,
+            )
+        )
