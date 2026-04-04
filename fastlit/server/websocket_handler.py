@@ -440,15 +440,14 @@ def _optimize_patch_payload(
         # Compression not worth it — still return the compact text.
         return compact_payload, compact_text
 
-    return (
-        {
-            "type": "render_patch_z",
-            "rev": payload.get("rev"),
-            "encoding": "zlib+base64",
-            "ops": base64.b64encode(compressed).decode("ascii"),
-        },
-        None,  # The compressed envelope is tiny; caller serializes it.
-    )
+    compressed_envelope = {
+        "type": "render_patch_z",
+        "rev": payload.get("rev"),
+        "encoding": "zlib+base64",
+        "ops": base64.b64encode(compressed).decode("ascii"),
+    }
+    compressed_text, _ = _serialize_payload(compressed_envelope)
+    return compressed_envelope, compressed_text
 
 
 def _estimate_json_bytes(obj: object) -> int:

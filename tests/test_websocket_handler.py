@@ -108,3 +108,46 @@ def test_optimize_patch_payload_returns_preserialized_always() -> None:
     )
     assert isinstance(pre_serialized, str)
     assert "render_patch_compact" in pre_serialized
+
+
+def test_optimize_patch_payload_compressed_path_returns_preserialized() -> None:
+    """When zlib compression is used, pre_serialized must still be a string."""
+    import fastlit.server.websocket_handler as ws_mod
+    from fastlit.server.websocket_handler import _optimize_patch_payload
+
+    # Build a payload large enough to trigger compression at threshold=0
+    large_ops = [
+        {
+            "op": "insertChild",
+            "id": f"n{i}",
+            "parentId": "root",
+            "index": i,
+            "node": {"type": "text", "id": f"n{i}", "props": {"text": "x" * 50}, "children": []},
+        }
+        for i in range(60)
+    ]
+    payload = {"type": "render_patch", "rev": 1, "ops": large_ops}
+
+    original_min = ws_mod._PATCH_COMPRESS_MIN_BYTES
+    original_zlib = ws_mod._PATCH_ENABLE_ZLIB
+    try:
+        ws_mod._PATCH_COMPRESS_MIN_BYTES = 0  # Force compression for any size
+        ws_mod._PATCH_ENABLE_ZLIB = True
+        result_payload, pre_serialized = _optimize_patch_payload(payload, node_cache={})
+    finally:
+        ws_mod._PATCH_COMPRESS_MIN_BYTES = original_min
+        ws_mod._PATCH_ENABLE_ZLIB = original_zlib
+
+    # Whether compressed or not (depends on actual size), pre_serialized must be non-None
+    assert pre_serialized is not None, (
+        "All paths in _optimize_patch_payload must return pre-serialized text"
+    )
+    assert isinstance(pre_serialized, str)
+    # If the compressed path was taken, verify the envelope structure
+    if result_payload.get("type") == "render_patch_z":
+        assert result_payload["encoding"] == "zlib+base64"
+        import base64
+        import zlib as _zlib
+        raw = base64.b64decode(result_payload["ops"])
+        decompressed = _zlib.decompress(raw)
+        assert b"render_patch_compact" in decompressed
