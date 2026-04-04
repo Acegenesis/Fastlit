@@ -35,6 +35,103 @@ def test_static_cache_middleware_exists() -> None:
     assert middleware_class is _StaticCacheMiddleware
 
 
+def test_static_cache_middleware_sets_immutable_for_assets() -> None:
+    """_StaticCacheMiddleware must set Cache-Control: immutable for /assets/* paths."""
+    import asyncio
+    from fastlit.server.app import _StaticCacheMiddleware
+    from unittest.mock import AsyncMock, MagicMock
+
+    middleware = _StaticCacheMiddleware(app=MagicMock())
+
+    async def run():
+        mock_request = MagicMock()
+        mock_request.url.path = "/assets/bundle.abc123.js"
+        mock_request.method = "GET"
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {}
+
+        call_next = AsyncMock(return_value=mock_response)
+        return await middleware.dispatch(mock_request, call_next)
+
+    response = asyncio.run(run())
+    assert response.headers.get("Cache-Control") == "public, max-age=31536000, immutable"
+
+
+def test_static_cache_middleware_sets_no_cache_for_index() -> None:
+    """_StaticCacheMiddleware must set Cache-Control: no-cache for / and /index.html."""
+    import asyncio
+    from fastlit.server.app import _StaticCacheMiddleware
+    from unittest.mock import AsyncMock, MagicMock
+
+    middleware = _StaticCacheMiddleware(app=MagicMock())
+
+    async def run(path):
+        mock_request = MagicMock()
+        mock_request.url.path = path
+        mock_request.method = "GET"
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {}
+
+        call_next = AsyncMock(return_value=mock_response)
+        return await middleware.dispatch(mock_request, call_next)
+
+    for path in ("/", "/index.html"):
+        response = asyncio.run(run(path))
+        assert response.headers.get("Cache-Control") == "no-cache", f"Expected no-cache for {path}"
+
+
+def test_static_cache_middleware_sets_no_cache_for_components() -> None:
+    """_StaticCacheMiddleware must set Cache-Control: no-cache for /_components/* paths."""
+    import asyncio
+    from fastlit.server.app import _StaticCacheMiddleware
+    from unittest.mock import AsyncMock, MagicMock
+
+    middleware = _StaticCacheMiddleware(app=MagicMock())
+
+    async def run():
+        mock_request = MagicMock()
+        mock_request.url.path = "/_components/my-widget/index.js"
+        mock_request.method = "GET"
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {}
+
+        call_next = AsyncMock(return_value=mock_response)
+        return await middleware.dispatch(mock_request, call_next)
+
+    response = asyncio.run(run())
+    assert response.headers.get("Cache-Control") == "no-cache"
+
+
+def test_static_cache_middleware_skips_non_get() -> None:
+    """_StaticCacheMiddleware must not set cache headers for non-GET/HEAD requests."""
+    import asyncio
+    from fastlit.server.app import _StaticCacheMiddleware
+    from unittest.mock import AsyncMock, MagicMock
+
+    middleware = _StaticCacheMiddleware(app=MagicMock())
+
+    async def run():
+        mock_request = MagicMock()
+        mock_request.url.path = "/assets/bundle.abc123.js"
+        mock_request.method = "POST"
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {}
+
+        call_next = AsyncMock(return_value=mock_response)
+        return await middleware.dispatch(mock_request, call_next)
+
+    response = asyncio.run(run())
+    assert "Cache-Control" not in response.headers
+
+
 def test_fastlit_workers_env_defaults_to_1(monkeypatch) -> None:
     """FASTLIT_WORKERS defaults to 1 when not set."""
     monkeypatch.delenv("FASTLIT_WORKERS", raising=False)

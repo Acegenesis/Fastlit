@@ -220,26 +220,17 @@ class HTTPRateLimitMiddleware(BaseHTTPMiddleware):
 
 
 class _StaticCacheMiddleware(BaseHTTPMiddleware):
-    """Serve immutable cache headers for content-hashed Vite assets (/assets/*),
-    and no-cache for index.html so the browser always re-validates the entry point."""
+    """Unified cache-control middleware for all response types.
 
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        path = request.url.path
-        if path.startswith("/assets/") and response.status_code == 200:
-            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
-        elif path in ("/", "/index.html") and response.status_code == 200:
-            response.headers["Cache-Control"] = "no-cache"
-        return response
-
-
-def _make_cache_control_middleware():
-    """Return the static cache middleware class (used for testing)."""
-    return _StaticCacheMiddleware
-
-
-class CacheControlMiddleware(BaseHTTPMiddleware):
-    """Set cache headers for static assets and SPA shell responses."""
+    - ``/assets/*``      → ``public, max-age=31536000, immutable``
+      Vite emits content-hashed filenames here, safe for a permanent cache.
+    - ``/_components/*`` → ``no-cache``
+      Component bundles are often not fingerprinted; force revalidation to
+      avoid serving stale iframe code.
+    - ``/`` and ``/index.html`` (or any ``text/html`` response) → ``no-cache``
+      The SPA shell must be revalidated on each deployment.
+    Only applies to ``GET`` / ``HEAD`` requests.
+    """
 
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
@@ -250,25 +241,26 @@ class CacheControlMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         content_type = response.headers.get("content-type", "").lower()
 
-        # Vite emits fingerprinted files under /assets/*, safe for long immutable cache.
-        if path.startswith("/assets/"):
-            response.headers.setdefault(
-                "Cache-Control",
-                "public, max-age=31536000, immutable",
-            )
+        # Vite fingerprinted assets — immutable long-lived cache.
+        if path.startswith("/assets/") and response.status_code == 200:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
             return response
 
-        # Component bundles/pages are often not fingerprinted (especially in dev
-        # and local demos). Force revalidation to avoid stale iframe code.
+        # Component bundles/pages — force revalidation.
         if path.startswith("/_components/"):
             response.headers.setdefault("Cache-Control", "no-cache")
             return response
 
-        # HTML shell should be revalidated to pick up new deployments quickly.
-        if "text/html" in content_type:
+        # SPA shell and any HTML response — always revalidate.
+        if path in ("/", "/index.html") or "text/html" in content_type:
             response.headers.setdefault("Cache-Control", "no-cache")
 
         return response
+
+
+def _make_cache_control_middleware():
+    """Return the static cache middleware class (used for testing)."""
+    return _StaticCacheMiddleware
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -864,7 +856,6 @@ def create_app(script_path: str | None = None, static_dir: str | None = None) ->
 
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(GZipMiddleware, minimum_size=500)
-    app.add_middleware(CacheControlMiddleware)
     app.add_middleware(_StaticCacheMiddleware)
 
     http_rate_limit = max(
