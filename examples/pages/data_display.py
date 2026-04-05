@@ -1,6 +1,7 @@
 """Data Display page - complete showcase of Fastlit data components."""
 
-import pandas as pd
+from datetime import datetime, timedelta
+
 import fastlit as st
 
 PAGE_CONFIG = {
@@ -8,7 +9,6 @@ PAGE_CONFIG = {
     "icon": "📊",
     "order": 40,
 }
-
 
 # ---------------------------------------------------------------------------
 # Shared datasets
@@ -23,10 +23,20 @@ USERS_DATA = {
     "Joined": ["2024-01-15", "2023-06-20", "2024-03-01", "2023-11-10", "2024-02-28"],
 }
 
-USERS_DF = pd.DataFrame(USERS_DATA)
+def _copy_columnar(data: dict[str, list[object]]) -> dict[str, list[object]]:
+    return {key: list(values) for key, values in data.items()}
 
 
-def _build_paginated_users(total_rows: int = 120) -> pd.DataFrame:
+def _columnar_row_count(data: object) -> int:
+    if isinstance(data, dict):
+        for values in data.values():
+            if hasattr(values, "__len__"):
+                return len(values)
+        return 0
+    return len(data) if hasattr(data, "__len__") else 0
+
+
+def _build_paginated_users(total_rows: int = 120) -> list[dict[str, object]]:
     names = USERS_DATA["Name"]
     ages = USERS_DATA["Age"]
     cities = USERS_DATA["City"]
@@ -40,7 +50,7 @@ def _build_paginated_users(total_rows: int = 120) -> pd.DataFrame:
     for idx in range(total_rows):
         base_idx = idx % source_len
         cycle = idx // source_len
-        joined_at = pd.Timestamp(joined_dates[base_idx]) + pd.Timedelta(days=7 * cycle)
+        joined_at = datetime.strptime(joined_dates[base_idx], "%Y-%m-%d").date() + timedelta(days=7 * cycle)
 
         records.append(
             {
@@ -54,38 +64,53 @@ def _build_paginated_users(total_rows: int = 120) -> pd.DataFrame:
             }
         )
 
-    return pd.DataFrame(records)
+    return records
 
+PAGINATED_USERS = _build_paginated_users()
+PAGINATED_USER_COLUMNS = list(PAGINATED_USERS[0].keys()) if PAGINATED_USERS else []
 
-PAGINATED_USERS_DF = _build_paginated_users()
-
+def _manual_sort_value(value: object) -> tuple[int, object]:
+    if value is None:
+        return (3, "")
+    if isinstance(value, bool):
+        return (2, int(value))
+    if isinstance(value, (int, float)):
+        return (1, float(value))
+    if isinstance(value, str):
+        return (0, value.lower())
+    return (4, str(value))
 
 def _manual_users_query(query: st.DataframeQueryRequest) -> st.DataframeQueryResult:
-    view = PAGINATED_USERS_DF.copy()
+    view = list(PAGINATED_USERS)
     if query.search:
         lowered = query.search.lower()
-        mask = view.astype(str).apply(lambda series: series.str.lower().str.contains(lowered, regex=False))
-        view = view[mask.any(axis=1)]
+        view = [
+            row
+            for row in view
+            if any(lowered in str(value).lower() for value in row.values())
+        ]
 
     for sort in reversed(query.sorts):
         ascending = sort.direction != "desc"
-        if sort.column in view.columns:
-            view = view.sort_values(sort.column, ascending=ascending, kind="stable")
+        if view and sort.column in view[0]:
+            view.sort(
+                key=lambda row: _manual_sort_value(row.get(sort.column)),
+                reverse=not ascending,
+            )
 
     start = min(query.offset, len(view))
     end = min(len(view), start + query.limit)
-    window = view.iloc[start:end]
+    window = view[start:end]
 
     return st.DataframeQueryResult(
-        rows=window.values.tolist(),
+        rows=[[row.get(column) for column in PAGINATED_USER_COLUMNS] for row in window],
         total_rows=len(view),
-        columns=[{"name": str(column), "type": "auto"} for column in view.columns],
-        index=window.index.tolist(),
+        columns=[{"name": str(column), "type": "auto"} for column in PAGINATED_USER_COLUMNS],
+        index=list(range(start, end)),
         positions=list(range(start, end)),
         schema_version="users-v1",
         diagnostics={"mode": "manual-demo"},
     )
-
 
 # ---------------------------------------------------------------------------
 # Header
@@ -153,7 +178,7 @@ with st.expander("📖 Parameters", expanded=False):
 st.subheader("Basic display")
 st.code("""st.dataframe(df, height=260, hide_index=True)""", language="python")
 with st.container(border=True):
-    st.dataframe(USERS_DF, height=260, hide_index=True)
+    st.dataframe(USERS_DATA, height=260, hide_index=True)
 
 st.subheader("Pagination")
 st.caption(
@@ -174,7 +199,7 @@ with st.container(border=True):
     with mode_col_a:
         st.caption("Mode: text")
         st.dataframe(
-            PAGINATED_USERS_DF,
+            PAGINATED_USERS,
             height=300,
             hide_index=True,
             pagination="text",
@@ -184,7 +209,7 @@ with st.container(border=True):
     with mode_col_b:
         st.caption("Mode: number")
         st.dataframe(
-            PAGINATED_USERS_DF,
+            PAGINATED_USERS,
             height=300,
             hide_index=True,
             pagination="number",
@@ -194,7 +219,7 @@ with st.container(border=True):
 
     st.caption("Mode: icon")
     st.dataframe(
-        PAGINATED_USERS_DF,
+        PAGINATED_USERS,
         height=320,
         hide_index=True,
         pagination="icon",
@@ -243,7 +268,7 @@ st.code(
 )
 with st.container(border=True):
     st.dataframe(
-        USERS_DF,
+        USERS_DATA,
         height=280,
         column_config={
             "Name": st.column_config.TextColumn("Name", width="medium", resizable=True, pinned="left"),
@@ -277,7 +302,7 @@ with st.container(border=True):
     with col_a:
         st.caption("Default toolbar")
         st.dataframe(
-            USERS_DF,
+            USERS_DATA,
             height=240,
             hide_index=True,
             key="df_toolbar_default",
@@ -285,7 +310,7 @@ with st.container(border=True):
     with col_b:
         st.caption("Search + filters disabled")
         st.dataframe(
-            USERS_DF,
+            USERS_DATA,
             height=240,
             hide_index=True,
             show_search=False,
@@ -312,7 +337,7 @@ st.write("Selected rows:", selection.rows)""",
 )
 with st.container(border=True):
     sel = st.dataframe(
-        USERS_DF,
+        USERS_DATA,
         on_select="rerun",
         selection_mode="multi-row",
         height=280,
@@ -345,7 +370,7 @@ with st.container(border=True):
         st.session_state.selected_user_idx = selection.rows[0] if selection.rows else None
 
     st.dataframe(
-        USERS_DF,
+        USERS_DATA,
         on_select=_on_single_select,
         selection_mode="single-row",
         height=280,
@@ -413,7 +438,7 @@ st.write(f"{len(edited)} rows • {edited['Active'].sum()} active")""",
 
 with st.container(border=True):
     edited_basic = st.data_editor(
-        USERS_DF.copy(),
+        _copy_columnar(USERS_DATA),
         num_rows="dynamic",
         show_row_actions=False,
         column_config={
@@ -426,7 +451,7 @@ with st.container(border=True):
         key="editor_basic",
     )
     n_active = sum(bool(v) for v in edited_basic["Active"]) if hasattr(edited_basic, "__getitem__") else 0
-    st.caption(f"{len(edited_basic)} rows · {n_active} active")
+    st.caption(f"{_columnar_row_count(edited_basic)} rows · {n_active} active")
 
 st.subheader("Structured diff (`return_changes=True`) - Fastlit extension")
 st.code(
@@ -443,7 +468,7 @@ st.write(changes.edited_cells)""",
 )
 with st.container(border=True):
     edited_value, changes = st.data_editor(
-        USERS_DF.copy(),
+        _copy_columnar(USERS_DATA),
         return_changes=True,
         height=280,
         column_config={
@@ -475,7 +500,7 @@ st.code(
 )
 with st.container(border=True):
     st.data_editor(
-        USERS_DF.copy(),
+        _copy_columnar(USERS_DATA),
         num_rows="dynamic",
         show_search=False,
         show_filters=False,
@@ -504,7 +529,7 @@ st.code(
 )
 with st.container(border=True):
     st.dataframe(
-        USERS_DF,
+        USERS_DATA,
         height=220,
         hide_index=True,
         show_search=False,
@@ -551,35 +576,33 @@ with st.expander("📋 Type matrix", expanded=True):
         """
     )
 
-CC_DF = pd.DataFrame(
-    {
-        "Name": ["Alice", "Bob", "Charlie", "Diana"],
-        "Score": [87.5, 92.0, 78.3, 95.1],
-        "Active": [True, False, True, True],
-        "Role": ["admin", "user", "user", "viewer"],
-        "FocusStart": ["08:30", "09:00", "10:15", "11:00"],
-        "ReminderAt": ["2026-03-01T08:30", "2026-03-01T09:15", "2026-03-01T10:45", "2026-03-01T11:30"],
-        "Progress": [75, 45, 90, 60],
-        "Tags": [["ops", "admin"], ["sales"], ["ml", "viz"], ["viewer", "beta"]],
-        "Segments": [["ops", "admin"], ["sales"], ["ml", "viz"], ["viewer", "beta"]],
-        "Payload": [
-            {"tier": "gold", "quota": 12},
-            {"tier": "silver", "quota": 8},
-            {"tier": "bronze", "quota": 5},
-            {"tier": "beta", "quota": 2},
-        ],
-        "Trend": [[3, 4, 5, 6], [4, 4, 5, 7], [2, 3, 3, 4], [1, 2, 4, 6]],
-        "Bars": [[6, 4, 5, 7], [4, 5, 6, 4], [3, 4, 2, 5], [2, 3, 4, 6]],
-        "Area": [[1, 3, 2, 5], [2, 4, 3, 6], [1, 2, 3, 3], [2, 3, 5, 7]],
-        "Avatar": [
-            "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120&q=80",
-            "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=120&q=80",
-            "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=120&q=80",
-            "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=120&q=80",
-        ],
-        "Link": ["https://fastlit.dev", "https://streamlit.io", "https://github.com", ""],
-    }
-)
+CC_DATA = {
+    "Name": ["Alice", "Bob", "Charlie", "Diana"],
+    "Score": [87.5, 92.0, 78.3, 95.1],
+    "Active": [True, False, True, True],
+    "Role": ["admin", "user", "user", "viewer"],
+    "FocusStart": ["08:30", "09:00", "10:15", "11:00"],
+    "ReminderAt": ["2026-03-01T08:30", "2026-03-01T09:15", "2026-03-01T10:45", "2026-03-01T11:30"],
+    "Progress": [75, 45, 90, 60],
+    "Tags": [["ops", "admin"], ["sales"], ["ml", "viz"], ["viewer", "beta"]],
+    "Segments": [["ops", "admin"], ["sales"], ["ml", "viz"], ["viewer", "beta"]],
+    "Payload": [
+        {"tier": "gold", "quota": 12},
+        {"tier": "silver", "quota": 8},
+        {"tier": "bronze", "quota": 5},
+        {"tier": "beta", "quota": 2},
+    ],
+    "Trend": [[3, 4, 5, 6], [4, 4, 5, 7], [2, 3, 3, 4], [1, 2, 4, 6]],
+    "Bars": [[6, 4, 5, 7], [4, 5, 6, 4], [3, 4, 2, 5], [2, 3, 4, 6]],
+    "Area": [[1, 3, 2, 5], [2, 4, 3, 6], [1, 2, 3, 3], [2, 3, 5, 7]],
+    "Avatar": [
+        "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120&q=80",
+        "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=120&q=80",
+        "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=120&q=80",
+        "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=120&q=80",
+    ],
+    "Link": ["https://fastlit.dev", "https://streamlit.io", "https://github.com", ""],
+}
 
 st.code(
     """result = st.data_editor(
@@ -608,7 +631,7 @@ st.code(
 
 with st.container(border=True):
     cc_result = st.data_editor(
-        CC_DF.copy(),
+        _copy_columnar(CC_DATA),
         num_rows="dynamic",
         column_config={
             "Name": st.column_config.TextColumn("Name", pinned="left", resizable=True),
@@ -929,15 +952,13 @@ with st.container(border=True):
     import numpy as np
     row_count = 2000
     rng = np.random.default_rng(seed=42)
-    large_df = pd.DataFrame(
-        {
-            "id": range(row_count),
-            "value": rng.standard_normal(row_count).round(4),
-            "label": [f"item_{i}" for i in range(row_count)],
-            "score": rng.uniform(0, 100, row_count).round(2),
-            "active": rng.integers(0, 2, row_count).astype(bool),
-        }
-    )
+    large_df = {
+        "id": list(range(row_count)),
+        "value": rng.standard_normal(row_count).round(4).tolist(),
+        "label": [f"item_{i}" for i in range(row_count)],
+        "score": rng.uniform(0, 100, row_count).round(2).tolist(),
+        "active": rng.integers(0, 2, row_count).astype(bool).tolist(),
+    }
     transport_mode = "Arrow IPC (binary)" if row_count >= 1000 else "JSON (fallback)"
     st.dataframe(
         large_df,

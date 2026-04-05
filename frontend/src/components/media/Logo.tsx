@@ -5,7 +5,6 @@ interface LogoProps {
   src: string;
   size?: "small" | "medium" | "large";
   link?: string;
-  iconSrc?: string;
 }
 
 const sizeMap = {
@@ -19,7 +18,6 @@ export const Logo: React.FC<NodeComponentProps> = ({ props }) => {
     src,
     size = "medium",
     link,
-    iconSrc,
   } = props as LogoProps;
 
   if (!src) {

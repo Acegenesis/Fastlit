@@ -40,9 +40,11 @@ from fastlit.server.dataframe_store import (
     DataframeFilter,
     DataframeQuery,
     DataframeSort,
+    extract_session_id,
     get_slice as get_dataframe_slice,
 )
 from fastlit.server.logging_config import bind_log_context, configure_logging
+from fastlit.server.session_process import SessionProcessCrashedError, SessionProcessExecutionError
 from fastlit.server.session_store import InMemorySessionStore
 from fastlit.server.websocket_handler import handle_websocket
 
@@ -607,6 +609,47 @@ async def component_file_endpoint(request: Request) -> Response:
     return FileResponse(str(requested_path), media_type=mime or "application/octet-stream")
 
 
+async def _get_process_dataframe_slice(
+    request: Request,
+    *,
+    source_id: str,
+    query: DataframeQuery,
+) -> dict[str, object] | None:
+    session_id = extract_session_id(source_id)
+    if session_id is None:
+        return None
+
+    session_store = getattr(getattr(request.app, "state", None), "session_store", None)
+    if session_store is None:
+        return None
+
+    record = await session_store.get(session_id)
+    if record is None:
+        return None
+
+    worker = getattr(record, "process_worker", None)
+    if worker is None:
+        return None
+
+    try:
+        payload = await worker.query_dataframe(
+            source_id=source_id,
+            query=query,
+            timeout_seconds=float(os.environ.get("FASTLIT_RUN_TIMEOUT_SECONDS", "60")),
+        )
+    except (asyncio.TimeoutError, SessionProcessCrashedError, SessionProcessExecutionError) as exc:
+        logger.warning(
+            "process dataframe query failed source_id=%s session_id=%s error=%s",
+            source_id,
+            session_id,
+            exc,
+        )
+        return None
+
+    record.last_activity = time.monotonic()
+    return payload
+
+
 async def dataframe_slice_endpoint(request):
     """Serve server-side dataframe row windows."""
     source_id = request.path_params.get("source_id", "")
@@ -623,16 +666,20 @@ async def dataframe_slice_endpoint(request):
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
 
-    data = get_dataframe_slice(
-        source_id,
-        DataframeQuery(
-            offset=offset,
-            limit=limit,
-            search=search,
-            sorts=tuple(sorts),
-            filters=tuple(filters),
-        ),
+    query = DataframeQuery(
+        offset=offset,
+        limit=limit,
+        search=search,
+        sorts=tuple(sorts),
+        filters=tuple(filters),
     )
+    data = await asyncio.to_thread(get_dataframe_slice, source_id, query)
+    if data is None:
+        data = await _get_process_dataframe_slice(
+            request,
+            source_id=source_id,
+            query=query,
+        )
     if data is None:
         return JSONResponse({"error": "unknown dataframe source"}, status_code=404)
     meta = data.pop("_fastlitMeta", {}) if isinstance(data, dict) else {}

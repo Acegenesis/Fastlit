@@ -1115,7 +1115,7 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
   const toolbarVisible = toolbar && (showSearch || showFilters || showColumnManager || showResetView || downloadable);
 
   const [localRows, setLocalRows] = useState<GridRowModel[]>(() => normalizeRows(rows, index));
-  const [localIndex, setLocalIndex] = useState<any[]>(() => (Array.isArray(index) ? [...index] : []));
+  const [, setLocalIndex] = useState<any[]>(() => (Array.isArray(index) ? [...index] : []));
   const [draftValues, setDraftValues] = useState<Record<string, string>>({});
   const [cellErrors, setCellErrors] = useState<Record<string, string>>({});
   const [compactFooterActions, setCompactFooterActions] = useState(false);
@@ -1217,7 +1217,7 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
     localIndexRef.current = nextIndex;
   }, [snapshotState]);
 
-  const buildChangesPayload = useCallback((nextRows: GridRowModel[], nextIndex: any[]): DataEditorChangesPayload => {
+  const buildChangesPayload = useCallback((nextRows: GridRowModel[]): DataEditorChangesPayload => {
     const columnNames = baseColumns.map((column) => column.name);
     const baselineMap = new Map(baselineRowsRef.current.map((row) => [row.rowId, row]));
     const nextMap = new Map(nextRows.map((row) => [row.rowId, row]));
@@ -1265,7 +1265,7 @@ export const DataEditor: React.FC<NodeComponentProps> = ({ nodeId, props, sendEv
       payload.index = nextIndex;
     }
     if (returnChanges) {
-      payload.changes = buildChangesPayload(nextRows, nextIndex);
+      payload.changes = buildChangesPayload(nextRows);
     }
     sendEvent(nodeId, payload, commit && rerunOnChange ? undefined : { noRerun: true });
   }, [buildChangesPayload, hasIndex, nodeId, rerunOnChange, returnChanges, sendEvent]);

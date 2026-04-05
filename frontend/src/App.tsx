@@ -15,21 +15,15 @@ import { WidgetStoreProvider, WidgetStoreImpl, useResolvedPropText } from "./con
 import { SidebarContext } from "./context/SidebarContext";
 import { Toaster } from "@/components/ui/sonner";
 import { PageSkeleton } from "./components/layout/PageSkeleton";
-import type { UINode, ErrorMessage, RuntimeEventPayload } from "./runtime/types";
+import type {
+  UINode,
+  ErrorMessage,
+  RuntimeEventPayload,
+  RuntimeSpinnerEventPayload,
+  RenderProgressEventPayload,
+} from "./runtime/types";
 
 type ConnectionStatus = "connecting" | "connected" | "disconnected";
-
-const ARROW_DEBUG_SLIDER_ID = "k:arrow_demo_rows";
-
-function isArrowDebugId(id: string | null | undefined): boolean {
-  return !!id && (id === ARROW_DEBUG_SLIDER_ID || id.startsWith("k:arrow_demo_df_"));
-}
-
-function treeHasArrowDemo(node: UINode | null | undefined): boolean {
-  if (!node) return false;
-  if (isArrowDebugId(node.id)) return true;
-  return (node.children ?? []).some((child) => treeHasArrowDemo(child));
-}
 
 function isLikelyNavigationSyncPatch(ops: Array<{ op?: string }> | undefined): boolean {
   if (!Array.isArray(ops) || ops.length === 0) return false;
@@ -97,6 +91,7 @@ const CACHE_UNSAFE_NODE_TYPES = new Set([
   "form_submit_button",
   "custom_component",
   "data_editor",
+  "deferred_mount",
 ]);
 const PREFETCH_SKIP_TYPES = new Set([
   "file_uploader",
@@ -164,7 +159,7 @@ export const App: React.FC = () => {
   const [isNavigating, setIsNavigating] = useState(false);
   const [enableSidebarTransition, setEnableSidebarTransition] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [runtimeSpinners, setRuntimeSpinners] = useState<Map<string, RuntimeEventPayload>>(new Map());
+  const [runtimeSpinners, setRuntimeSpinners] = useState<Map<string, RuntimeSpinnerEventPayload>>(new Map());
   const wsRef = useRef<FastlitWS | null>(null);
   const storeRef = useRef(new WidgetStoreImpl());
 
@@ -201,6 +196,9 @@ export const App: React.FC = () => {
   // Always holds the latest committed tree — avoids capturing stale closures
   // in async patch callbacks without using side-effects inside state updaters.
   const treeRef = useRef<UINode | null>(null);
+  const progressiveSnapshotActiveRef = useRef(false);
+  const pendingProgressSlugRef = useRef<string | null>(null);
+  const activeProgressRunTokenRef = useRef<number | null>(null);
 
   // Keep treeRef in sync with the latest committed tree so async patch
   // callbacks can access it without needing side-effects in state updaters.
@@ -248,13 +246,6 @@ export const App: React.FC = () => {
       clearTimeout(timer);
       const pendingValue = pendingValuesRef.current.get(widgetId);
       if (pendingValue !== undefined) {
-        if (isArrowDebugId(widgetId)) {
-          console.log("[Fastlit][flushPendingEvents]", {
-            widgetId,
-            pendingValue,
-            path: getCurrentPathname(),
-          });
-        }
         wsRef.current?.send({
           type: "widget_event",
           id: widgetId,
@@ -300,6 +291,9 @@ export const App: React.FC = () => {
       currentPageRef.current = slug;
 
       if (hasCache) {
+        pendingProgressSlugRef.current = null;
+        activeProgressRunTokenRef.current = null;
+        progressiveSnapshotActiveRef.current = false;
         // Show cached content instantly
         setTree((prev) => {
           if (!prev?.children) return prev;
@@ -317,6 +311,9 @@ export const App: React.FC = () => {
         });
       } else {
         // No cache - show skeleton and request content from server
+        pendingProgressSlugRef.current = slug;
+        activeProgressRunTokenRef.current = null;
+        progressiveSnapshotActiveRef.current = false;
         setIsNavigating(true);
         wsRef.current?.send({
           type: "widget_event",
@@ -350,25 +347,10 @@ export const App: React.FC = () => {
         pendingValuesRef.current.set(id, value);
         const existing = debounceTimersRef.current.get(id);
         if (existing) clearTimeout(existing);
-        if (isArrowDebugId(id)) {
-          console.log("[Fastlit][sendEvent:queue]", {
-            id,
-            value,
-            noRerun: true,
-            path: getCurrentPathname(),
-          });
-        }
 
         const timer = setTimeout(() => {
           debounceTimersRef.current.delete(id);
           pendingValuesRef.current.delete(id);
-          if (isArrowDebugId(id)) {
-            console.log("[Fastlit][sendEvent:debounced-fire]", {
-              id,
-              value,
-              path: getCurrentPathname(),
-            });
-          }
           wsRef.current?.send({
             type: "widget_event",
             id,
@@ -386,13 +368,6 @@ export const App: React.FC = () => {
         clearTimeout(t);
         const pv = pendingValuesRef.current.get(widgetId);
         if (pv !== undefined) {
-          if (isArrowDebugId(widgetId)) {
-            console.log("[Fastlit][sendEvent:flush-before-action]", {
-              widgetId,
-              value: pv,
-              path: getCurrentPathname(),
-            });
-          }
           wsRef.current?.send({
             type: "widget_event",
             id: widgetId,
@@ -404,13 +379,6 @@ export const App: React.FC = () => {
       }
       debounceTimersRef.current.clear();
       pendingValuesRef.current.clear();
-      if (isArrowDebugId(id)) {
-        console.log("[Fastlit][sendEvent:immediate]", {
-          id,
-          value,
-          path: getCurrentPathname(),
-        });
-      }
       wsRef.current?.send({
         type: "widget_event",
         id,
@@ -434,18 +402,19 @@ export const App: React.FC = () => {
     });
 
     ws.onRenderFull((msg) => {
-      if (treeHasArrowDemo(msg.tree)) {
-        console.log("[Fastlit][render_full]", {
-          rev: msg.rev,
-          path: getCurrentPathname(),
-          hasArrowDemo: true,
-        });
-      }
+      progressiveSnapshotActiveRef.current = false;
+      pendingProgressSlugRef.current = null;
+      activeProgressRunTokenRef.current = null;
       // New epoch: invalidate any in-flight patch chain handlers.
       patchEpochRef.current += 1;
       patchChainRef.current = Promise.resolve(msg.tree);
       treeRef.current = msg.tree;
       lastServerRevRef.current = Math.max(lastServerRevRef.current, msg.rev);
+      for (const timer of debounceTimersRef.current.values()) {
+        clearTimeout(timer);
+      }
+      debounceTimersRef.current.clear();
+      pendingValuesRef.current.clear();
       if (
         pendingSkipPatchAfterRevRef.current !== null &&
         msg.rev > pendingSkipPatchAfterRevRef.current
@@ -565,14 +534,9 @@ export const App: React.FC = () => {
     });
 
     ws.onRenderPatch((msg) => {
-      const arrowOps = msg.ops.filter((op) => isArrowDebugId(op.id));
-      if (arrowOps.length > 0) {
-        console.log("[Fastlit][render_patch]", {
-          rev: msg.rev,
-          path: getCurrentPathname(),
-          arrowOps,
-        });
-      }
+      progressiveSnapshotActiveRef.current = false;
+      pendingProgressSlugRef.current = null;
+      activeProgressRunTokenRef.current = null;
       lastServerRevRef.current = Math.max(lastServerRevRef.current, msg.rev);
       // After cached navigation, the backend reruns to sync _previous_tree.
       // The patch it sends is based on (old page → new page) diff, but the
@@ -632,11 +596,48 @@ export const App: React.FC = () => {
     ws.onError((msg) => setError(msg));
     ws.onRuntimeEvent((msg) => {
       const event: RuntimeEventPayload = msg.event;
+      if (event.kind === "render_progress") {
+        const progress = event as RenderProgressEventPayload;
+        const eventSlug = canonicalizeSlug(String(progress.path ?? "").replace(/^\/+/, ""));
+        const currentSlug = currentPageRef.current || getPageFromUrl();
+        const pendingSlug = pendingProgressSlugRef.current;
+        const activeRunToken = activeProgressRunTokenRef.current;
+        const targetsExpectedPage =
+          !eventSlug ||
+          !currentSlug ||
+          eventSlug === currentSlug ||
+          (pendingSlug !== null && eventSlug === pendingSlug);
+        const canStartProgress = treeRef.current === null || pendingSlug !== null;
+        const canContinueProgress =
+          progressiveSnapshotActiveRef.current &&
+          (activeRunToken === null || progress.runToken >= activeRunToken);
+
+        if (!targetsExpectedPage) return;
+        if (!canStartProgress && !canContinueProgress) return;
+        if (activeRunToken !== null && progress.runToken < activeRunToken) return;
+
+        progressiveSnapshotActiveRef.current = true;
+        activeProgressRunTokenRef.current = progress.runToken;
+        patchChainRef.current = Promise.resolve(progress.tree);
+        treeRef.current = progress.tree;
+        if (eventSlug) {
+          currentPageRef.current = eventSlug;
+        }
+        setTree(progress.tree);
+        if (progress.tree?.children) {
+          handleSidebarStateNode(progress.tree.children);
+        }
+        setError(null);
+        setIsNavigating(false);
+        return;
+      }
+
       if (event.kind !== "spinner") return;
+      const spinnerEvent = event as RuntimeSpinnerEventPayload;
       setRuntimeSpinners((prev) => {
         const next = new Map(prev);
-        if (event.active) next.set(event.id, event);
-        else next.delete(event.id);
+        if (spinnerEvent.active) next.set(spinnerEvent.id, spinnerEvent);
+        else next.delete(spinnerEvent.id);
         return next;
       });
     });
@@ -648,6 +649,7 @@ export const App: React.FC = () => {
   // Cache current page content + clean orphan debounce timers when tree changes
   useEffect(() => {
     if (!tree?.children) return;
+    if (progressiveSnapshotActiveRef.current) return;
 
     const nav = sidebarNavRef.current;
     if (!nav) return;
@@ -698,6 +700,9 @@ export const App: React.FC = () => {
       );
 
       if (hasCache) {
+        pendingProgressSlugRef.current = null;
+        activeProgressRunTokenRef.current = null;
+        progressiveSnapshotActiveRef.current = false;
         setTree((prev) => {
           if (!prev?.children) return prev;
           const sidebar = prev.children.filter((c) => c.type === "sidebar");
@@ -713,6 +718,9 @@ export const App: React.FC = () => {
         });
       } else {
         // No cache - show skeleton and request content from server
+        pendingProgressSlugRef.current = slug;
+        activeProgressRunTokenRef.current = null;
+        progressiveSnapshotActiveRef.current = false;
         setIsNavigating(true);
         wsRef.current?.send({
           type: "widget_event",

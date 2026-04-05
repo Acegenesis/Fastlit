@@ -22,7 +22,6 @@ def _prepare_chart_data(
     *,
     x: str | None = None,
     y: str | Sequence[str] | None = None,
-    color: str | None = None,
 ) -> dict:
     """Convert data to chart-ready format.
 
@@ -37,7 +36,7 @@ def _prepare_chart_data(
         import pandas as pd
 
         if isinstance(data, pd.DataFrame):
-            return _prepare_pandas_chart(data, x=x, y=y, color=color)
+            return _prepare_pandas_chart(data, x=x, y=y)
     except ImportError:
         pass
 
@@ -65,11 +64,8 @@ def _prepare_pandas_chart(
     *,
     x: str | None = None,
     y: str | Sequence[str] | None = None,
-    color: str | None = None,
 ) -> dict:
     """Prepare pandas DataFrame for charting."""
-    import pandas as pd  # noqa: F811 - runtime import after TYPE_CHECKING
-
     # Determine x column
     if x is None:
         # Use index as x

@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install Python deps
+        run: python -m pip install -e .[dev,auth,dataframe]
+      - name: Ruff
+        run: python -m ruff check fastlit tests
+      - name: Mypy
+        run: python -m mypy fastlit
+      - name: Pytest
+        run: python -m pytest -q
+      - name: Frontend install
+        run: npm ci
+        working-directory: frontend
+      - name: Frontend build
+        run: npm run build
+        working-directory: frontend

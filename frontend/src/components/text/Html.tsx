@@ -1,9 +1,9 @@
 import React from "react";
-import DOMPurify from "dompurify";
 import type { NodeComponentProps } from "../../registry/registry";
+import { sanitizeHtml } from "../../utils/sanitize";
 
 export const Html: React.FC<NodeComponentProps> = ({ props }) => {
-  const sanitized = DOMPurify.sanitize(props.body || "");
+  const sanitized = sanitizeHtml(props.body || "");
 
   return (
     <div

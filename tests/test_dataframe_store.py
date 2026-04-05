@@ -4,7 +4,14 @@ from concurrent.futures import ThreadPoolExecutor
 
 from fastlit.server import dataframe_store as dataframe_store_module
 from fastlit.server.app import _parse_dataframe_filters
-from fastlit.server.dataframe_store import DataframeQuery, DataframeSort, _SOURCES, get_slice, register_source
+from fastlit.server.dataframe_store import (
+    DataframeQuery,
+    DataframeSort,
+    _SOURCES,
+    extract_session_id,
+    get_slice,
+    register_source,
+)
 
 
 def setup_function() -> None:
@@ -38,6 +45,18 @@ def test_get_slice_ignores_invalid_sort_columns() -> None:
 
     assert payload is not None
     assert [row[0] for row in payload["rows"]] == ["Alice", "Bob"]
+
+
+def test_register_source_can_embed_session_scope() -> None:
+    session_id = "a" * 32
+    source_id = register_source(
+        columns=[{"name": "Name"}],
+        rows=[["Alice"]],
+        total_rows=1,
+        session_id=session_id,
+    )
+
+    assert extract_session_id(source_id) == session_id
 
 
 def test_get_slice_prunes_expired_sources_on_read(monkeypatch) -> None:
@@ -107,6 +126,53 @@ def test_get_slice_deduplicates_concurrent_query_fn_calls() -> None:
     assert calls["count"] == 1
     assert all(payload is not None for payload in payloads)
     assert payloads[0]["rows"] == [["Alice"]]
+
+
+def test_query_cache_is_lru(monkeypatch) -> None:
+    monkeypatch.setattr(dataframe_store_module, "_QUERY_CACHE_LIMIT", 2)
+    calls = {"count": 0}
+
+    def query_fn(query: DataframeQuery) -> dict:
+        calls["count"] += 1
+        return {
+            "offset": query.offset,
+            "limit": query.limit,
+            "totalRows": 10,
+            "rows": [[f"row-{query.offset}"]],
+            "index": [query.offset],
+            "positions": [query.offset],
+        }
+
+    source_id = register_source(
+        columns=[{"name": "Name"}],
+        rows=None,
+        total_rows=10,
+        query_fn=query_fn,
+    )
+
+    get_slice(source_id, DataframeQuery(offset=0, limit=1))
+    get_slice(source_id, DataframeQuery(offset=1, limit=1))
+    get_slice(source_id, DataframeQuery(offset=0, limit=1))  # refresh LRU order
+    get_slice(source_id, DataframeQuery(offset=2, limit=1))
+    get_slice(source_id, DataframeQuery(offset=1, limit=1))  # must miss again
+
+    assert calls["count"] == 4
+
+
+def test_get_slice_cache_hit_returns_isolated_payload() -> None:
+    source_id = register_source(
+        columns=[{"name": "Name"}],
+        rows=[["Alice"]],
+        total_rows=1,
+    )
+
+    first = get_slice(source_id, DataframeQuery(offset=0, limit=1))
+    assert first is not None
+    first["rows"][0][0] = "Mutated"
+
+    second = get_slice(source_id, DataframeQuery(offset=0, limit=1))
+    assert second is not None
+    assert second["rows"][0][0] == "Alice"
 
 
 def test_estimate_payload_bytes_is_fast_for_large_payload() -> None:

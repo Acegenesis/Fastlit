@@ -399,7 +399,6 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     debugDataframe = false,
   } = props as DataFrameProps;
   const resolvedPlaceholder = useResolvedPropText(props as Record<string, any>, "placeholder");
-  const isArrowDebug = nodeId.startsWith("k:arrow_demo_df_");
   const resolvedPaginationMode = useMemo(() => {
     const raw = String(paginationMode ?? (typeof pagination === "string" ? pagination : "text"))
       .trim()
@@ -486,14 +485,6 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
   const effectiveRowHeight = resolveRowHeight(rowHeight);
 
   useEffect(() => {
-    if (isArrowDebug) {
-      console.log("[Fastlit][ArrowDF:reset-window]", {
-        nodeId,
-        sourceId,
-        totalRows,
-        initialRows: initialRows.length,
-      });
-    }
     setServerOffset(0);
     setServerRows(initialRows);
     setServerIndex(initialIndex);
@@ -502,7 +493,7 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     setPageCache({});
     setPageError(null);
     setServerSchemaVersion(undefined);
-  }, [initialIndex, initialPositions, initialRows, isArrowDebug, nodeId, sourceId, totalRows]);
+  }, [initialIndex, initialPositions, initialRows, totalRows]);
 
   useEffect(() => {
     setSelectedRowPositions(Array.isArray(selectedRows) ? [...selectedRows] : []);
@@ -749,32 +740,6 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
   ]);
 
   useEffect(() => {
-    if (!isArrowDebug) return;
-    console.log("[Fastlit][ArrowDF:state]", {
-      nodeId,
-      sourceId,
-      isServerPaged,
-      totalRows,
-      serverTotalRows,
-      initialRows: initialRows.length,
-      serverRows: serverRows.length,
-      requestKey,
-      activeRequestKey,
-    });
-  }, [
-    activeRequestKey,
-    initialRows.length,
-    isArrowDebug,
-    isServerPaged,
-    nodeId,
-    requestKey,
-    serverRows.length,
-    serverTotalRows,
-    sourceId,
-    totalRows,
-  ]);
-
-  useEffect(() => {
     if (paginationEnabled) return;
     if (!isServerPaged || !sourceId) return;
     if (activeRequestKey !== requestKey) return;
@@ -794,19 +759,6 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     const controller = new AbortController();
     fetchAbortRef.current = controller;
     setLoadingWindow(true);
-    if (isArrowDebug) {
-      console.log("[Fastlit][ArrowDF:fetch-window]", {
-        nodeId,
-        sourceId,
-        fetchOffset,
-        fetchLimit,
-        requestKey,
-        needStart,
-        needEnd,
-        haveStart,
-        haveEnd,
-      });
-    }
     fetch(`/_fastlit/dataframe/${encodeURIComponent(sourceId)}?offset=${fetchOffset}&limit=${fetchLimit}&format=arrow&${queryString}`, {
       signal: controller.signal,
     })
@@ -815,35 +767,17 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
         return parseDataframeResponse(res, columns, fetchOffset, fetchLimit);
       })
       .then((payload) => {
-        if (isArrowDebug) {
-          console.log("[Fastlit][ArrowDF:fetch-window:response]", {
-            nodeId,
-            sourceId,
-            offset: payload.offset,
-            totalRows: payload.totalRows,
-            rows: Array.isArray(payload.rows) ? payload.rows.length : 0,
-          });
-        }
         setServerOffset(payload.offset ?? fetchOffset);
         setServerRows(Array.isArray(payload.rows) ? payload.rows : []);
         setServerIndex(Array.isArray(payload.index) ? payload.index : undefined);
         setServerPositions(Array.isArray(payload.positions) ? payload.positions.map((value: any) => Number(value)) : undefined);
         setServerTotalRows(typeof payload.totalRows === "number" ? payload.totalRows : 0);
       })
-      .catch((error) => {
-        if (isArrowDebug) {
-          console.log("[Fastlit][ArrowDF:fetch-window:error]", {
-            nodeId,
-            sourceId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-        return undefined;
-      })
+      .catch(() => undefined)
       .finally(() => {
         if (!controller.signal.aborted) setLoadingWindow(false);
       });
-  }, [activeRequestKey, columns, effectiveTotalRows, isArrowDebug, isServerPaged, nodeId, paginationEnabled, queryString, requestKey, serverOffset, serverRows.length, sourceId, virtualItems, virtualRangeKey, windowSize]);
+  }, [activeRequestKey, columns, effectiveTotalRows, isServerPaged, paginationEnabled, queryString, requestKey, serverOffset, serverRows.length, sourceId, virtualItems, virtualRangeKey, windowSize]);
 
   useEffect(() => {
     if (paginationEnabled) return;
@@ -857,14 +791,6 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
     fetchAbortRef.current = controller;
     setActiveRequestKey("");
     setLoadingWindow(true);
-    if (isArrowDebug) {
-      console.log("[Fastlit][ArrowDF:refetch-initial-window]", {
-        nodeId,
-        sourceId,
-        windowSize,
-        requestKey,
-      });
-    }
     fetch(`/_fastlit/dataframe/${encodeURIComponent(sourceId)}?offset=0&limit=${windowSize}&format=arrow&${queryString}`, {
       signal: controller.signal,
     })
@@ -873,38 +799,20 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
         return parseDataframeResponse(res, columns, 0, windowSize);
       })
       .then((payload) => {
-        if (isArrowDebug) {
-          console.log("[Fastlit][ArrowDF:refetch-initial-window:response]", {
-            nodeId,
-            sourceId,
-            offset: payload.offset,
-            totalRows: payload.totalRows,
-            rows: Array.isArray(payload.rows) ? payload.rows.length : 0,
-          });
-        }
         setServerOffset(payload.offset ?? 0);
         setServerRows(Array.isArray(payload.rows) ? payload.rows : []);
         setServerIndex(Array.isArray(payload.index) ? payload.index : undefined);
         setServerPositions(Array.isArray(payload.positions) ? payload.positions.map((value: any) => Number(value)) : undefined);
         setServerTotalRows(typeof payload.totalRows === "number" ? payload.totalRows : 0);
       })
-      .catch((error) => {
-        if (isArrowDebug) {
-          console.log("[Fastlit][ArrowDF:refetch-initial-window:error]", {
-            nodeId,
-            sourceId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-        return undefined;
-      })
+      .catch(() => undefined)
       .finally(() => {
         if (!controller.signal.aborted) {
           setActiveRequestKey(requestKey);
           setLoadingWindow(false);
         }
       });
-  }, [columns, isArrowDebug, isServerPaged, nodeId, paginationEnabled, queryString, requestKey, sourceId, windowSize]);
+  }, [columns, isServerPaged, paginationEnabled, queryString, requestKey, sourceId, windowSize]);
 
   useEffect(() => {
     if (!paginationEnabled || !isServerPaged || !sourceId) return;
@@ -1433,7 +1341,9 @@ export const DataFrame: React.FC<NodeComponentProps> = ({ nodeId, props, sendEve
               : "Rows 0-0 of 0"}
           </span>
           <div className="flex items-center gap-2 rounded-lg border border-slate-200/90 bg-white/90 px-2 py-1 shadow-sm">
-            <Badge variant="outline" className="font-normal">{`Page ${currentPage}/${totalPages}`}</Badge>
+            {showTextPagination || showIconPagination ? (
+              <Badge variant="outline" className="font-normal w-full">{`Page ${currentPage}/${totalPages}`}</Badge>
+            ) : null}
             {showTextPagination ? (
               <Pagination>
                 <PaginationContent>

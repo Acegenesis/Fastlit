@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import base64
 import json
+from typing import Any
 
 _MARKER = "\x00"
 
 
-def _json_safe_value(value):
+def _json_safe_value(value: Any) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     if isinstance(value, dict):
@@ -18,22 +19,22 @@ def _json_safe_value(value):
     return str(value)
 
 
-def _encode_live_expression(spec: dict) -> str:
+def _encode_live_expression(spec: dict[str, Any]) -> str:
     raw = json.dumps(spec, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
 
-def _literal_spec(value):
+def _literal_spec(value: Any) -> dict[str, Any]:
     return {"kind": "literal", "value": _json_safe_value(value)}
 
 
-def _raw_value(value):
+def _raw_value(value: Any) -> Any:
     if isinstance(value, (LiveValue, WidgetValue)):
         return value._val
     return value
 
 
-def _live_spec_for(value):
+def _live_spec_for(value: Any) -> dict[str, Any]:
     if isinstance(value, LiveValue):
         return value._spec
     if isinstance(value, WidgetValue):
@@ -43,11 +44,15 @@ def _live_spec_for(value):
 
 class _ReactiveMixin:
     __slots__ = ()
+    _val: Any
 
-    def _make_live(self, value, spec: dict):
+    def _live_spec(self) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def _make_live(self, value: Any, spec: dict[str, Any]) -> "LiveValue":
         return LiveValue(value, spec)
 
-    def when(self, when_true, when_false):
+    def when(self, when_true: Any, when_false: Any) -> "LiveValue":
         next_value = when_true if bool(self._val) else when_false
         return self._make_live(
             _raw_value(next_value),
@@ -59,21 +64,21 @@ class _ReactiveMixin:
             },
         )
 
-    def _binary(self, op: str, other, fn):
+    def _binary(self, op: str, other: Any, fn):
         other_raw = _raw_value(other)
         return self._make_live(
             fn(self._val, other_raw),
             {"kind": "binary", "op": op, "left": self._live_spec(), "right": _live_spec_for(other)},
         )
 
-    def _rbinary(self, op: str, other, fn):
+    def _rbinary(self, op: str, other: Any, fn):
         other_raw = _raw_value(other)
         return self._make_live(
             fn(other_raw, self._val),
             {"kind": "binary", "op": op, "left": _live_spec_for(other), "right": self._live_spec()},
         )
 
-    def _compare(self, op: str, other, fn):
+    def _compare(self, op: str, other: Any, fn):
         other_raw = _raw_value(other)
         return self._make_live(
             fn(self._val, other_raw),
@@ -176,12 +181,14 @@ class _ReactiveMixin:
 
 class LiveValue(_ReactiveMixin):
     __slots__ = ("_val", "_spec")
+    _val: Any
+    _spec: dict[str, Any]
 
-    def __init__(self, value, spec: dict):
+    def __init__(self, value: Any, spec: dict[str, Any]):
         object.__setattr__(self, "_val", value)
         object.__setattr__(self, "_spec", spec)
 
-    def _live_spec(self) -> dict:
+    def _live_spec(self) -> dict[str, Any]:
         return self._spec
 
     def __format__(self, spec: str) -> str:
@@ -199,12 +206,14 @@ class LiveValue(_ReactiveMixin):
 
 class WidgetValue(_ReactiveMixin):
     __slots__ = ("_val", "_wid")
+    _val: Any
+    _wid: str
 
-    def __init__(self, value, widget_id: str):
+    def __init__(self, value: Any, widget_id: str):
         object.__setattr__(self, "_val", value)
         object.__setattr__(self, "_wid", widget_id)
 
-    def _live_spec(self) -> dict:
+    def _live_spec(self) -> dict[str, Any]:
         return {"kind": "widget", "widgetId": self._wid}
 
     def __format__(self, spec: str) -> str:

@@ -305,6 +305,102 @@ def container(
 
 
 # ---------------------------------------------------------------------------
+# Deferred mount - st.defer_mount(key, *, placeholder_height=240, trigger="visible")
+# ---------------------------------------------------------------------------
+
+def _normalize_prefetch_types(
+    prefetch_types: Sequence[str] | None,
+) -> list[str]:
+    if not prefetch_types:
+        return []
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in prefetch_types:
+        text = str(item).strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        normalized.append(text)
+    return normalized
+
+
+class DeferredMount(_ContainerProxy):
+    """Viewport-activated container that can skip expensive work until hydrated."""
+
+    _name = "DeferredMount"
+
+    def __init__(self, node: UINode, *, active: bool) -> None:
+        super().__init__(node)
+        self.active = active
+        # When inactive, route nested st.* calls into a detached sink so nodes
+        # do not leak into the parent container even if the caller forgets to
+        # guard expensive work behind ``if mount.active``.
+        self._sink_node = UINode(
+            type="_deferred_mount_sink",
+            id=f"{node.id}:sink",
+            props={},
+        )
+
+    def __bool__(self) -> bool:
+        return self.active
+
+    def __enter__(self):
+        session = get_current_session()
+        tree = session.current_tree
+        already_attached = self._is_attached(tree.root, self._node)
+        if not already_attached and tree.current_container is not self._node:
+            tree.append(self._node)
+        if self.active:
+            tree.push_container(self._node)
+        else:
+            self._sink_node.children.clear()
+            tree.push_container(self._sink_node)
+        return self
+
+    def __exit__(self, *args):
+        get_current_session().current_tree.pop_container()
+        if not self.active:
+            self._sink_node.children.clear()
+
+
+def defer_mount(
+    key: str | None = None,
+    *,
+    placeholder_height: int = 240,
+    trigger: str = "visible",
+    prefetch_types: Sequence[str] | None = None,
+) -> DeferredMount:
+    """Create a viewport-activated container placeholder.
+
+    The returned object is a context manager with an ``active`` boolean. Use
+    ``if mount.active:`` inside the block to skip heavy Python work until the
+    frontend activates the placeholder.
+    """
+    normalized_height = int(placeholder_height)
+    if normalized_height <= 0:
+        raise ValueError("placeholder_height must be a positive integer")
+    if trigger != "visible":
+        raise ValueError("trigger must be 'visible'")
+
+    node_id = _make_id("deferred_mount", key)
+    session = get_current_session()
+    active = bool(session.widget_store.get(node_id, False))
+    props: dict[str, Any] = {
+        "active": active,
+        "placeholderHeight": normalized_height,
+        "trigger": trigger,
+    }
+    normalized_prefetch_types = _normalize_prefetch_types(prefetch_types)
+    if normalized_prefetch_types:
+        props["prefetchTypes"] = normalized_prefetch_types
+
+    return DeferredMount(
+        UINode(type="deferred_mount", id=node_id, props=props),
+        active=active,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Empty — st.empty()
 # ---------------------------------------------------------------------------
 
@@ -529,13 +625,12 @@ def _normalize_template_segment(value: Any, *, allow_multiple: bool) -> list[str
         text = str(value).strip().strip("/")
         if allow_multiple:
             result = [segment for segment in text.split("/") if segment]
+        elif not text:
+            result = []
+        elif "/" in text:
+            raise ValueError("Single-segment route params cannot contain '/'.")
         else:
-            if not text:
-                result = []
-            elif "/" in text:
-                raise ValueError("Single-segment route params cannot contain '/'.")
-            else:
-                result = [text]
+            result = [text]
 
     if not result:
         raise ValueError("Route params cannot be empty.")

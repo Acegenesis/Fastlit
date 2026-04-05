@@ -1,0 +1,26 @@
+services:
+  fastlit-dev:
+    profiles: ["dev"]
+    image: node:20-bookworm-slim
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    ports:
+      - "8501:8501"
+      - "5173:5173"
+    command: >
+      bash -lc "apt-get update &&
+      apt-get install -y python3 python3-pip &&
+      pip install -e .[dev,auth,dataframe] &&
+      cd frontend &&
+      npm install &&
+      cd .. &&
+      fastlit run examples/app.py --dev --host 0.0.0.0 --frontend-host 0.0.0.0 --frontend-port 5173"
+
+  fastlit-prod:
+    profiles: ["prod"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8501:8501"

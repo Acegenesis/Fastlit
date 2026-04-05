@@ -1,9 +1,17 @@
+import asyncio
+import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
+from starlette.datastructures import QueryParams
 from starlette.testclient import TestClient
 
 from fastlit.server import app as app_module
+from fastlit.runtime.session import Session
+from fastlit.server.dataframe_store import _SOURCES
+from fastlit.server.session_store import InMemorySessionStore
 
 
 def test_homepage_strips_ws_token_and_sets_secure_cookie(tmp_path: Path) -> None:
@@ -144,3 +152,122 @@ def test_fastlit_workers_env_is_respected(monkeypatch) -> None:
     monkeypatch.setenv("FASTLIT_WORKERS", "4")
     workers = max(1, int(os.environ.get("FASTLIT_WORKERS", "1")))
     assert workers == 4
+
+
+def test_metrics_endpoint_returns_prometheus_format(tmp_path: Path) -> None:
+    """/_fastlit/metrics must return text/plain with metric lines."""
+    static_dir = tmp_path / "static"
+    static_dir.mkdir()
+    (static_dir / "index.html").write_text("<!doctype html><div>ok</div>", encoding="utf-8")
+
+    app = app_module.create_app(script_path=__file__, static_dir=str(static_dir))
+
+    with TestClient(app) as client:
+        response = client.get("/_fastlit/metrics/prometheus")
+        assert response.status_code == 200
+        assert "text/plain" in response.headers.get("content-type", "")
+        body = response.text
+        # Must contain at least one metric line
+        assert any(line and not line.startswith("#") for line in body.splitlines())
+        # Check for new gauges
+        assert "fastlit_rerun_latency_ms_p50" in body
+        assert "fastlit_rerun_latency_ms_p95" in body
+        assert "fastlit_patch_size_bytes_p95" in body
+
+
+def test_dataframe_slice_endpoint_queries_process_worker_for_session_scoped_sources() -> None:
+    class DummyWorker:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, object]] = []
+
+        async def query_dataframe(self, *, source_id: str, query, timeout_seconds: float):
+            self.calls.append((source_id, query))
+            return {
+                "sourceId": source_id,
+                "offset": query.offset,
+                "limit": query.limit,
+                "totalRows": 1,
+                "columns": [{"name": "Name"}],
+                "rows": [["Alice"]],
+                "index": [query.offset],
+                "positions": [query.offset],
+            }
+
+    async def run():
+        _SOURCES.clear()
+        session_store = InMemorySessionStore()
+        session = Session(__file__)
+        session.session_id = "a" * 32
+        record = await session_store.add(
+            session,
+            websocket=MagicMock(),
+            client_ip="127.0.0.1",
+            request_id="req-1",
+        )
+        worker = DummyWorker()
+        record.process_worker = worker
+        request = SimpleNamespace(
+            path_params={"source_id": f"{session.session_id}:deadbeefdeadbeefdeadbeefdeadbeef"},
+            query_params=QueryParams(
+                "offset=10&limit=5&format=json&search=alice"
+                "&sort=%5B%7B%22column%22%3A%22Name%22%2C%22direction%22%3A%22desc%22%7D%5D"
+                "&filters=%5B%5D"
+            ),
+            app=SimpleNamespace(state=SimpleNamespace(session_store=session_store)),
+        )
+        response = await app_module.dataframe_slice_endpoint(request)
+        return response, worker
+
+    response, worker = asyncio.run(run())
+
+    assert response.status_code == 200
+    assert worker.calls
+    source_id, query = worker.calls[0]
+    assert source_id.startswith("a" * 32)
+    assert query.offset == 10
+    assert query.limit == 5
+    assert query.search == "alice"
+    assert query.sorts[0].column == "Name"
+    assert query.sorts[0].direction == "desc"
+
+    body = json.loads(response.body)
+    assert body["rows"] == [["Alice"]]
+    assert body["offset"] == 10
+
+
+def test_dataframe_slice_endpoint_uses_to_thread_for_local_sources(monkeypatch) -> None:
+    calls = {"to_thread": 0, "get_slice": 0}
+
+    def fake_get_dataframe_slice(source_id, query):
+        calls["get_slice"] += 1
+        assert source_id == "local-source"
+        assert query.offset == 2
+        return {
+            "sourceId": source_id,
+            "offset": query.offset,
+            "limit": query.limit,
+            "totalRows": 1,
+            "columns": [{"name": "Name"}],
+            "rows": [["Alice"]],
+            "index": [query.offset],
+            "positions": [query.offset],
+        }
+
+    async def fake_to_thread(fn, *args, **kwargs):
+        calls["to_thread"] += 1
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(app_module, "get_dataframe_slice", fake_get_dataframe_slice)
+    monkeypatch.setattr(app_module.asyncio, "to_thread", fake_to_thread)
+
+    request = SimpleNamespace(
+        path_params={"source_id": "local-source"},
+        query_params=QueryParams("offset=2&limit=3&format=json&search=&sort=%5B%5D&filters=%5B%5D"),
+        app=SimpleNamespace(state=SimpleNamespace(session_store=None)),
+    )
+
+    response = asyncio.run(app_module.dataframe_slice_endpoint(request))
+
+    assert response.status_code == 200
+    assert calls["to_thread"] == 1
+    assert calls["get_slice"] == 1

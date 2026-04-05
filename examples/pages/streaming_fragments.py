@@ -3,7 +3,6 @@
 import datetime
 import time
 import random
-from timeit import main
 
 import fastlit as st
 
@@ -88,7 +87,7 @@ def _fake_llm_gen(text: str, delay: float):
         yield word + (" " if i < len(words) - 1 else "")
 
 st.markdown("**Response**")
-st.write_stream(_fake_llm_gen(sentence, delay_ms / 1000.0))
+st.write_stream(_fake_llm_gen(sentence, float(delay_ms) / 1000.0))
 else:
 st.info("Click **Stream** to see progressive rendering.")''', language="python")
 
@@ -126,7 +125,7 @@ with st.container(border=True):
                 yield word + (" " if i < len(words) - 1 else "")
 
         st.markdown("**Response**")
-        st.write_stream(_fake_llm_gen(sentence, delay_ms / 1000.0))
+        st.write_stream(_fake_llm_gen(sentence, float(delay_ms) / 1000.0))
     else:
         st.info("Click **Stream** to see progressive rendering.")
 

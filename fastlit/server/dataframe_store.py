@@ -11,6 +11,7 @@ import random
 import threading
 import time
 import uuid
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -24,6 +25,7 @@ _MAX_TOTAL_BYTES = max(
     0, int(os.environ.get("FASTLIT_DF_MAX_TOTAL_BYTES", str(256 * 1024 * 1024)))
 )
 logger = logging.getLogger("fastlit.dataframe")
+_SESSION_SOURCE_SEPARATOR = ":"
 
 
 @dataclass(frozen=True)
@@ -71,7 +73,7 @@ class _DataFrameSource:
     query_fn: Callable[[DataframeQuery], dict[str, Any]] | None = None
     export_fn: Callable[[DataframeQuery], dict[str, Any]] | None = None
     schema_version: str | None = None
-    query_cache: dict[str, tuple[float, dict[str, Any]]] = field(default_factory=dict)
+    query_cache: OrderedDict[str, dict[str, Any]] = field(default_factory=OrderedDict)
     inflight_queries: dict[str, threading.Event] = field(default_factory=dict)
     inflight_results: dict[str, tuple[dict[str, Any] | None, BaseException | None]] = field(
         default_factory=dict
@@ -90,6 +92,24 @@ class _DataFrameSource:
                 if str(col.get("name", "")).strip()
             )
         return self._valid_columns
+
+
+def _build_source_id(session_id: str | None = None) -> str:
+    token = uuid.uuid4().hex
+    if not session_id:
+        return token
+    return f"{session_id}{_SESSION_SOURCE_SEPARATOR}{token}"
+
+
+def extract_session_id(source_id: str) -> str | None:
+    prefix, separator, _suffix = source_id.partition(_SESSION_SOURCE_SEPARATOR)
+    if separator != _SESSION_SOURCE_SEPARATOR:
+        return None
+    if len(prefix) != 32:
+        return None
+    if any(ch not in "0123456789abcdef" for ch in prefix.lower()):
+        return None
+    return prefix
 
 
 def _prune(now: float) -> None:
@@ -175,7 +195,7 @@ def _estimate_source_bytes(src: _DataFrameSource) -> int:
             "schema_version": src.schema_version,
         }
     )
-    for _cache_key, (_ts, payload) in src.query_cache.items():
+    for payload in src.query_cache.values():
         total += _estimate_payload_bytes(payload)
     return total
 
@@ -216,14 +236,10 @@ def _decorate_payload(
 
 
 def _set_query_cache(src: _DataFrameSource, cache_key: str, payload: dict[str, Any]) -> None:
-    src.query_cache[cache_key] = (time.time(), _copy_payload(payload))
-    if len(src.query_cache) <= _QUERY_CACHE_LIMIT:
-        return
-    victims = sorted(src.query_cache.items(), key=lambda item: item[1][0])[
-        : len(src.query_cache) - _QUERY_CACHE_LIMIT
-    ]
-    for key, _value in victims:
-        src.query_cache.pop(key, None)
+    src.query_cache[cache_key] = payload
+    src.query_cache.move_to_end(cache_key)
+    while len(src.query_cache) > _QUERY_CACHE_LIMIT:
+        src.query_cache.popitem(last=False)
 
 
 def register_source(
@@ -236,10 +252,11 @@ def register_source(
     query_fn: Callable[[DataframeQuery], dict[str, Any]] | None = None,
     export_fn: Callable[[DataframeQuery], dict[str, Any]] | None = None,
     schema_version: str | None = None,
+    session_id: str | None = None,
 ) -> str:
     """Register a tabular source and return an opaque ID."""
     now = time.time()
-    source_id = uuid.uuid4().hex
+    source_id = _build_source_id(session_id)
     src = _DataFrameSource(
         columns=columns,
         rows=rows,
@@ -298,8 +315,9 @@ def get_slice(source_id: str, query: DataframeQuery) -> dict[str, Any] | None:
         cache_key = normalized_input.cache_key()
         cached = src.query_cache.get(cache_key)
         if cached is not None:
+            src.query_cache.move_to_end(cache_key)
             src.last_access = time.time()
-            return _decorate_payload(cached[1], started_at=started_at, cache_hit=True)
+            return _decorate_payload(cached, started_at=started_at, cache_hit=True)
 
         total = src.total_rows
         safe_offset = max(0, min(int(normalized_input.offset), total))
@@ -325,8 +343,9 @@ def get_slice(source_id: str, query: DataframeQuery) -> dict[str, Any] | None:
         with src.lock:
             cached = src.query_cache.get(cache_key)
             if cached is not None:
+                src.query_cache.move_to_end(cache_key)
                 src.last_access = time.time()
-                return _decorate_payload(cached[1], started_at=started_at, cache_hit=True)
+                return _decorate_payload(cached, started_at=started_at, cache_hit=True)
             replay = src.inflight_results.get(cache_key)
         if replay is None:
             return None
@@ -382,7 +401,7 @@ def get_slice(source_id: str, query: DataframeQuery) -> dict[str, Any] | None:
         src.estimated_bytes = _estimate_source_bytes(src)
         src.last_access = time.time()
         src.inflight_queries.pop(cache_key, None)
-        src.inflight_results[cache_key] = (_copy_payload(stored_payload), None)
+        src.inflight_results[cache_key] = (stored_payload, None)
         if inflight is not None:
             inflight.set()
     with _LOCK:

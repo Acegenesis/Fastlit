@@ -1,43 +1,20 @@
 import React, { useEffect, useMemo, useState } from "react";
-import DOMPurify from "dompurify";
+import MarkdownIt from "markdown-it";
 import type { NodeComponentProps } from "../../registry/registry";
 import { useResolvedText } from "../../context/WidgetStore";
 import { highlightCode } from "../../utils/highlight";
 import { loadKatex } from "../../utils/katexLoader";
+import { sanitizeHtml } from "../../utils/sanitize";
 
 // Simple check if text contains HTML tags
 const containsHtml = (text: string): boolean => {
   return /<[a-z][\s\S]*>/i.test(text);
 };
 
-const escapeHtmlAttr = (value: string): string =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-
-const sanitizeUrl = (url: string): string | null => {
-  const trimmed = url.trim();
-  if (!trimmed) return null;
-  if (trimmed.startsWith("/") || trimmed.startsWith("#") || trimmed.startsWith("?")) {
-    return trimmed;
-  }
-  try {
-    const parsed = new URL(trimmed, window.location.origin);
-    const protocol = parsed.protocol.toLowerCase();
-    if (protocol === "http:" || protocol === "https:" || protocol === "mailto:" || protocol === "tel:") {
-      return parsed.href;
-    }
-  } catch {
-    return null;
-  }
-  return null;
-};
+const LATEX_HINTS = /\$\$[^$]+\$\$|(?<!\\)\$[^$\n]+?\$/;
 
 const RICH_MARKDOWN_HINTS =
   /```|`|\$\$|(?<!\\)\$|:\w+(?:-background)?\[|:[a-z0-9_+-]+:|\[[^\]]+\]\([^)]+\)|^\s*[-*]\s+|^\s*\d+\.\s+|([ \t]*\|[^\n]+\n[ \t]*\|[\s\-:|]+)/m;
-const LATEX_HINTS = /\$\$[^$]+\$\$|(?<!\\)\$[^$\n]+?\$/;
 
 const needsRichMarkdownParsing = (text: string): boolean => {
   if (RICH_MARKDOWN_HINTS.test(text)) return true;
@@ -152,163 +129,134 @@ const bgColorClasses: Record<string, string> = {
   grey: "bg-gray-100 text-gray-800 px-1 rounded",
 };
 
-// Basic markdown parsing for common patterns
+// Escape utility that works before md is initialized
+const escapeForAttr = (s: string): string =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+// Create a configured markdown-it instance
+const md: MarkdownIt = new MarkdownIt({
+  html: false, // Disable raw HTML input for security
+  linkify: true,
+  typographer: false,
+  breaks: true,
+  highlight: (str: string, lang: string): string => {
+    const trimmed = str.replace(/\n$/, "");
+    const highlighted = highlightCode(trimmed, lang || null);
+    const header: string = lang
+      ? `<div class="flex items-center px-4 py-1.5 bg-gray-800 border-b border-gray-700">` +
+        `<span class="text-xs text-gray-400 font-mono">${escapeForAttr(lang)}</span></div>`
+      : "";
+    return (
+      `<div class="mb-3 rounded-lg overflow-hidden bg-gray-900">` +
+      header +
+      `<pre class="p-4 text-sm font-mono text-gray-100 overflow-x-auto whitespace-pre"><code>${highlighted}</code></pre>` +
+      `</div>`
+    );
+  },
+});
+
+// Override link rendering to add security attributes and URL sanitization
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const defaultLinkOpen: any =
+  md.renderer.rules.link_open ||
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function (tokens: any[], idx: number, options: any, _env: any, self: any) {
+    return self.renderToken(tokens, idx, options);
+  };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+md.renderer.rules.link_open = function (tokens: any[], idx: number, options: any, _env: any, self: any) {
+  const token = tokens[idx];
+  const hrefIdx = token.attrIndex("href");
+  if (hrefIdx >= 0) {
+    const href = token.attrs![hrefIdx][1];
+    // Validate URL protocol
+    const trimmed = href.trim();
+    if (trimmed && !trimmed.startsWith("/") && !trimmed.startsWith("#") && !trimmed.startsWith("?")) {
+      try {
+        const parsed = new URL(trimmed, window.location.origin);
+        const protocol = parsed.protocol.toLowerCase();
+        if (protocol !== "http:" && protocol !== "https:" && protocol !== "mailto:" && protocol !== "tel:") {
+          // Unsafe protocol — remove href
+          token.attrs![hrefIdx][1] = "";
+        }
+      } catch {
+        token.attrs![hrefIdx][1] = "";
+      }
+    }
+  }
+  token.attrSet("target", "_blank");
+  token.attrSet("rel", "noopener noreferrer");
+  token.attrSet("class", "text-blue-600 hover:underline");
+  return defaultLinkOpen(tokens, idx, options, _env, self);
+};
+
+// Apply Streamlit-specific extensions as a pre-processing step
+function applyStreamlitExtensions(text: string): string {
+  let result = text;
+
+  // Colored background: :color-background[text]
+  result = result.replace(/:(\w+)-background\[([^\]]+)\]/g, (_, color, content) => {
+    const bgClass = bgColorClasses[color] || "bg-gray-100 px-1 rounded";
+    return `<span class="${bgClass}">${md.utils.escapeHtml(content)}</span>`;
+  });
+
+  // Colored text: :color[text]
+  result = result.replace(/:(\w+)\[([^\]]+)\]/g, (_, color, content) => {
+    const colorClass = colorClasses[color];
+    if (colorClass) {
+      return `<span class="${colorClass}">${md.utils.escapeHtml(content)}</span>`;
+    }
+    return `:${color}[${content}]`;
+  });
+
+  // Emoji shortcodes: :emoji_name:
+  result = result.replace(/:([a-z0-9_+-]+):/gi, (match, code) => {
+    const emoji = emojiMap[code.toLowerCase()];
+    return emoji || match;
+  });
+
+  return result;
+}
+
+// Parse markdown using markdown-it with LaTeX support
 const parseMarkdown = (
   text: string,
   renderLatex?: ((latex: string, displayMode?: boolean) => string) | null
 ): string => {
-  // Placeholders for raw HTML blocks extracted before any escaping
-  const rawPlaceholders: string[] = [];
-
-  // 0. Extract fenced code blocks FIRST (before HTML escaping)
-  //    ```lang\ncode\n``` → dark themed pre block with syntax highlighting
-  let processed0 = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
-    const placeholder = `___RAW_${rawPlaceholders.length}___`;
-    const trimmed = code.replace(/\n$/, ""); // strip trailing newline
-    const highlighted = highlightCode(trimmed, lang || null);
-    const header = lang
-      ? `<div class="flex items-center px-4 py-1.5 bg-gray-800 border-b border-gray-700">` +
-        `<span class="text-xs text-gray-400 font-mono">${lang}</span></div>`
-      : "";
-    rawPlaceholders.push(
-      `<div class="mb-3 rounded-lg overflow-hidden bg-gray-900">` +
-        header +
-        `<pre class="p-4 text-sm font-mono text-gray-100 overflow-x-auto whitespace-pre">${highlighted}</pre>` +
-      `</div>`
-    );
-    return placeholder;
-  });
-
-  // Store LaTeX renders to restore after processing
   const latexPlaceholders: string[] = [];
-  let processed = processed0;
+  let processed = text;
 
-  // Process block math first: $$...$$
+  // Extract LaTeX before markdown-it processes it
+  // Block math: $$...$$
   processed = processed.replace(/\$\$([^$]+)\$\$/g, (_, latex) => {
     if (!renderLatex) return `$$${latex}$$`;
-    const placeholder = `___LATEX_BLOCK_${latexPlaceholders.length}___`;
+    const placeholder = `FASTLIT_LATEX_BLOCK_${latexPlaceholders.length}`;
     latexPlaceholders.push(renderLatex(latex.trim(), true));
     return placeholder;
   });
-  
-  // Process inline math: $...$  (but not escaped \$)
+
+  // Inline math: $...$ (but not escaped \$)
   processed = processed.replace(/(?<!\\)\$([^$\n]+?)\$/g, (_, latex) => {
     if (!renderLatex) return `$${latex}$`;
-    const placeholder = `___LATEX_INLINE_${latexPlaceholders.length}___`;
+    const placeholder = `FASTLIT_LATEX_INLINE_${latexPlaceholders.length}`;
     latexPlaceholders.push(renderLatex(latex.trim(), false));
     return placeholder;
   });
-  
-  let html = processed
-    // Escape HTML entities first (if not already HTML)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-  
+
+  // Apply Streamlit extensions (colors, emojis) before markdown-it
+  processed = applyStreamlitExtensions(processed);
+
+  // Render with markdown-it (safe by default — html: false)
+  let html = md.render(processed);
+
   // Restore LaTeX renders
-  html = html.replace(/___LATEX_BLOCK_(\d+)___/g, (_, idx) => {
+  html = html.replace(/FASTLIT_LATEX_BLOCK_(\d+)/g, (_, idx) => {
     return `<div class="my-2 overflow-x-auto">${latexPlaceholders[parseInt(idx)]}</div>`;
   });
-  html = html.replace(/___LATEX_INLINE_(\d+)___/g, (_, idx) => {
+  html = html.replace(/FASTLIT_LATEX_INLINE_(\d+)/g, (_, idx) => {
     return latexPlaceholders[parseInt(idx)];
   });
-  
-  // Colored background: :color-background[text]
-  html = html.replace(/:(\w+)-background\[([^\]]+)\]/g, (_, color, content) => {
-    const bgClass = bgColorClasses[color] || "bg-gray-100 px-1 rounded";
-    return `<span class="${bgClass}">${content}</span>`;
-  });
-  
-  // Colored text: :color[text]
-  html = html.replace(/:(\w+)\[([^\]]+)\]/g, (_, color, content) => {
-    const colorClass = colorClasses[color];
-    if (colorClass) {
-      return `<span class="${colorClass}">${content}</span>`;
-    }
-    // If not a known color, return as-is
-    return `:${color}[${content}]`;
-  });
-  
-  // Emoji shortcodes: :emoji_name:
-  html = html.replace(/:([a-z0-9_+-]+):/gi, (match, code) => {
-    const emoji = emojiMap[code.toLowerCase()];
-    return emoji || match;
-  });
-  
-  // Strikethrough: ~~text~~
-  html = html.replace(/~~(.+?)~~/g, "<del>$1</del>");
-  
-  // Bold: **text** or __text__
-  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  html = html.replace(/__(.+?)__/g, "<strong>$1</strong>");
-  
-  // Italic: *text* or _text_
-  html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
-  html = html.replace(/_(.+?)_/g, "<em>$1</em>");
-  
-  // Code: `code`
-  html = html.replace(/`([^`]+)`/g, '<code class="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono">$1</code>');
-  
-  // Links: [text](url)
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
-    const safeUrl = sanitizeUrl(String(url));
-    if (!safeUrl) {
-      return label;
-    }
-    return `<a href="${escapeHtmlAttr(safeUrl)}" class="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">${label}</a>`;
-  });
-  
-  // Unordered lists: - item or * item
-  html = html.replace(/^[\-\*]\s+(.+)$/gm, '<li class="ml-4">$1</li>');
-  
-  // Ordered lists: 1. item
-  html = html.replace(/^\d+\.\s+(.+)$/gm, '<li class="ml-4 list-decimal">$1</li>');
-
-  // Tables: must happen before \n → <br /> conversion
-  // Matches: header row | separator row | data rows (with optional leading whitespace)
-  html = html.replace(
-    /([ \t]*\|[^\n]+\n[ \t]*\|[\s\-:|]+\n(?:[ \t]*\|[^\n]+\n?)*)/g,
-    (match) => {
-      const lines = match.split("\n").filter((l) => l.trim());
-      if (lines.length < 2) return match;
-
-      const parseCells = (line: string): string[] => {
-        const trimmed = line.trim();
-        const inner = trimmed.startsWith("|") ? trimmed.slice(1) : trimmed;
-        const without = inner.endsWith("|") ? inner.slice(0, -1) : inner;
-        return without.split("|").map((c) => c.trim());
-      };
-
-      const headers = parseCells(lines[0]);
-      // lines[1] is the separator — skip it
-      const bodyLines = lines.slice(2);
-
-      let tableHtml =
-        '<table class="border-collapse w-full my-3 text-sm">' +
-        "<thead><tr>";
-      for (const h of headers) {
-        tableHtml += `<th class="border border-gray-300 bg-gray-50 px-3 py-1.5 text-left font-semibold text-gray-700">${h}</th>`;
-      }
-      tableHtml += "</tr></thead><tbody>";
-      for (const row of bodyLines) {
-        if (!row.trim()) continue;
-        const cells = parseCells(row);
-        tableHtml += '<tr class="even:bg-gray-50">';
-        for (const c of cells) {
-          tableHtml += `<td class="border border-gray-300 px-3 py-1.5 text-gray-700">${c}</td>`;
-        }
-        tableHtml += "</tr>";
-      }
-      tableHtml += "</tbody></table>";
-      return tableHtml;
-    }
-  );
-
-  // Line breaks (after table parsing so table newlines aren't converted)
-  html = html.replace(/\n/g, "<br />");
-
-  // Restore fenced code blocks (after all other processing)
-  html = html.replace(/___RAW_(\d+)___/g, (_, idx) => rawPlaceholders[parseInt(idx)]);
 
   return html;
 };
@@ -353,7 +301,7 @@ export const Markdown: React.FC<NodeComponentProps> = ({ props }) => {
 
   const html = useMemo(() => {
     if (hasHtml) {
-      return DOMPurify.sanitize(resolved);
+      return sanitizeHtml(resolved);
     }
     if (!shouldParseMarkdown) {
       return "";
@@ -369,12 +317,13 @@ export const Markdown: React.FC<NodeComponentProps> = ({ props }) => {
             });
           } catch (err) {
             console.error("KaTeX render error:", err);
-            return `<span class="text-red-500">${latex}</span>`;
+            return `<span class="text-red-500">${md.utils.escapeHtml(latex)}</span>`;
           }
         }
       : null;
 
-    return DOMPurify.sanitize(parseMarkdown(resolved, latexRenderer));
+    // markdown-it output is safe (html: false), but we still sanitize as defense-in-depth
+    return sanitizeHtml(parseMarkdown(resolved, latexRenderer));
   }, [hasHtml, resolved, shouldParseMarkdown, katexModule]);
 
   // Fast path for plain text avoids expensive markdown regex + sanitization.

@@ -6,6 +6,7 @@
 import React from "react";
 import type { UINode } from "../runtime/types";
 import { getComponent, SendEventOptions } from "./registry";
+import { ErrorBoundary } from "../components/ErrorBoundary";
 
 export type SendEventFn = (id: string, value: any, options?: SendEventOptions) => void;
 
@@ -25,7 +26,9 @@ function FallbackComponent({ nodeId, props }: { nodeId: string; props: Record<st
 
 const NodeRendererInner: React.FC<NodeRendererProps> = ({ node, sendEvent }) => {
   const children = node.children?.map((child) => (
-    <NodeRenderer key={child.id} node={child} sendEvent={sendEvent} />
+    <ErrorBoundary key={child.id} nodeId={child.id}>
+      <NodeRenderer node={child} sendEvent={sendEvent} />
+    </ErrorBoundary>
   ));
 
   // The root node is a transparent container — just render its children
@@ -40,9 +43,11 @@ const NodeRendererInner: React.FC<NodeRendererProps> = ({ node, sendEvent }) => 
   }
 
   return (
-    <Component nodeId={node.id} props={node.props} sendEvent={sendEvent}>
-      {children}
-    </Component>
+    <ErrorBoundary nodeId={node.id}>
+      <Component nodeId={node.id} props={node.props} sendEvent={sendEvent}>
+        {children}
+      </Component>
+    </ErrorBoundary>
   );
 };
 

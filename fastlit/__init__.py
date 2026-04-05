@@ -41,6 +41,7 @@ from fastlit.ui.layout import (
     sidebar,
     columns,
     container,
+    defer_mount,
     tabs,
     expander,
     empty,
@@ -345,6 +346,7 @@ __all__ = [
     # Chat
     "chat_message",
     "chat_input",
+    "fragment",
     # Data display
     "dataframe",
     "data_editor",
@@ -377,6 +379,7 @@ __all__ = [
     "sidebar",
     "columns",
     "container",
+    "defer_mount",
     "tabs",
     "expander",
     "empty",
@@ -405,6 +408,7 @@ __all__ = [
     "run_with_session_context",
     "on_startup",
     "on_shutdown",
+    "get_current_session",
     # Cache
     "cache_data",
     "cache_resource",

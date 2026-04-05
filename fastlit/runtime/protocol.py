@@ -22,7 +22,7 @@ class RenderFull:
 @dataclass
 class PatchOp:
     """A single patch operation."""
-    op: Literal["replace", "updateProps", "insertChild", "remove"]
+    op: Literal["replace", "updateProps", "insertChild", "remove", "moveChild", "streamText"]
     id: str
     node: dict[str, Any] | None = None
     props: dict[str, Any] | None = None

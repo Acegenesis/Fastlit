@@ -1,4 +1,3 @@
-import React from "react";
 import { format, parse, parseISO } from "date-fns";
 import { Image as ImageIcon, Link as LinkIcon, ChevronRight } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";

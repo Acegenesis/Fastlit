@@ -28,6 +28,9 @@ const DEV_RELOAD_GUARD_MS = 1500;
 const DEV_RELOAD_STORAGE_KEY = "fastlit:dev-backend-reload-ts";
 const DEV_BACKEND_READY_TIMEOUT_MS = 20000;
 const DEV_BACKEND_READY_POLL_MS = 150;
+const WS_AUTH_STORAGE_KEY = "fastlit:ws-auth-token";
+const WS_AUTH_QUERY_PARAM = "fastlit_ws_token";
+const WS_AUTH_COOKIE_NAME = "fastlit_ws_token";
 const internedNodes = new Map<string, any>();
 
 function setInternedNode(token: string, node: any): void {
@@ -45,6 +48,54 @@ function getInternedNode(token: string): any {
   internedNodes.delete(token);
   internedNodes.set(token, node);
   return node;
+}
+
+function persistWsAuthToken(token: string | null): string | null {
+  const normalized = token?.trim() || null;
+  try {
+    if (normalized) {
+      window.sessionStorage.setItem(WS_AUTH_STORAGE_KEY, normalized);
+    } else {
+      window.sessionStorage.removeItem(WS_AUTH_STORAGE_KEY);
+    }
+  } catch {
+    // Best effort only.
+  }
+  return normalized;
+}
+
+function readStoredWsAuthToken(): string | null {
+  try {
+    const stored = window.sessionStorage.getItem(WS_AUTH_STORAGE_KEY);
+    return stored?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function syncWsAuthCookie(token: string | null): void {
+  if (!token) return;
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = `${WS_AUTH_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; SameSite=Lax${secure}`;
+}
+
+function bootstrapWsAuthTokenFromUrl(): string | null {
+  const searchParams = new URLSearchParams(window.location.search);
+  const token = searchParams.get(WS_AUTH_QUERY_PARAM);
+  if (!token) {
+    return readStoredWsAuthToken();
+  }
+
+  const persisted = persistWsAuthToken(token);
+  try {
+    searchParams.delete(WS_AUTH_QUERY_PARAM);
+    const query = searchParams.toString();
+    const cleanUrl = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
+    window.history.replaceState(window.history.state, "", cleanUrl);
+  } catch {
+    // Best effort only.
+  }
+  return persisted;
 }
 
 function decodeCompactOps(
@@ -115,34 +166,22 @@ export class FastlitWS {
       // Keep original URL when parsing fails.
     }
 
-    // Optional WS auth bootstrap: forward page query token to /ws.
-    // Example: http://host:8501/?fastlit_ws_token=secret
-    const searchParams = new URLSearchParams(window.location.search);
-    const token = searchParams.get("fastlit_ws_token");
-    if (token) {
-      try {
-        const wsUrl = new URL(this.url);
-        if (!wsUrl.searchParams.has("token")) {
-          wsUrl.searchParams.set("token", token);
-          this.url = wsUrl.toString();
-        }
-      } catch {
-        // Keep original URL when parsing fails.
-      }
-      // Redact token from the browser URL/history after bootstrapping WS auth.
-      try {
-        searchParams.delete("fastlit_ws_token");
-        const query = searchParams.toString();
-        const cleanUrl = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
-        window.history.replaceState(window.history.state, "", cleanUrl);
-      } catch {
-        // Best effort only.
-      }
+    // Optional WS auth bootstrap:
+    // 1. Persist any one-shot URL token into sessionStorage.
+    // 2. Mirror the stored token into a cookie used by the WS handshake.
+    // This avoids copying the token into the WebSocket URL.
+    const bootstrapToken = bootstrapWsAuthTokenFromUrl();
+    if (bootstrapToken) {
+      syncWsAuthCookie(bootstrapToken);
     }
   }
 
   connect(): void {
     this.manualDisconnect = false;
+    const storedToken = readStoredWsAuthToken();
+    if (storedToken) {
+      syncWsAuthCookie(storedToken);
+    }
     this.onStatusChangeCb?.("connecting");
     this.ws = new WebSocket(this.url);
 

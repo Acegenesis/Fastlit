@@ -749,7 +749,7 @@ def _validate_column_config_targets(
         for column in columns
     }
     invalid: list[str] = []
-    for key in column_config.keys():
+    for key in column_config:
         if key == "_index" or isinstance(key, int):
             continue
         if key in valid_sources or str(key) in valid_names:
@@ -1050,7 +1050,7 @@ def data_editor(
             hide_index=hide_index_value,
         )
         if return_changes:
-            return edited_value, _extract_editor_changes(stored, columns=columns)
+            return edited_value, _extract_editor_changes(stored)
         return edited_value
 
     if return_changes:
@@ -1105,11 +1105,7 @@ def _extract_editor_payload(
     return normalized_rows, normalized_index
 
 
-def _extract_editor_changes(
-    stored: Any,
-    *,
-    columns: list[dict[str, Any]],
-) -> DataEditorChangeSet:
+def _extract_editor_changes(stored: Any) -> DataEditorChangeSet:
     if not isinstance(stored, dict):
         return DataEditorChangeSet(added_rows=[], edited_cells=[], deleted_rows=[])
 
@@ -1464,6 +1460,12 @@ def _maybe_register_server_source(
         from fastlit.server.dataframe_store import register_source
     except Exception:
         return None
+    try:
+        from fastlit.runtime.context import get_current_session
+
+        session_id = get_current_session().session_id
+    except Exception:
+        session_id = None
 
     if on_query is not None:
         initial_schema_version = (
@@ -1510,6 +1512,7 @@ def _maybe_register_server_source(
             total_rows=total_rows,
             query_fn=manual_query_fn,
             schema_version=initial_schema_version,
+            session_id=session_id,
         )
 
     # Pandas path: keep raw dataframe server-side and query lazily.
@@ -1556,6 +1559,7 @@ def _maybe_register_server_source(
                 total_rows=total_rows,
                 query_fn=query_fn,
                 schema_version=_schema_version(columns),
+                session_id=session_id,
             )
     except ImportError:
         pass
@@ -1600,6 +1604,7 @@ def _maybe_register_server_source(
         total_rows=total_rows,
         query_fn=generic_query_fn,
         schema_version=_schema_version(columns),
+        session_id=session_id,
     )
 
 
@@ -1666,7 +1671,7 @@ def _serialize_pandas(
 
 def _serialize_dict(data: dict) -> tuple[list[dict], list[list], list | None]:
     """Serialize a dict of lists (column-oriented)."""
-    columns = [{"name": str(k), "type": "auto"} for k in data.keys()]
+    columns = [{"name": str(k), "type": "auto"} for k in data]
 
     # Get max length
     max_len = max((len(v) if isinstance(v, list) else 1) for v in data.values())
@@ -1693,7 +1698,7 @@ def _serialize_list_of_dicts(data: list[dict]) -> tuple[list[dict], list[list], 
     all_keys = []
     seen = set()
     for row in data:
-        for k in row.keys():
+        for k in row:
             if k not in seen:
                 all_keys.append(k)
                 seen.add(k)

@@ -10,6 +10,7 @@ build/
 # Frontend
 frontend/node_modules/
 frontend/dist/
+frontend/.tsbuildinfo
 
 # Built frontend assets (served by Python backend)
 fastlit/server/static/
@@ -46,3 +47,7 @@ tmp*
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+
+.vexp/
+
+docs/superpowers/*

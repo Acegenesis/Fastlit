@@ -16,7 +16,7 @@ export interface RenderFullMessage {
 }
 
 export interface PatchOp {
-  op: "replace" | "updateProps" | "insertChild" | "remove";
+  op: "replace" | "updateProps" | "insertChild" | "remove" | "moveChild" | "streamText";
   id: string;
   node?: UINode;
   props?: Record<string, any>;
@@ -50,7 +50,7 @@ export interface ErrorMessage {
   traceback?: string;
 }
 
-export interface RuntimeEventPayload {
+export interface RuntimeSpinnerEventPayload {
   kind: "spinner";
   id: string;
   text?: string;
@@ -59,6 +59,17 @@ export interface RuntimeEventPayload {
   textExprs?: Record<string, any>;
   active: boolean;
 }
+
+export interface RenderProgressEventPayload {
+  kind: "render_progress";
+  runToken: number;
+  path?: string;
+  tree: UINode;
+}
+
+export type RuntimeEventPayload =
+  | RuntimeSpinnerEventPayload
+  | RenderProgressEventPayload;
 
 export interface RuntimeEventMessage {
   type: "runtime_event";

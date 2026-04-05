@@ -65,11 +65,14 @@ def _emit_node(
         props["noRerun"] = True
 
     node = UINode(type=node_type, id=node_id, props=props)
-    session.current_tree.append(node)
+    tree = session.current_tree
+    assert tree is not None
+    tree.append(node)
 
     # Track widget → fragment ownership for partial reruns.
-    if is_widget and getattr(session, "_current_fragment_id", None):
-        session._widget_to_fragment[node_id] = session._current_fragment_id
+    current_fragment_id = getattr(session, "_current_fragment_id", None)
+    if is_widget and current_fragment_id is not None:
+        session._widget_to_fragment[node_id] = current_fragment_id
 
     return node
 

@@ -68,6 +68,9 @@ export default defineConfig({
           "vendor-maps",
           "vendor-duckdb",
           "vendor-markdown",
+          "vendor-recharts",
+          "vendor-katex",
+          "vendor-dataframe",
         ];
         return deps.filter((dep) => !HEAVY.some((h) => dep.includes(h)));
       },
@@ -94,6 +97,14 @@ export default defineConfig({
 
           if (id.includes("recharts")) {
             return "vendor-recharts";
+          }
+
+          if (
+            id.includes("apache-arrow") ||
+            id.includes("@tanstack/react-table") ||
+            id.includes("@tanstack/react-virtual")
+          ) {
+            return "vendor-dataframe";
           }
 
           if (id.includes("leaflet") || id.includes("react-leaflet")) {

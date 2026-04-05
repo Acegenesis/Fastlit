@@ -5,10 +5,18 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass, field
 from pathlib import Path
+from threading import Lock
 from typing import Any
 from urllib.parse import unquote
 
 from fastlit.runtime.navigation_slug import slugify_page_token
+
+
+_DISCOVER_PAGES_CACHE_LOCK = Lock()
+_DISCOVER_PAGES_CACHE: dict[
+    str,
+    tuple[tuple[tuple[str, int, int], ...], tuple["DiscoveredPage", ...]],
+] = {}
 
 
 @dataclass(frozen=True)
@@ -131,6 +139,36 @@ def read_page_config(path: Path) -> dict[str, Any]:
                 config["roles"] = value
 
     return config
+
+
+def clear_discover_pages_cache() -> None:
+    """Clear the process-wide page discovery cache."""
+    with _DISCOVER_PAGES_CACHE_LOCK:
+        _DISCOVER_PAGES_CACHE.clear()
+
+
+def _directory_signature(root: Path) -> tuple[tuple[str, int, int], ...]:
+    if not root.is_dir():
+        return ((f"{root.resolve()}::__missing__", 0, 0),)
+
+    entries: list[tuple[str, int, int]] = []
+    for path in sorted(root.rglob("*.py")):
+        stat = path.stat()
+        entries.append((str(path.resolve()), stat.st_mtime_ns, stat.st_size))
+    if not entries:
+        return ((f"{root.resolve()}::__empty__", 0, 0),)
+    return tuple(entries)
+
+
+def _discover_pages_cache_signature(entry_path: Path) -> tuple[tuple[str, int, int], ...]:
+    base_dir = entry_path.parent
+    pages_dir = base_dir / "pages"
+    layouts_dir = base_dir / "layouts"
+    return (
+        (str(entry_path.resolve()), entry_path.stat().st_mtime_ns, entry_path.stat().st_size),
+        *_directory_signature(pages_dir),
+        *_directory_signature(layouts_dir),
+    )
 
 
 def _is_dynamic_segment(segment: str) -> bool:
@@ -281,7 +319,17 @@ def discover_pages(entry_script_path: str | Path) -> list[DiscoveredPage]:
     entry_path = Path(entry_script_path).resolve()
     pages_dir = entry_path.parent / "pages"
     layouts_dir = entry_path.parent / "layouts"
+    cache_key = str(entry_path)
+    signature = _discover_pages_cache_signature(entry_path)
+
+    with _DISCOVER_PAGES_CACHE_LOCK:
+        cached = _DISCOVER_PAGES_CACHE.get(cache_key)
+        if cached is not None and cached[0] == signature:
+            return list(cached[1])
+
     if not pages_dir.is_dir():
+        with _DISCOVER_PAGES_CACHE_LOCK:
+            _DISCOVER_PAGES_CACHE[cache_key] = (signature, ())
         return []
 
     definitions: list[DiscoveredPage] = []
@@ -319,6 +367,8 @@ def discover_pages(entry_script_path: str | Path) -> list[DiscoveredPage]:
         )
 
     definitions.sort(key=_sort_key)
+    with _DISCOVER_PAGES_CACHE_LOCK:
+        _DISCOVER_PAGES_CACHE[cache_key] = (signature, tuple(definitions))
     return definitions
 
 
@@ -486,9 +536,8 @@ def _match_page(page: DiscoveredPage, requested_path: str) -> dict[str, str | li
         current = request_segments[request_index]
         if _is_dynamic_segment(segment):
             params[_segment_param_name(segment)] = current
-        else:
-            if _normalize_static_segment(current) != segment:
-                return None
+        elif _normalize_static_segment(current) != segment:
+            return None
 
         route_index += 1
         request_index += 1

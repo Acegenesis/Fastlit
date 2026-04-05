@@ -1,37 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
-import DOMPurify from "dompurify";
+import MarkdownIt from "markdown-it";
 import type { NodeComponentProps } from "../../registry/registry";
 import { useResolvedPropText, useResolvedText } from "../../context/WidgetStore";
 import { loadKatex } from "../../utils/katexLoader";
+import { sanitizeHtml } from "../../utils/sanitize";
 
 // Simple check if text contains HTML tags
 const containsHtml = (text: string): boolean => {
   return /<[a-z][\s\S]*>/i.test(text);
-};
-
-const escapeHtmlAttr = (value: string): string =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-
-const sanitizeUrl = (url: string): string | null => {
-  const trimmed = url.trim();
-  if (!trimmed) return null;
-  if (trimmed.startsWith("/") || trimmed.startsWith("#") || trimmed.startsWith("?")) {
-    return trimmed;
-  }
-  try {
-    const parsed = new URL(trimmed, window.location.origin);
-    const protocol = parsed.protocol.toLowerCase();
-    if (protocol === "http:" || protocol === "https:" || protocol === "mailto:" || protocol === "tel:") {
-      return parsed.href;
-    }
-  } catch {
-    return null;
-  }
-  return null;
 };
 
 const RICH_CAPTION_HINTS =
@@ -64,65 +40,97 @@ const bgColorClasses: Record<string, string> = {
   gray: "bg-gray-100 text-gray-800 px-1 rounded",
 };
 
-// Parse markdown
+// Create a configured markdown-it instance for captions (inline rendering)
+const md = new MarkdownIt({
+  html: false, // Disable raw HTML input for security
+  linkify: true,
+  typographer: false,
+  breaks: false,
+});
+
+// Override link rendering to add security attributes
+const defaultLinkOpen =
+  md.renderer.rules.link_open ||
+  function (tokens: any, idx: number, options: any, _env: any, self: any) {
+    return self.renderToken(tokens, idx, options);
+  };
+
+md.renderer.rules.link_open = function (tokens, idx, options, env, self) {
+  const token = tokens[idx];
+  const hrefIdx = token.attrIndex("href");
+  if (hrefIdx >= 0) {
+    const href = token.attrs![hrefIdx][1];
+    const trimmed = href.trim();
+    if (trimmed && !trimmed.startsWith("/") && !trimmed.startsWith("#") && !trimmed.startsWith("?")) {
+      try {
+        const parsed = new URL(trimmed, window.location.origin);
+        const protocol = parsed.protocol.toLowerCase();
+        if (protocol !== "http:" && protocol !== "https:" && protocol !== "mailto:" && protocol !== "tel:") {
+          token.attrs![hrefIdx][1] = "";
+        }
+      } catch {
+        token.attrs![hrefIdx][1] = "";
+      }
+    }
+  }
+  token.attrSet("target", "_blank");
+  token.attrSet("rel", "noopener noreferrer");
+  token.attrSet("class", "text-blue-600 hover:underline");
+  return defaultLinkOpen(tokens, idx, options, env, self);
+};
+
+// Apply Streamlit-specific extensions
+function applyStreamlitExtensions(text: string): string {
+  let result = text;
+
+  // Colored background: :color-background[text]
+  result = result.replace(/:(\w+)-background\[([^\]]+)\]/g, (_, color, content) => {
+    const bgClass = bgColorClasses[color] || "bg-gray-100 px-1 rounded";
+    return `<span class="${bgClass}">${md.utils.escapeHtml(content)}</span>`;
+  });
+
+  // Colored text: :color[text]
+  result = result.replace(/:(\w+)\[([^\]]+)\]/g, (_, color, content) => {
+    const colorClass = colorClasses[color];
+    return colorClass ? `<span class="${colorClass}">${md.utils.escapeHtml(content)}</span>` : `:${color}[${content}]`;
+  });
+
+  // Emoji shortcodes
+  result = result.replace(/:([a-z0-9_+-]+):/gi, (match, code) => emojiMap[code.toLowerCase()] || match);
+
+  return result;
+}
+
+// Parse markdown for captions
 const parseMarkdown = (
   text: string,
   renderLatex?: ((latex: string, displayMode?: boolean) => string) | null
 ): string => {
   const latexPlaceholders: string[] = [];
-  
-  // Process LaTeX first
+
+  // Extract LaTeX first
   let processed = text.replace(/\$\$([^$]+)\$\$/g, (_, latex) => {
     if (!renderLatex) return `$$${latex}$$`;
-    const placeholder = `___LATEX_BLOCK_${latexPlaceholders.length}___`;
+    const placeholder = `FASTLIT_LATEX_BLOCK_${latexPlaceholders.length}`;
     latexPlaceholders.push(renderLatex(latex.trim(), true));
     return placeholder;
   });
   processed = processed.replace(/(?<!\\)\$([^$\n]+?)\$/g, (_, latex) => {
     if (!renderLatex) return `$${latex}$`;
-    const placeholder = `___LATEX_INLINE_${latexPlaceholders.length}___`;
+    const placeholder = `FASTLIT_LATEX_INLINE_${latexPlaceholders.length}`;
     latexPlaceholders.push(renderLatex(latex.trim(), false));
     return placeholder;
   });
-  
-  let html = processed
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-  
+
+  // Apply Streamlit extensions
+  processed = applyStreamlitExtensions(processed);
+
+  // Use renderInline for captions (no wrapping <p> tags)
+  let html = md.renderInline(processed);
+
   // Restore LaTeX
-  html = html.replace(/___LATEX_BLOCK_(\d+)___/g, (_, idx) => latexPlaceholders[parseInt(idx)]);
-  html = html.replace(/___LATEX_INLINE_(\d+)___/g, (_, idx) => latexPlaceholders[parseInt(idx)]);
-  
-  // Colored background: :color-background[text]
-  html = html.replace(/:(\w+)-background\[([^\]]+)\]/g, (_, color, content) => {
-    const bgClass = bgColorClasses[color] || "bg-gray-100 px-1 rounded";
-    return `<span class="${bgClass}">${content}</span>`;
-  });
-  
-  // Colored text: :color[text]
-  html = html.replace(/:(\w+)\[([^\]]+)\]/g, (_, color, content) => {
-    const colorClass = colorClasses[color];
-    return colorClass ? `<span class="${colorClass}">${content}</span>` : `:${color}[${content}]`;
-  });
-  
-  // Emoji shortcodes
-  html = html.replace(/:([a-z0-9_+-]+):/gi, (match, code) => emojiMap[code.toLowerCase()] || match);
-  
-  // Markdown formatting
-  html = html.replace(/~~(.+?)~~/g, "<del>$1</del>");
-  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  html = html.replace(/__(.+?)__/g, "<strong>$1</strong>");
-  html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
-  html = html.replace(/_(.+?)_/g, "<em>$1</em>");
-  html = html.replace(/`([^`]+)`/g, '<code class="bg-gray-100 px-1 py-0.5 rounded text-xs font-mono">$1</code>');
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
-    const safeUrl = sanitizeUrl(String(url));
-    if (!safeUrl) {
-      return label;
-    }
-    return `<a href="${escapeHtmlAttr(safeUrl)}" class="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">${label}</a>`;
-  });
+  html = html.replace(/FASTLIT_LATEX_BLOCK_(\d+)/g, (_, idx) => latexPlaceholders[parseInt(idx)]);
+  html = html.replace(/FASTLIT_LATEX_INLINE_(\d+)/g, (_, idx) => latexPlaceholders[parseInt(idx)]);
 
   return html;
 };
@@ -159,7 +167,7 @@ export const Caption: React.FC<NodeComponentProps> = ({ props }) => {
 
   const html = useMemo(() => {
     if (hasHtml) {
-      return DOMPurify.sanitize(resolved);
+      return sanitizeHtml(resolved);
     }
     if (!shouldParseCaption) {
       return "";
@@ -174,12 +182,12 @@ export const Caption: React.FC<NodeComponentProps> = ({ props }) => {
               output: "html",
             });
           } catch {
-            return `<span class="text-red-500">${latex}</span>`;
+            return `<span class="text-red-500">${md.utils.escapeHtml(latex)}</span>`;
           }
         }
       : null;
 
-    return DOMPurify.sanitize(parseMarkdown(resolved, latexRenderer));
+    return sanitizeHtml(parseMarkdown(resolved, latexRenderer));
   }, [hasHtml, resolved, shouldParseCaption, katexModule]);
 
   // Fast path for plain text captions.
@@ -188,17 +196,6 @@ export const Caption: React.FC<NodeComponentProps> = ({ props }) => {
       <p className="text-sm text-gray-500 mb-2 whitespace-pre-wrap break-words" title={help || undefined}>
         {resolved}
       </p>
-    );
-  }
-
-  // If contains HTML, sanitize and render
-  if (hasHtml) {
-    return (
-      <p
-        className="text-sm text-gray-500 mb-2"
-        title={help || undefined}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
     );
   }
 

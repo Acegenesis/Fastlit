@@ -17,6 +17,7 @@ import React, {
   useRef,
   useSyncExternalStore,
 } from "react";
+import { escapeHtml } from "../utils/sanitize";
 
 type Listener = () => void;
 
@@ -56,7 +57,16 @@ export class WidgetStoreImpl {
 
   /** Update a value — only notifies if the value actually changed. */
   set(id: string, value: any): void {
-    if (Object.is(this.values.get(id), value)) return;
+    const previous = this.values.get(id);
+    if (Object.is(previous, value)) return;
+    if (
+      Array.isArray(previous) &&
+      Array.isArray(value) &&
+      previous.length === value.length &&
+      previous.every((item, index) => Object.is(item, value[index]))
+    ) {
+      return;
+    }
     this.values.set(id, value);
     this.widgetSubs.get(id)?.forEach((l) => l());
   }
@@ -255,7 +265,7 @@ function resolveTemplateText(
     for (const [placeholder, widgetId] of Object.entries(refs)) {
       const liveValue = store.get(widgetId);
       if (liveValue !== undefined) {
-        resolved = resolved.replace(placeholder, String(liveValue));
+        resolved = resolved.replace(placeholder, escapeHtml(String(liveValue)));
       } else {
         return fallback;
       }
@@ -265,7 +275,7 @@ function resolveTemplateText(
     for (const [placeholder, expr] of Object.entries(exprs)) {
       const liveValue = evaluateExpression(expr, store);
       if (liveValue !== undefined) {
-        resolved = resolved.replace(placeholder, String(liveValue));
+        resolved = resolved.replace(placeholder, escapeHtml(String(liveValue)));
       } else {
         return fallback;
       }

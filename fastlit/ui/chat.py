@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Callable
 
 from fastlit.runtime.context import get_current_session
 from fastlit.runtime.tree import UINode

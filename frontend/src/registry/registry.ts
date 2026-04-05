@@ -43,10 +43,10 @@ import { ChatMessage } from "../components/chat/ChatMessage";
 import { ChatInput } from "../components/chat/ChatInput";
 
 // ---- Data elements ----
-import { DataFrame, Table } from "../components/data/DataFrame";
-import { DataEditor } from "../components/data/DataEditor";
 import { Json } from "../components/data/Json";
 import { Metric } from "../components/data/Metric";
+import { DataFrame, Table } from "../components/data/DataFrame";
+import { DataEditor } from "../components/data/DataEditor";
 
 // ---- Chart elements (already lazy) ----
 import {
@@ -85,6 +85,7 @@ import { Divider } from "../components/layout/Divider";
 import { Navigation } from "../components/layout/Navigation";
 import { PageConfig } from "../components/layout/PageConfig";
 import { Fragment } from "../components/layout/Fragment";
+import { DeferredMount } from "../components/layout/DeferredMount";
 
 // ---- Custom components ----
 import { CustomComponent } from "../components/custom/CustomComponent";
@@ -307,6 +308,7 @@ const registry: Record<string, ComponentType<NodeComponentProps>> = {
   page_config: PageConfig,
   sidebar_state: NullComponent,
   fragment: Fragment,
+  deferred_mount: DeferredMount,
 
   // Custom components (st.components.v1)
   custom_component: CustomComponent,

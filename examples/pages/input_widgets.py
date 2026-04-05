@@ -1,6 +1,5 @@
 """Input Widgets page for the Fastlit demo."""
 
-from ast import main
 import datetime
 
 import fastlit as st

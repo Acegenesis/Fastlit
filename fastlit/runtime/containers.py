@@ -14,6 +14,7 @@ def container_context(node: UINode) -> Generator[None, None, None]:
     """Push a container node onto the tree stack, yield, then pop."""
     session = get_current_session()
     tree = session.current_tree
+    assert tree is not None
     tree.append(node)
     tree.push_container(node)
     try:

@@ -193,6 +193,9 @@ def snapshot() -> dict[str, Any]:
     from fastlit.runtime import script_runner
     from fastlit.cache import data_cache_stats
 
+    script_cache = script_runner.cache_stats()
+    cache_stats = data_cache_stats()
+
     state_copy["avg_run_ms"] = avg_run_ms
     state_copy["avg_run_cpu_ms"] = avg_run_cpu_ms
     state_copy["avg_payload_bytes"] = avg_payload_bytes
@@ -205,10 +208,9 @@ def snapshot() -> dict[str, Any]:
     state_copy["payload_bytes_p50"] = _percentile(payload_samples, 0.50)
     state_copy["payload_bytes_p95"] = _percentile(payload_samples, 0.95)
     state_copy["payload_bytes_p99"] = _percentile(payload_samples, 0.99)
-    state_copy["script_cache_hits"] = script_runner.cache_stats()["hits"]
-    state_copy["script_cache_misses"] = script_runner.cache_stats()["misses"]
-    state_copy["script_cache_entries"] = script_runner.cache_stats()["entries"]
-    cache_stats = data_cache_stats()
+    state_copy["script_cache_hits"] = script_cache["hits"]
+    state_copy["script_cache_misses"] = script_cache["misses"]
+    state_copy["script_cache_entries"] = script_cache["entries"]
     state_copy["data_cache_hits"] = cache_stats["hits"]
     state_copy["data_cache_misses"] = cache_stats["misses"]
     state_copy["data_cache_waiters"] = cache_stats["waiters"]
@@ -231,6 +233,18 @@ def prometheus_text() -> str:
         "# HELP fastlit_total_session_timeouts Total sessions closed by idle timeout.",
         "# TYPE fastlit_total_session_timeouts counter",
         f"fastlit_total_session_timeouts {snap['total_session_timeouts']}",
+        "# HELP fastlit_rerun_latency_ms_p50 Rerun latency p50 ms.",
+        "# TYPE fastlit_rerun_latency_ms_p50 gauge",
+        f"fastlit_rerun_latency_ms_p50 {snap['run_ms_p50']:.1f}",
+        "# HELP fastlit_rerun_latency_ms_p95 Rerun latency p95 ms.",
+        "# TYPE fastlit_rerun_latency_ms_p95 gauge",
+        f"fastlit_rerun_latency_ms_p95 {snap['run_ms_p95']:.1f}",
+        "# HELP fastlit_rerun_latency_ms_p99 Rerun latency p99 ms.",
+        "# TYPE fastlit_rerun_latency_ms_p99 gauge",
+        f"fastlit_rerun_latency_ms_p99 {snap['run_ms_p99']:.1f}",
+        "# HELP fastlit_patch_size_bytes_p95 Patch size bytes p95.",
+        "# TYPE fastlit_patch_size_bytes_p95 gauge",
+        f"fastlit_patch_size_bytes_p95 {snap['payload_bytes_p95']:.0f}",
         "# HELP fastlit_last_run_ms Last run wall-clock duration.",
         "# TYPE fastlit_last_run_ms gauge",
         f"fastlit_last_run_ms {snap['last_run_ms']}",

@@ -232,7 +232,6 @@ export const Metric: React.FC<NodeComponentProps> = ({ props }) => {
     deltaExprs,
     deltaColor = "normal",
     deltaColorLive,
-    help,
     labelVisibility = "visible",
     border = false,
     width = "stretch",

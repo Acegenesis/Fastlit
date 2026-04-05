@@ -17,8 +17,8 @@ dependencies = [
 [project.optional-dependencies]
 dataframe = ["pyarrow>=14.0", "pandas>=2.0"]
 sql = ["sqlalchemy>=2.0", "pandas>=2.0"]
-auth = ["httpx>=0.25"]
-dev = ["watchfiles>=0.21", "pytest>=8.0"]
+auth = ["httpx>=0.25", "pyjwt[crypto]>=2.8"]
+dev = ["watchfiles>=0.21", "pytest>=8.0", "ruff>=0.8", "mypy>=1.13"]
 
 [project.scripts]
 fastlit = "fastlit.cli:main"
